@@ -20,6 +20,7 @@ function mergeClientOptions(base: ClientConfiguration, options: ClientOptions): 
     transport: options.transport ?? base.transport,
     features: Object.freeze([...base.features, ...(options.features ?? [])]),
     runtime: options.runtime ? createRuntime({ ...base.runtime, ...options.runtime }) : base.runtime,
+    credentials: options.credentials ?? base.credentials,
   });
 }
 
@@ -77,6 +78,7 @@ export function createClient(options: ClientOptions = {}): LafetchClient {
     transport: options.transport ?? fetchTransport(),
     features: Object.freeze([...(options.features ?? [])]),
     runtime: createRuntime(options.runtime),
+    credentials: options.credentials ?? "omit",
   });
   return new LafetchClientImplementation(configuration);
 }

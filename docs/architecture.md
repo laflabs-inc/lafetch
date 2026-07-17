@@ -25,6 +25,8 @@ Request scope runs once:
 6. map a final error in reverse Feature order when necessary;
 7. run finalizers in reverse order and emit the final request event.
 
+Official policies participate at specific boundaries: cache and deduplication may intercept dispatch, idempotency mutates attempt drafts, execution error mapping runs after the final attempt, and schema validation runs later in response-consumption scope.
+
 Attempt scope runs for every retry:
 
 1. clone the prepared request draft;
@@ -74,7 +76,7 @@ Capabilities use one of three modes:
 - `composable`: multiple ordered providers;
 - `observer`: multiple non-owning observers.
 
-The resolver validates required and conflicting capabilities, constructs a graph from `before` and `after`, and applies a stable topological sort. Finalizers run in reverse resolved order.
+The resolver validates required and conflicting capabilities, constructs a graph from ordering relationships, and applies a stable topological sort. Strict `before` and `after` references must resolve and cannot target the same Feature. `optionalBefore` and `optionalAfter` express soft integration edges. Finalizers run in reverse resolved order and each receives an isolated Response clone.
 
 ## Feature Runtime controls
 
@@ -114,14 +116,23 @@ An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response
 - unsafe methods are not retried by default;
 - request bodies are never included in diagnostics;
 - credential headers and token-like query values are redacted;
+- URL user information is removed from diagnostics;
+- Fetch credentials default to `omit`;
+- credentialed and sensitive requests bypass built-in cache and deduplication;
 - transport and Feature conflicts fail before network dispatch.
+
+## Consumption scope
+
+Execution produces one retained raw Response. Each terminal consumer works on a clone, decodes it, optionally validates or transforms it through a schema, and optionally maps consumption failures. Execution `.mapError()` is completed before this pipeline. `.raw()` is intentionally outside it.
+
+This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 
 ## Decisions still open
 
 - final package and repository name availability;
 - license (`Apache-2.0` is a strong candidate because it includes an explicit patent grant);
 - supported Node.js LTS matrix at the first public release;
-- schema compatibility contract;
-- cache ownership contract for Next.js;
+- external schema ecosystem compatibility beyond the current `parse`/`validate` contract;
+- cache ownership and revalidation contracts for Next.js;
 - true streaming builder semantics;
 - whether `RequestBuilder` should remain thenable after external user testing.

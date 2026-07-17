@@ -4,6 +4,18 @@ export { lafetch } from "./lafetch.js";
 export type { RequestBuilder } from "./request-builder.js";
 export { fetchTransport } from "./transports/fetch.js";
 export { telemetry } from "./features/telemetry.js";
+export { cache } from "./features/cache.js";
+export type { CacheInput, CacheOptions } from "./features/cache.js";
+export { dedupe } from "./features/dedupe.js";
+export type { DedupeOptions } from "./features/dedupe.js";
+export { idempotency } from "./features/idempotency.js";
+export type { IdempotencyOptions } from "./features/idempotency.js";
+export { errorMapping } from "./features/error-mapping.js";
+export type { ErrorMapper } from "./features/error-mapping.js";
+export { MemoryCacheStore } from "./core/cache-store.js";
+export type { CacheEntry, CacheStore } from "./core/cache-store.js";
+export type { ConsumptionErrorContext, ConsumptionErrorMapper } from "./consumption/error-mapping.js";
+export type { InferSchema, ResponseSchema, SchemaResult } from "./consumption/schema.js";
 export type {
   TelemetryFailureMode,
   TelemetryHandler,
@@ -15,10 +27,12 @@ export {
   HttpAbortError,
   HttpConfigurationError,
   HttpDecodeError,
+  HttpConsumptionError,
   HttpError,
   HttpFeatureConflictError,
   HttpFeatureError,
   HttpNonReplayableBodyError,
+  HttpSchemaError,
   HttpStatusError,
   HttpTimeoutError,
   HttpTransportError,

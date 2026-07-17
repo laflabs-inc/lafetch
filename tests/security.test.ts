@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HttpStatusError, lafetch } from "../src/index.js";
+import { HttpStatusError, lafetch, snapshotRequest } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("safe diagnostics", () => {
@@ -22,5 +22,16 @@ describe("safe diagnostics", () => {
     expect((error as HttpStatusError).request?.url).toContain("access_token=%5BREDACTED%5D");
     expect(JSON.stringify(error)).not.toContain("Bearer secret");
   });
-});
 
+  it("removes URL credentials without over-redacting ordinary key names", async () => {
+    const request = snapshotRequest({
+      method: "GET",
+      url: "https://user:password@api.example.com/private?monkey=visible&api_key=secret",
+      headers: {},
+    });
+    expect(request.url).not.toContain("user");
+    expect(request.url).not.toContain("password");
+    expect(request.url).toContain("monkey=visible");
+    expect(request.url).toContain("api_key=%5BREDACTED%5D");
+  });
+});

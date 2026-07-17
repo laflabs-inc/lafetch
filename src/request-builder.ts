@@ -3,6 +3,7 @@ import {
   withBody,
   withBodyFactory,
   withFeature,
+  withCredentials,
   withHeader,
   withHeaders,
   withJsonBody,
@@ -16,6 +17,12 @@ import {
 import { decodeResponse, type ResponseMode } from "./core/decode.js";
 import { executeRequest } from "./core/executor.js";
 import { telemetry as createTelemetryFeature, type TelemetryInput } from "./features/telemetry.js";
+import { cache as createCacheFeature, type CacheInput } from "./features/cache.js";
+import { dedupe as createDedupeFeature, type DedupeOptions } from "./features/dedupe.js";
+import { idempotency as createIdempotencyFeature, type IdempotencyOptions } from "./features/idempotency.js";
+import { errorMapping, type ErrorMapper } from "./features/error-mapping.js";
+import { applySchema, type InferSchema, type ResponseSchema } from "./consumption/schema.js";
+import { mapConsumptionError, type ConsumptionErrorMapper } from "./consumption/error-mapping.js";
 import type {
   BodyFactory,
   HttpResult,
@@ -40,6 +47,13 @@ export interface RequestBuilder<TData = unknown> extends PromiseLike<HttpResult<
   timeout(timeout: TimeoutInput): RequestBuilder<TData>;
   retry(retry: RetryInput): RequestBuilder<TData>;
   acceptStatus(matcher: StatusMatcher): RequestBuilder<TData>;
+  credentials(credentials: RequestCredentials): RequestBuilder<TData>;
+  cache(input?: CacheInput): RequestBuilder<TData>;
+  dedupe(options?: DedupeOptions): RequestBuilder<TData>;
+  idempotency(options?: IdempotencyOptions): RequestBuilder<TData>;
+  mapError(mapper: ErrorMapper): RequestBuilder<TData>;
+  schema<TSchema extends ResponseSchema<unknown>>(schema: TSchema): RequestBuilder<InferSchema<TSchema>>;
+  mapDecodeError(mapper: ConsumptionErrorMapper): RequestBuilder<TData>;
   telemetry(input: TelemetryInput): RequestBuilder<TData>;
   use(feature: RequestFeature): RequestBuilder<TData>;
   send<TResult = TData>(): Promise<HttpResult<TResult>>;
@@ -63,10 +77,21 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
   readonly [Symbol.toStringTag] = "LafetchRequest";
   #execution?: Promise<RawExecution>;
 
-  constructor(private readonly configuration: RequestConfiguration) {}
+  constructor(
+    private readonly configuration: RequestConfiguration,
+    private readonly responseSchema?: ResponseSchema<unknown>,
+    private readonly consumptionErrorMapper?: ConsumptionErrorMapper,
+  ) {}
 
   #next<TNext = TData>(configuration: RequestConfiguration): RequestBuilder<TNext> {
-    return new RequestBuilderImplementation<TNext>(configuration);
+    return new RequestBuilderImplementation<TNext>(configuration, this.responseSchema, this.consumptionErrorMapper);
+  }
+
+  #nextConsumption<TNext = TData>(
+    responseSchema: ResponseSchema<unknown> | undefined,
+    mapper: ConsumptionErrorMapper | undefined,
+  ): RequestBuilder<TNext> {
+    return new RequestBuilderImplementation<TNext>(this.configuration, responseSchema, mapper);
   }
 
   #executeOnce(): Promise<RawExecution> {
@@ -76,7 +101,15 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
 
   async #decode<TResult>(mode: ResponseMode): Promise<TResult> {
     const execution = await this.#executeOnce();
-    return (await decodeResponse(execution.response.clone(), mode, execution.request.method)) as TResult;
+    try {
+      const decoded = await decodeResponse(execution.response.clone(), mode, execution.request.method);
+      return (this.responseSchema ? await applySchema(this.responseSchema, decoded) : decoded) as TResult;
+    } catch (error) {
+      return await mapConsumptionError(this.consumptionErrorMapper, error, {
+        request: execution.request,
+        response: execution.response.clone(),
+      });
+    }
   }
 
   query(params: QueryParams): RequestBuilder<TData> {
@@ -123,6 +156,34 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
     return this.#next(withAcceptedStatus(this.configuration, matcher));
   }
 
+  credentials(credentials: RequestCredentials): RequestBuilder<TData> {
+    return this.#next(withCredentials(this.configuration, credentials));
+  }
+
+  cache(input?: CacheInput): RequestBuilder<TData> {
+    return this.#next(withFeature(this.configuration, createCacheFeature(input)));
+  }
+
+  dedupe(options?: DedupeOptions): RequestBuilder<TData> {
+    return this.#next(withFeature(this.configuration, createDedupeFeature(options)));
+  }
+
+  idempotency(options?: IdempotencyOptions): RequestBuilder<TData> {
+    return this.#next(withFeature(this.configuration, createIdempotencyFeature(options)));
+  }
+
+  mapError(mapper: ErrorMapper): RequestBuilder<TData> {
+    return this.#next(withFeature(this.configuration, errorMapping(mapper)));
+  }
+
+  schema<TSchema extends ResponseSchema<unknown>>(schema: TSchema): RequestBuilder<InferSchema<TSchema>> {
+    return this.#nextConsumption<InferSchema<TSchema>>(schema, this.consumptionErrorMapper);
+  }
+
+  mapDecodeError(mapper: ConsumptionErrorMapper): RequestBuilder<TData> {
+    return this.#nextConsumption(this.responseSchema, mapper);
+  }
+
   telemetry(input: TelemetryInput): RequestBuilder<TData> {
     return this.#next(withFeature(this.configuration, createTelemetryFeature(input)));
   }
@@ -133,11 +194,16 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
 
   async send<TResult = TData>(): Promise<HttpResult<TResult>> {
     const execution = await this.#executeOnce();
-    const data = (await decodeResponse(
-      execution.response.clone(),
-      "auto",
-      execution.request.method,
-    )) as TResult;
+    let data: TResult;
+    try {
+      const decoded = await decodeResponse(execution.response.clone(), "auto", execution.request.method);
+      data = (this.responseSchema ? await applySchema(this.responseSchema, decoded) : decoded) as TResult;
+    } catch (error) {
+      return await mapConsumptionError(this.consumptionErrorMapper, error, {
+        request: execution.request,
+        response: execution.response.clone(),
+      });
+    }
 
     return Object.freeze({
       data,

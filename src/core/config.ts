@@ -21,6 +21,7 @@ export interface ClientConfiguration {
   readonly transport: Transport;
   readonly features: readonly RequestFeature[];
   readonly runtime: RuntimeAdapter;
+  readonly credentials: RequestCredentials;
 }
 
 export interface RequestConfiguration {
@@ -37,6 +38,7 @@ export interface RequestConfiguration {
   readonly features: readonly RequestFeature[];
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
+  readonly credentials: RequestCredentials;
 }
 
 function encodeJson(value: unknown): string {
@@ -89,6 +91,7 @@ export function createRequestConfiguration(
     features: Object.freeze([...client.features, ...(options.features ?? [])]),
     transport: client.transport,
     runtime: client.runtime,
+    credentials: options.credentials ?? client.credentials,
   };
 }
 
@@ -144,6 +147,10 @@ export function withAcceptedStatus(config: RequestConfiguration, acceptStatus: S
   return { ...config, acceptStatus };
 }
 
+export function withCredentials(config: RequestConfiguration, credentials: RequestCredentials): RequestConfiguration {
+  return { ...config, credentials };
+}
+
 export function withFeature(config: RequestConfiguration, feature: RequestFeature): RequestConfiguration {
   const existing = config.features.findIndex((item) => item.name === feature.name);
   const features = [...config.features];
@@ -151,4 +158,3 @@ export function withFeature(config: RequestConfiguration, feature: RequestFeatur
   else features.push(feature);
   return { ...config, features: Object.freeze(features) };
 }
-

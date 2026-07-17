@@ -172,7 +172,7 @@ export class FeatureRuntime {
           feature.hooks!.finalize!({
             ...this.#context(feature),
             ...(input.request !== undefined ? { request: input.request } : {}),
-            ...(input.response !== undefined ? { response: input.response } : {}),
+            ...(input.response !== undefined ? { response: input.response.clone() } : {}),
             ...(input.error !== undefined ? { error: input.error } : {}),
             attempts: input.attempts,
             ...(input.source !== undefined ? { source: input.source } : {}),

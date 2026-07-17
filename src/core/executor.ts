@@ -48,16 +48,24 @@ function normalizeTimeout(input: RequestConfiguration["timeout"]): { totalMs?: n
   };
 }
 
-function normalizeRetry(input: RequestConfiguration["retry"]): NormalizedRetry {
+function normalizeRetry(
+  input: RequestConfiguration["retry"],
+  method: string,
+  features: readonly { capabilities?: { provides?: readonly { name: string }[] } }[],
+): NormalizedRetry {
   const options: RetryOptions = typeof input === "number" ? { attempts: input } : (input ?? { attempts: 1 });
   if (!Number.isInteger(options.attempts) || options.attempts < 1) {
     throw new HttpConfigurationError("retry.attempts must be an integer greater than or equal to 1.");
   }
 
   const backoff = typeof options.backoff === "string" ? { type: options.backoff } : (options.backoff ?? {});
+  const hasIdempotency = features.some((feature) =>
+    feature.capabilities?.provides?.some((capability) => capability.name === "idempotency"),
+  );
+  const retryMethods = options.methods ?? (hasIdempotency ? [...DEFAULT_RETRY_METHODS, method] : DEFAULT_RETRY_METHODS);
   return {
     attempts: options.attempts,
-    methods: new Set((options.methods ?? DEFAULT_RETRY_METHODS).map((method) => method.toUpperCase())),
+    methods: new Set(retryMethods.map((retryMethod) => retryMethod.toUpperCase())),
     statuses: new Set(options.statuses ?? DEFAULT_RETRY_STATUSES),
     networkErrors: options.networkErrors ?? true,
     respectRetryAfter: options.respectRetryAfter ?? true,
@@ -74,7 +82,13 @@ function isReadableStream(value: unknown): value is ReadableStream {
 
 function isAcceptedStatus(status: number, matcher: RequestConfiguration["acceptStatus"]): boolean {
   if (!matcher) return status >= 200 && status <= 299;
-  if (typeof matcher === "function") return matcher(status);
+  if (typeof matcher === "function") {
+    try {
+      return matcher(status);
+    } catch (cause) {
+      throw new HttpConfigurationError("acceptStatus() failed while evaluating the response status.", { cause });
+    }
+  }
   return matcher.includes(status);
 }
 
@@ -122,6 +136,7 @@ async function buildRequest(draft: MutableRequestDraft, signal: AbortSignal): Pr
     method: draft.method,
     headers: draft.headers,
     signal,
+    credentials: draft.credentials,
     ...(body !== undefined ? { body } : {}),
   };
   if (isReadableStream(body)) init.duplex = "half";
@@ -134,17 +149,45 @@ async function buildRequest(draft: MutableRequestDraft, signal: AbortSignal): Pr
 }
 
 function cloneDraft(draft: MutableRequestDraft): MutableRequestDraft {
-  return { url: new URL(draft.url), method: draft.method, headers: new Headers(draft.headers), body: draft.body };
+  return {
+    url: new URL(draft.url),
+    method: draft.method,
+    headers: new Headers(draft.headers),
+    body: draft.body,
+    credentials: draft.credentials,
+  };
 }
 
 function canRetry(retry: NormalizedRetry, method: string, attempt: number): boolean {
   return attempt < retry.attempts && retry.methods.has(method);
 }
 
-async function bufferResponse(response: Response): Promise<Response> {
+async function bufferResponse(response: Response, signal: AbortSignal): Promise<Response> {
   const retained = response.clone();
-  await response.arrayBuffer();
-  return retained;
+  const reader = response.body?.getReader();
+  if (signal.aborted) {
+    void reader?.cancel().catch(() => undefined);
+    void retained.body?.cancel().catch(() => undefined);
+    throw cancellationError(signal);
+  }
+  let rejectAbort!: (reason: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort(cancellationError(signal));
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    const consume = async () => {
+      if (!reader) return;
+      while (!(await reader.read()).done) { /* drain the body into the retained clone */ }
+    };
+    await Promise.race([consume(), aborted]);
+    return retained;
+  } catch (error) {
+    void reader?.cancel().catch(() => undefined);
+    void retained.body?.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
 function normalizeFailure(error: unknown, signal: AbortSignal, request?: Request): HttpError {
@@ -209,8 +252,9 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
   const timeout = normalizeTimeout(config.timeout);
-  const retry = normalizeRetry(config.retry);
-  const featureRuntime = new FeatureRuntime(resolveFeatures(config.features), requestId);
+  const resolvedFeatures = resolveFeatures(config.features);
+  const retry = normalizeRetry(config.retry, config.method, resolvedFeatures);
+  const featureRuntime = new FeatureRuntime(resolvedFeatures, requestId);
   const totalDeadline = createDeadlineSignal("total", timeout.totalMs);
   const requestSignal = composeSignals([config.signal, totalDeadline.signal]);
   let attempts = 0;
@@ -226,6 +270,7 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
     method: config.method,
     headers: new Headers(config.headers),
     body: config.body,
+    credentials: config.credentials,
   };
 
   try {
@@ -307,7 +352,7 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
           continue;
         }
 
-        const retained = await bufferResponse(response);
+        const retained = await bufferResponse(response, requestSignal.signal);
         finalResponse = retained;
         finalSource = source;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
@@ -393,9 +438,7 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
         ...(finalRequest !== undefined ? { request: snapshotRequest(finalRequest) } : {}),
         error: snapshotError(finalError),
       }));
-    } catch (eventError) {
-      finalError = ensureError(eventError, finalRequest);
-    }
+    } catch { /* terminal observers cannot replace an already settled HTTP failure */ }
     throw finalError;
   }
 
@@ -403,15 +446,17 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
     throw new HttpTransportError("The HTTP request completed without an execution result.");
   }
 
-  await featureRuntime.emit(Object.freeze({
-    type: "request:success",
-    requestId,
-    timestamp: config.runtime.now(),
-    attempts,
-    durationMs,
-    request: snapshotRequest(finalRequest),
-    response: snapshotResponse(finalResponse),
-    source: finalSource,
-  }));
+  try {
+    await featureRuntime.emit(Object.freeze({
+      type: "request:success",
+      requestId,
+      timestamp: config.runtime.now(),
+      attempts,
+      durationMs,
+      request: snapshotRequest(finalRequest),
+      response: snapshotResponse(finalResponse),
+      source: finalSource,
+    }));
+  } catch { /* terminal observers cannot replace an already settled HTTP success */ }
   return execution;
 }

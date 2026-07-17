@@ -203,4 +203,36 @@ describe("request features", () => {
       "first:second:HTTP 500 Broken.",
     ]);
   });
+
+  it("rejects unknown strict ordering targets but allows optional targets", async () => {
+    const transport = mockTransport(() => new Response(null, { status: 204 }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/strict").use({
+      name: "strict",
+      ordering: { before: ["missing"] },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_FEATURE_CONFLICT" });
+
+    await expect(api.get("/optional").use({
+      name: "optional",
+      ordering: { optionalBefore: ["missing"] },
+    })).resolves.toMatchObject({ status: 204 });
+  });
+
+  it("isolates finalizer response bodies", async () => {
+    const bodies: string[] = [];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response("payload")),
+      features: ["first", "second"].map((name) => ({
+        name,
+        hooks: { finalize: async ({ response }: { response?: Response }) => {
+          bodies.push(await response!.text());
+        } },
+      })),
+    });
+
+    await api.get("/finalize");
+    expect(bodies).toEqual(["payload", "payload"]);
+  });
 });

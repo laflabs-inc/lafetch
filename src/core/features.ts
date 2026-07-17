@@ -20,6 +20,9 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
   const providers = new Map<string, CapabilityProvider[]>();
   for (const feature of features) {
     for (const capability of feature.capabilities?.provides ?? []) {
+      if (!capability.name.trim()) {
+        throw new HttpFeatureConflictError(`Feature "${feature.name}" provides an empty capability name.`);
+      }
       const entries = providers.get(capability.name) ?? [];
       entries.push({ feature, mode: capability.mode ?? "exclusive" });
       providers.set(capability.name, entries);
@@ -32,6 +35,9 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
       throw new HttpFeatureConflictError(
         `Capability "${name}" is exclusive but is provided by ${entries.map((entry) => `"${entry.feature.name}"`).join(", ")}.`,
       );
+    }
+    if (new Set(entries.map((entry) => entry.mode)).size > 1) {
+      throw new HttpFeatureConflictError(`Capability "${name}" mixes incompatible provider modes.`);
     }
   }
 
@@ -56,7 +62,11 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
   }
 
   const addEdge = (from: string, to: string) => {
-    if (!byName.has(from) || !byName.has(to) || from === to) return;
+    if (from === to) throw new HttpFeatureConflictError(`Feature "${from}" cannot order itself.`);
+    if (!byName.has(from) || !byName.has(to)) {
+      const missing = !byName.has(from) ? from : to;
+      throw new HttpFeatureConflictError(`Feature ordering references unknown Feature "${missing}".`);
+    }
     const targets = edges.get(from)!;
     if (!targets.has(to)) {
       targets.add(to);
@@ -67,6 +77,14 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
   for (const feature of features) {
     for (const before of feature.ordering?.before ?? []) addEdge(feature.name, before);
     for (const after of feature.ordering?.after ?? []) addEdge(after, feature.name);
+    for (const before of feature.ordering?.optionalBefore ?? []) {
+      if (before === feature.name) throw new HttpFeatureConflictError(`Feature "${feature.name}" cannot order itself.`);
+      if (byName.has(before)) addEdge(feature.name, before);
+    }
+    for (const after of feature.ordering?.optionalAfter ?? []) {
+      if (after === feature.name) throw new HttpFeatureConflictError(`Feature "${feature.name}" cannot order itself.`);
+      if (byName.has(after)) addEdge(after, feature.name);
+    }
   }
 
   const ready = [...features]
@@ -94,4 +112,3 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
 
   return Object.freeze(sorted);
 }
-
