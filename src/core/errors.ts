@@ -1,4 +1,5 @@
 import type { RequestMeta, TimeoutScope } from "./types.js";
+import { isSensitiveHeaderName, isSensitiveName } from "./sensitive.js";
 
 export interface RequestSnapshot {
   readonly method: string;
@@ -12,19 +13,8 @@ export interface HttpErrorOptions {
   readonly meta?: RequestMeta;
 }
 
-const SENSITIVE_HEADERS = new Set([
-  "authorization",
-  "cookie",
-  "set-cookie",
-  "proxy-authorization",
-  "x-api-key",
-]);
-
-const SENSITIVE_NAME = /^(?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|credential|password|refresh[-_]?token|secret|session(?:id)?|token)$/i;
-
 function redactHeader(name: string, value: string): string {
-  const normalized = name.toLowerCase();
-  if (SENSITIVE_HEADERS.has(normalized) || SENSITIVE_NAME.test(normalized)) {
+  if (isSensitiveHeaderName(name)) {
     return "[REDACTED]";
   }
   return value;
@@ -46,8 +36,7 @@ export function snapshotRequest(request: Request | RequestSnapshot): RequestSnap
   url.username = "";
   url.password = "";
   for (const key of [...url.searchParams.keys()]) {
-    const normalized = key.toLowerCase();
-    if (SENSITIVE_NAME.test(normalized)) {
+    if (isSensitiveName(key)) {
       url.searchParams.set(key, "[REDACTED]");
     }
   }

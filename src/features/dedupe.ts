@@ -13,7 +13,6 @@ interface SharedExecution {
   reject(error: unknown): void;
 }
 
-const executions = new Map<string, SharedExecution>();
 const keyState = Symbol("dedupe.key");
 const entryState = Symbol("dedupe.entry");
 const leaderState = Symbol("dedupe.leader");
@@ -39,7 +38,12 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-export function dedupe(options: DedupeOptions = {}): RequestFeature {
+/** @internal */
+export function createDedupeFeature(
+  options: DedupeOptions = {},
+  sharedExecutions: Map<string, unknown> = new Map(),
+): RequestFeature {
+  const executions = sharedExecutions as Map<string, SharedExecution>;
   const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
   return {
     name: "dedupe",
@@ -92,4 +96,8 @@ export function dedupe(options: DedupeOptions = {}): RequestFeature {
       },
     },
   };
+}
+
+export function dedupe(options: DedupeOptions = {}): RequestFeature {
+  return createDedupeFeature(options);
 }

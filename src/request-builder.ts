@@ -17,8 +17,8 @@ import {
 import { decodeResponse, type ResponseMode } from "./core/decode.js";
 import { executeRequest } from "./core/executor.js";
 import { telemetry as createTelemetryFeature, type TelemetryInput } from "./features/telemetry.js";
-import { cache as createCacheFeature, type CacheInput } from "./features/cache.js";
-import { dedupe as createDedupeFeature, type DedupeOptions } from "./features/dedupe.js";
+import { createCacheFeature, type CacheInput } from "./features/cache.js";
+import { createDedupeFeature, type DedupeOptions } from "./features/dedupe.js";
 import { idempotency as createIdempotencyFeature, type IdempotencyOptions } from "./features/idempotency.js";
 import { errorMapping, type ErrorMapper } from "./features/error-mapping.js";
 import { applySchema, type InferSchema, type ResponseSchema } from "./consumption/schema.js";
@@ -161,11 +161,17 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
   }
 
   cache(input?: CacheInput): RequestBuilder<TData> {
-    return this.#next(withFeature(this.configuration, createCacheFeature(input)));
+    return this.#next(withFeature(this.configuration, createCacheFeature(input, {
+      store: this.configuration.scope.getCacheStore(),
+      now: this.configuration.runtime.now,
+    })));
   }
 
   dedupe(options?: DedupeOptions): RequestBuilder<TData> {
-    return this.#next(withFeature(this.configuration, createDedupeFeature(options)));
+    return this.#next(withFeature(
+      this.configuration,
+      createDedupeFeature(options, this.configuration.scope.getDedupeExecutions()),
+    ));
   }
 
   idempotency(options?: IdempotencyOptions): RequestBuilder<TData> {

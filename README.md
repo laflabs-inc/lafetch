@@ -1,23 +1,63 @@
 # Lafetch
 
-Lafetch is a DX-first, policy-composable TypeScript HTTP client built on the Fetch standard.
+Lafetch is a DX-first TypeScript HTTP client built on the Fetch standard. Start with an Axios-like API, then add request policies only where they are useful.
 
-> Status: pre-release framework development. Core request policies are implemented, but runtime compatibility and packaging work remain before npm publication.
+> Status: pre-release framework development. The core and runtime matrix are implemented; package publication and the explicit streaming API remain before the first public release.
+
+## 30-second start
+
+No setup is required for a one-off request.
 
 ```ts
 import { lafetch } from "@laflabs/lafetch";
 
+const user = await lafetch
+  .get("https://api.example.com/users/123")
+  .json<User>();
+```
+
+Create a client when requests share a base URL or policy defaults. Each created client is also an explicit cache and in-flight deduplication isolation boundary.
+
+```ts
 const api = lafetch.create({
   baseUrl: "https://api.example.com",
+  timeout: "5s",
+  retry: 2,
+  dedupe: true,
 });
 
-const user = await api
-  .get("/users/123")
+const user = await api.get("/users/123").json<User>();
+```
+
+Use request options when everything should be visible in one object.
+
+```ts
+const created = await api.post("/users", {
+  json: { name: "Dohyun" },
+  timeout: "3s",
+  retry: 3,
+  idempotency: true,
+}).json<User>();
+```
+
+Use the fluent form when a policy reads better as a chain. Both forms run through the same kernel.
+
+```ts
+const users = await api
+  .get("/users")
   .timeout("3s")
   .retry(3)
   .cache("30s")
-  .json<User>();
+  .json<User[]>();
 ```
+
+The precedence is client defaults, then request options, then fluent methods. A request can disable inherited `timeout`, `retry`, `cache`, `dedupe`, or `telemetry` with `false` in its options.
+
+Most application code should need only these three levels:
+
+1. `lafetch.get(url)` for zero-config requests;
+2. `lafetch.create(defaults)` plus options or fluent methods for application APIs;
+3. `.use(feature)` only for custom lifecycle behavior.
 
 ## Design goals
 
@@ -30,7 +70,7 @@ const user = await api
 
 Runtime compatibility is continuously checked against Node.js 20/22/24, Chromium, a `workerd` isolate, and a Next.js App Router production fixture. See [runtime compatibility](docs/runtime-compatibility.md) for the exact scope.
 
-## Current kernel API
+## Core API
 
 ### Result envelope
 
@@ -83,6 +123,21 @@ Chained builders are immutable. Creating a variant produces a new request execut
 
 ### Request configuration
 
+The compact option form supports query, headers, body, and official policies together.
+
+```ts
+const created = await api.post("/users", {
+  query: { notify: true },
+  headers: { "X-Request-Source": "admin" },
+  json: { name: "Dohyun" },
+  timeout: { total: "20s", attempt: "5s" },
+  retry: 3,
+  idempotency: true,
+}).json<User>();
+```
+
+The equivalent fluent form remains available for progressive composition.
+
 ```ts
 const created = await api
   .post("/users")
@@ -134,6 +189,8 @@ const users = await api
 ```
 
 The default memory cache is bounded to 500 entries. Credentialed requests, authorization headers, `Set-Cookie`, restrictive `Cache-Control`, and responses with `Vary` bypass the default cache. GET and HEAD are the default cache and deduplication methods. Unsafe methods require an explicit custom key.
+
+Default cache entries and in-flight deduplication are isolated per client, and `extend()` creates a new isolation scope. The safe key includes the URL and every request header, so tenant or representation headers cannot accidentally share a response. Token-bearing headers and query parameters bypass both policies. An explicitly supplied `CacheStore` is shared only where the caller reuses it.
 
 ```ts
 import { MemoryCacheStore } from "@laflabs/lafetch";

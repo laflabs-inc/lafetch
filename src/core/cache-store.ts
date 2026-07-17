@@ -12,7 +12,10 @@ export interface CacheStore {
 export class MemoryCacheStore implements CacheStore {
   readonly #entries = new Map<string, CacheEntry>();
 
-  constructor(readonly maxEntries = 500) {
+  constructor(
+    readonly maxEntries = 500,
+    private readonly now: () => number = Date.now,
+  ) {
     if (!Number.isInteger(maxEntries) || maxEntries < 1) {
       throw new TypeError("MemoryCacheStore maxEntries must be a positive integer.");
     }
@@ -21,7 +24,7 @@ export class MemoryCacheStore implements CacheStore {
   get(key: string): CacheEntry | undefined {
     const entry = this.#entries.get(key);
     if (!entry) return undefined;
-    if (entry.expiresAt <= Date.now()) {
+    if (entry.expiresAt <= this.now()) {
       this.#entries.delete(key);
       return undefined;
     }

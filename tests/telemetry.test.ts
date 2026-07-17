@@ -8,6 +8,24 @@ import {
 import { mockTransport } from "../src/testing/index.js";
 
 describe("telemetry", () => {
+  it("supports a concise create() default", async () => {
+    const eventTypes: string[] = [];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      telemetry: (event) => { eventTypes.push(event.type); },
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+    });
+
+    await api.get("/health");
+
+    expect(eventTypes).toEqual([
+      "request:start",
+      "attempt:start",
+      "attempt:response",
+      "request:success",
+    ]);
+  });
+
   it("emits a deterministic lifecycle with retry decisions and safe snapshots", async () => {
     const events: RequestEvent[] = [];
     const delays: number[] = [];

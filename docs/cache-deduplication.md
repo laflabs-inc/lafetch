@@ -9,13 +9,17 @@ They can be composed on one request. Cache is ordered before deduplication when 
 
 ## Safe defaults
 
-Both policies default to GET and HEAD. They bypass requests whose credentials mode is not `omit` or whose headers contain authorization, cookies, proxy authorization, or API keys.
+Both policies default to GET and HEAD. They bypass requests whose credentials mode is not `omit`, whose URL contains user information or token-like query values, or whose headers contain credentials, tokens, secrets, sessions, or API keys.
 
-The built-in cache stores status 200 by default and refuses responses containing `Set-Cookie`, restrictive `Cache-Control`, or `Vary`. Refusing arbitrary `Vary` is conservative: a future variant-aware store can opt into a richer key contract without risking a cross-variant response today.
+The built-in key includes the method, complete URL, and every normalized request header. This partitions tenant headers, locale, content negotiation, and other representation inputs without requiring an application-specific allowlist.
+
+The built-in cache stores status 200 by default and refuses responses containing `Set-Cookie`, restrictive `Cache-Control`, or `Vary`. A response `max-age` and `Age` can shorten the caller's TTL but never extend it. Refusing arbitrary `Vary` is conservative: a future variant-aware store can opt into a richer key contract without risking a cross-variant response today.
 
 Unsafe methods require a caller-owned key. A key is a trust boundary; callers must include every value that changes response identity.
 
 ## Store contract
+
+The implicit memory store and in-flight registry are created lazily and belong to one client instance. `extend()` starts a fresh scope. This prevents clients with different Transports, tenants, or test fixtures from sharing state accidentally. Reusing an explicit custom `CacheStore` is an intentional opt-in to shared ownership.
 
 `CacheStore` is asynchronous-compatible and stores a Response plus an absolute expiry time. Implementations must return independently consumable Response instances. `MemoryCacheStore` clones entries, expires lazily, and uses bounded least-recently-used eviction.
 
