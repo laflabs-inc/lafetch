@@ -28,6 +28,8 @@ const user = await api
 - Run the same semantics in browsers, Node.js, Next.js, and Fetch-compatible workers.
 - Fail safely for unsafe retries, non-replayable bodies, sensitive diagnostics, and Feature conflicts.
 
+Runtime compatibility is continuously checked against Node.js 20/22/24, Chromium, a `workerd` isolate, and a Next.js App Router production fixture. See [runtime compatibility](docs/runtime-compatibility.md) for the exact scope.
+
 ## Current kernel API
 
 ### Result envelope
@@ -323,7 +325,18 @@ const result = await api
 
 Diagnostic request snapshots redact credential headers and token-like query values.
 
-## Testing
+## Adapter testing
+
+Custom cache adapters can reuse the framework-agnostic conformance runner from the testing export.
+
+```ts
+import { runCacheStoreConformance } from "@laflabs/lafetch/testing";
+
+const results = await runCacheStoreConformance(() => new RedisCacheStore());
+if (results.some((result) => !result.passed)) throw new Error("Invalid CacheStore adapter");
+```
+
+Mock Transports are also available from the testing export.
 
 ```ts
 import { lafetch } from "@laflabs/lafetch";
@@ -352,12 +365,10 @@ pnpm check
 
 The following are intentionally not implemented yet:
 
-- cache and in-flight deduplication;
-- idempotency-key generation;
-- schema adapters and type inference from schemas;
-- an official error-mapping Feature and external telemetry adapters;
 - true streaming response mode;
 - React and Next.js integration packages;
+- consumption-specific telemetry events;
+- standalone packed-consumer and bundle-budget checks;
 - Laf ID authentication integration.
 
-These features should be added only after the kernel API and lifecycle survive the first RFC review.
+Runtime fixtures verify framework compatibility without coupling the core package to React or Next.js. Framework integration packages remain optional future modules.
