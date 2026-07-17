@@ -1,0 +1,40 @@
+{
+  "name": "@laflabs/lafetch",
+  "version": "0.1.0-alpha.0",
+  "description": "A DX-first, policy-composable TypeScript HTTP client built on Fetch.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "docs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
