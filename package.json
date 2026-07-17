@@ -3,7 +3,7 @@
   "version": "0.1.0-alpha.0",
   "description": "A DX-first, policy-composable TypeScript HTTP client built on Fetch.",
   "type": "module",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@10.13.1",
   "private": true,
   "license": "UNLICENSED",
   "sideEffects": false,
