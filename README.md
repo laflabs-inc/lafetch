@@ -163,6 +163,71 @@ await api.get("/users").use(requestIdFeature);
 
 Feature order is resolved from `before` and `after` relationships. Exclusive capability conflicts, missing requirements, and ordering cycles fail before Transport dispatch.
 
+### Feature Runtime controls
+
+Features receive isolated request-scoped `state` and a shared request-scoped `metadata` map. Control hooks can short-circuit Transport dispatch, replace a Response, or map the final Error without changing the fluent request API.
+
+```ts
+const fixtureFeature = {
+  name: "fixture",
+  hooks: {
+    intercept({ request }) {
+      if (new URL(request.url).pathname === "/health") {
+        return Response.json({ ok: true });
+      }
+    },
+    afterResponse({ response }) {
+      // Return undefined to keep the current Response,
+      // or return a Response to replace it for later Features.
+      return response;
+    },
+    mapError({ error }) {
+      return error;
+    },
+  },
+};
+
+const result = await api.get("/health").use(fixtureFeature);
+result.meta.transport; // "feature:fixture"
+```
+
+Only the first `intercept` hook that returns a Response skips dispatch. `afterResponse` runs in resolved order and passes replacements to later Features. `mapError` runs once for the final failure in reverse resolved order. `finalize` also runs in reverse order.
+
+### Telemetry
+
+Telemetry is an observer Feature and can be installed for one request with the fluent DSL.
+
+```ts
+await api
+  .get("/health")
+  .retry(3)
+  .telemetry((event) => {
+    console.log(event.type, event.requestId);
+  });
+```
+
+Install it at client scope when every request should be observed.
+
+```ts
+import { lafetch, telemetry } from "@laflabs/lafetch";
+
+const api = lafetch.create({
+  features: [
+    telemetry((event) => sendToCollector(event)),
+  ],
+});
+```
+
+The event sequence uses the following discriminated event types:
+
+- `request:start`;
+- `attempt:start`;
+- `attempt:response`;
+- `attempt:error`, including `willRetry` and `retryDelayMs`;
+- `request:success` or `request:error`.
+
+Request snapshots never include bodies and redact credential headers and token-like query values. Telemetry handler failures are ignored by default so an unavailable collector cannot fail an HTTP request. Set `failureMode: "throw"` when strict delivery is required.
+
 ## Error model
 
 - `HttpTransportError`
@@ -217,7 +282,7 @@ The following are intentionally not implemented yet:
 - cache and in-flight deduplication;
 - idempotency-key generation;
 - schema adapters and type inference from schemas;
-- error mapping and telemetry adapters;
+- an official error-mapping Feature and external telemetry adapters;
 - true streaming response mode;
 - React and Next.js integration packages;
 - Laf ID authentication integration.

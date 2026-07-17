@@ -19,9 +19,11 @@ Request scope runs once:
 
 1. normalize URL, query, headers, and body source;
 2. resolve Feature capabilities and ordering;
-3. prepare the base request draft;
-4. create the total deadline and request metadata;
-5. settle the final result and run finalizers.
+3. create isolated Feature state, shared request metadata, and the total deadline;
+4. emit `request:start` and prepare the base request draft;
+5. execute attempts;
+6. map a final error in reverse Feature order when necessary;
+7. run finalizers in reverse order and emit the final request event.
 
 Attempt scope runs for every retry:
 
@@ -29,9 +31,12 @@ Attempt scope runs for every retry:
 2. create the attempt deadline;
 3. run `beforeAttempt` hooks;
 4. create a fresh `Request`;
-5. call the Transport;
-6. observe the response or attempt error;
-7. decide whether to retry and wait for backoff.
+5. emit `attempt:start`;
+6. run `intercept` hooks until one returns a Response, otherwise call the Transport;
+7. run `afterResponse` hooks, passing replacements to later Features;
+8. emit the response or attempt error event;
+9. decide whether to retry and expose the selected backoff delay;
+10. wait for backoff before the next attempt.
 
 ## Promise-like invariant
 
@@ -71,6 +76,38 @@ Capabilities use one of three modes:
 
 The resolver validates required and conflicting capabilities, constructs a graph from `before` and `after`, and applies a stable topological sort. Finalizers run in reverse resolved order.
 
+## Feature Runtime controls
+
+Each Feature receives two state surfaces:
+
+- `state` is isolated to that Feature and one request execution;
+- `metadata` is shared by all Features in the same request execution.
+
+Control hooks have explicit semantics:
+
+- `intercept` runs in resolved order; the first returned Response skips Transport dispatch for that attempt;
+- `afterResponse` runs in resolved order and may return a replacement Response;
+- `onAttemptError` observes normalized attempt errors and the retry decision, including `retryDelayMs`;
+- `mapError` runs once on the final Error in reverse resolved order;
+- `finalize` runs in reverse resolved order whether execution succeeds or fails.
+
+A Feature hook failure is wrapped in `HttpFeatureError` unless it is already an `HttpError`. Feature failures are never reclassified as Transport failures.
+
+## Lifecycle events
+
+`onEvent` observers receive immutable, body-free snapshots:
+
+```text
+request:start
+  attempt:start
+  [attempt:response]
+  [attempt:error]
+  [attempt:start ...]
+request:success | request:error
+```
+
+An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response events record their source as the Transport name or `feature:<name>` for an intercepted response. Request snapshots reuse the diagnostic redaction policy for credential headers and token-like query parameters.
+
 ## Security defaults
 
 - status outside `200–299` is an error unless explicitly accepted;
@@ -88,4 +125,3 @@ The resolver validates required and conflicting capabilities, constructs a graph
 - cache ownership contract for Next.js;
 - true streaming builder semantics;
 - whether `RequestBuilder` should remain thenable after external user testing.
-

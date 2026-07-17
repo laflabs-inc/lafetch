@@ -3,6 +3,13 @@ export type { LafetchClient } from "./client.js";
 export { lafetch } from "./lafetch.js";
 export type { RequestBuilder } from "./request-builder.js";
 export { fetchTransport } from "./transports/fetch.js";
+export { telemetry } from "./features/telemetry.js";
+export type {
+  TelemetryFailureMode,
+  TelemetryHandler,
+  TelemetryInput,
+  TelemetryOptions,
+} from "./features/telemetry.js";
 
 export {
   HttpAbortError,
@@ -22,7 +29,10 @@ export type { HttpErrorOptions, RequestSnapshot } from "./core/errors.js";
 
 export type {
   AfterResponseContext,
+  AttemptErrorEvent,
   AttemptErrorContext,
+  AttemptResponseEvent,
+  AttemptStartedEvent,
   BackoffOptions,
   BeforeAttemptContext,
   BodyFactory,
@@ -31,9 +41,13 @@ export type {
   ClientOptions,
   Duration,
   FeatureCapabilities,
+  FeatureEventContext,
   FeatureOrdering,
+  FeatureState,
   FinalizeContext,
   HttpResult,
+  InterceptContext,
+  MapErrorContext,
   MutableRequestDraft,
   PrepareContext,
   ProvidedCapability,
@@ -42,8 +56,15 @@ export type {
   QueryValue,
   RequestFeature,
   RequestFeatureHooks,
+  RequestEvent,
+  RequestEventErrorSnapshot,
+  RequestEventRequestSnapshot,
+  RequestEventResponseSnapshot,
+  RequestFailedEvent,
   RequestMeta,
   RequestOptions,
+  RequestStartedEvent,
+  RequestSucceededEvent,
   RetryInput,
   RetryOptions,
   RuntimeAdapter,

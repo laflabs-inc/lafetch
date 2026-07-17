@@ -103,4 +103,104 @@ describe("request features", () => {
     await expect(request.retry(3)).rejects.toBeInstanceOf(HttpFeatureError);
     expect(transport.calls).toHaveLength(0);
   });
+
+  it("isolates state per Feature while sharing request metadata", async () => {
+    const observations: string[] = [];
+    const first: RequestFeature = {
+      name: "first",
+      hooks: {
+        prepare({ state, metadata }) {
+          state.set("value", "first-state");
+          metadata.set("shared", "request-metadata");
+        },
+        beforeAttempt({ state }) {
+          observations.push(String(state.get("value")));
+        },
+      },
+    };
+    const second: RequestFeature = {
+      name: "second",
+      hooks: {
+        prepare({ state, metadata }) {
+          observations.push(String(state.has("value")));
+          observations.push(String(metadata.get("shared")));
+          state.set("value", "second-state");
+        },
+        beforeAttempt({ state }) {
+          observations.push(String(state.get("value")));
+        },
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+      features: [first, second],
+    });
+
+    await api.get("/resource");
+
+    expect(observations).toEqual(["false", "request-metadata", "first-state", "second-state"]);
+  });
+
+  it("can intercept Transport dispatch and transform the resulting Response", async () => {
+    const transport = mockTransport(() => {
+      throw new Error("Transport must not run");
+    });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+      features: [
+        {
+          name: "fixture",
+          hooks: {
+            intercept: () => Response.json({ value: 1 }),
+          },
+        },
+        {
+          name: "transform",
+          hooks: {
+            async afterResponse({ response }) {
+              const data = await response.json() as { value: number };
+              return Response.json({ value: data.value + 1 });
+            },
+          },
+        },
+      ],
+    });
+
+    const result = await api.get<{ value: number }>("/resource");
+
+    expect(result.data).toEqual({ value: 2 });
+    expect(result.meta.transport).toBe("feature:fixture");
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("maps the final error in reverse Feature order before finalization", async () => {
+    const finalized: string[] = [];
+    const first: RequestFeature = {
+      name: "first",
+      hooks: {
+        mapError: ({ error }) => new Error(`first:${error.message}`),
+        finalize: ({ error }) => { finalized.push((error as Error).message); },
+      },
+    };
+    const second: RequestFeature = {
+      name: "second",
+      hooks: {
+        mapError: ({ error }) => new Error(`second:${error.message}`),
+        finalize: ({ error }) => { finalized.push((error as Error).message); },
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(null, { status: 500, statusText: "Broken" })),
+      features: [first, second],
+    });
+
+    await expect(api.get("/resource")).rejects.toThrow("first:second:HTTP 500 Broken.");
+    expect(finalized).toEqual([
+      "first:second:HTTP 500 Broken.",
+      "first:second:HTTP 500 Broken.",
+    ]);
+  });
 });
