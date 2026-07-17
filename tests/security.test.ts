@@ -34,4 +34,24 @@ describe("safe diagnostics", () => {
     expect(request.url).toContain("monkey=visible");
     expect(request.url).toContain("api_key=%5BREDACTED%5D");
   });
+
+  it("redacts prefixed secret names while preserving unrelated names", async () => {
+    const api = lafetch.create({
+      transport: mockTransport(() => new Response(null, { status: 500 })),
+    });
+
+    const error = await api
+      .get("https://api.example.com/failure", {
+        headers: { "X-Auth-Token": "header-secret", "X-Tokenizer": "public" },
+        query: { user_token: "query-secret", tokenizer: "public" },
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HttpStatusError);
+    const request = (error as HttpStatusError).request;
+    expect(request?.headers["x-auth-token"]).toBe("[REDACTED]");
+    expect(request?.headers["x-tokenizer"]).toBe("public");
+    expect(request?.url).toContain("user_token=%5BREDACTED%5D");
+    expect(request?.url).toContain("tokenizer=public");
+  });
 });

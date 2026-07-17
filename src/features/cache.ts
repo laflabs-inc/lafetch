@@ -11,9 +11,8 @@ export interface CacheOptions {
   readonly key?: string | ((request: Request) => string | Promise<string>);
 }
 
-export type CacheInput = Duration | CacheOptions | undefined;
+export type CacheInput = Duration | CacheOptions;
 
-const defaultStore = new MemoryCacheStore();
 const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
 
@@ -25,10 +24,29 @@ function cacheableResponse(response: Response, statuses: ReadonlySet<number>): b
   return !vary || vary.trim() === "";
 }
 
-export function cache(input: CacheInput = undefined): RequestFeature {
+function responseTtl(response: Response, configuredTtlMs: number): number {
+  const control = response.headers.get("cache-control") ?? "";
+  const match = /(?:^|,)\s*max-age\s*=\s*"?(\d+)"?/i.exec(control);
+  if (!match) return /(?:^|,)\s*max-age\s*=/i.test(control) ? 0 : configuredTtlMs;
+  const maxAgeSeconds = Number(match[1]);
+  if (!Number.isFinite(maxAgeSeconds)) return 0;
+  const parsedAge = Number(response.headers.get("age") ?? 0);
+  const ageMs = Number.isFinite(parsedAge) && parsedAge > 0 ? parsedAge * 1_000 : 0;
+  const maxAgeMs = maxAgeSeconds * 1_000;
+  return Math.max(0, Math.min(configuredTtlMs, maxAgeMs - ageMs));
+}
+
+interface CacheRuntime {
+  readonly store: CacheStore;
+  readonly now: () => number;
+}
+
+/** @internal */
+export function createCacheFeature(input?: CacheInput, runtime?: Partial<CacheRuntime>): RequestFeature {
   const options: CacheOptions = typeof input === "number" || typeof input === "string" ? { ttl: input } : (input ?? {});
   const ttlMs = durationToMs(options.ttl ?? "30s", "cache.ttl");
-  const store = options.store ?? defaultStore;
+  const store = options.store ?? runtime?.store ?? new MemoryCacheStore();
+  const now = runtime?.now ?? Date.now;
   const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
   const statuses = new Set(options.statuses ?? [200]);
 
@@ -49,7 +67,7 @@ export function cache(input: CacheInput = undefined): RequestFeature {
         if (typeof key !== "string") return;
         state.set(keyState, key);
         const entry = await store.get(key);
-        if (!entry || entry.expiresAt <= Date.now()) {
+        if (!entry || entry.expiresAt <= now()) {
           if (entry) await store.delete?.(key);
           return;
         }
@@ -59,8 +77,14 @@ export function cache(input: CacheInput = undefined): RequestFeature {
         if (state.get(bypassState) || source === "feature:cache" || !cacheableResponse(response, statuses)) return;
         const key = state.get(keyState);
         if (typeof key !== "string") return;
-        await store.set(key, { response: response.clone(), expiresAt: Date.now() + ttlMs });
+        const effectiveTtlMs = responseTtl(response, ttlMs);
+        if (effectiveTtlMs <= 0) return;
+        await store.set(key, { response: response.clone(), expiresAt: now() + effectiveTtlMs });
       },
     },
   };
+}
+
+export function cache(input?: CacheInput): RequestFeature {
+  return createCacheFeature(input);
 }

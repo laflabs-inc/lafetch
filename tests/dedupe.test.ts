@@ -66,4 +66,72 @@ describe("deduplication", () => {
     await expect(follower).resolves.toEqual({ fallback: true });
     expect(calls).toBe(2);
   });
+
+  it("isolates in-flight requests between clients", async () => {
+    const firstApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      dedupe: true,
+      transport: mockTransport(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ tenant: "first" });
+      }),
+    });
+    const secondApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      dedupe: true,
+      transport: mockTransport(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ tenant: "second" });
+      }),
+    });
+
+    const [first, second] = await Promise.all([
+      firstApi.get("/dedupe/isolated").json<{ tenant: string }>(),
+      secondApi.get("/dedupe/isolated").json<{ tenant: string }>(),
+    ]);
+
+    expect(first.tenant).toBe("first");
+    expect(second.tenant).toBe("second");
+  });
+
+  it("does not merge concurrent requests with different tenant headers", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      dedupe: true,
+      transport: mockTransport(async (request) => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ tenant: request.headers.get("x-tenant") });
+      }),
+    });
+
+    const [first, second] = await Promise.all([
+      api.get("/dedupe/tenant", { headers: { "X-Tenant": "first" } }).json<{ tenant: string }>(),
+      api.get("/dedupe/tenant", { headers: { "X-Tenant": "second" } }).json<{ tenant: string }>(),
+    ]);
+
+    expect(first.tenant).toBe("first");
+    expect(second.tenant).toBe("second");
+    expect(calls).toBe(2);
+  });
+
+  it("supports the short request option API", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ ok: true });
+      }),
+    });
+
+    await Promise.all([
+      api.get("/dedupe/options", { dedupe: true }),
+      api.get("/dedupe/options", { dedupe: true }),
+    ]);
+
+    expect(calls).toBe(1);
+  });
 });

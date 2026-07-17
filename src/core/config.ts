@@ -1,4 +1,5 @@
 import { HttpConfigurationError } from "./errors.js";
+import { MemoryCacheStore } from "./cache-store.js";
 import { mergeQuery } from "./query.js";
 import type {
   BodyFactory,
@@ -22,6 +23,45 @@ export interface ClientConfiguration {
   readonly features: readonly RequestFeature[];
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
+  readonly timeout?: TimeoutInput;
+  readonly retry?: RetryInput;
+  readonly acceptStatus?: StatusMatcher;
+  readonly scope: ClientPolicyScope;
+}
+
+/** Internal mutable resources isolated to one LafetchClient instance. */
+export interface ClientPolicyScope {
+  getCacheStore(): MemoryCacheStore;
+  getDedupeExecutions(): Map<string, unknown>;
+}
+
+export function createClientPolicyScope(now: () => number = Date.now): ClientPolicyScope {
+  let cacheStore: MemoryCacheStore | undefined;
+  let dedupeExecutions: Map<string, unknown> | undefined;
+  return {
+    getCacheStore() {
+      cacheStore ??= new MemoryCacheStore(500, now);
+      return cacheStore;
+    },
+    getDedupeExecutions() {
+      dedupeExecutions ??= new Map();
+      return dedupeExecutions;
+    },
+  };
+}
+
+/** @internal */
+export function mergeFeatures(
+  base: readonly RequestFeature[],
+  overrides: readonly RequestFeature[] = [],
+): readonly RequestFeature[] {
+  const features = [...base];
+  for (const feature of overrides) {
+    const existing = features.findIndex((item) => item.name === feature.name);
+    if (existing >= 0) features[existing] = feature;
+    else features.push(feature);
+  }
+  return Object.freeze(features);
 }
 
 export interface RequestConfiguration {
@@ -39,6 +79,7 @@ export interface RequestConfiguration {
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
+  readonly scope: ClientPolicyScope;
 }
 
 function encodeJson(value: unknown): string {
@@ -76,6 +117,9 @@ export function createRequestConfiguration(
 
   const query = mergeQuery(new Map(), options.query ?? {});
   const body = bodyFromOptions(options, headers);
+  const timeout = options.timeout === false ? undefined : (options.timeout ?? client.timeout);
+  const retry = options.retry === false ? undefined : (options.retry ?? client.retry);
+  const acceptStatus = options.acceptStatus ?? client.acceptStatus;
 
   return {
     input,
@@ -85,13 +129,14 @@ export function createRequestConfiguration(
     query,
     body,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    ...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
-    ...(options.retry !== undefined ? { retry: options.retry } : {}),
-    ...(options.acceptStatus !== undefined ? { acceptStatus: options.acceptStatus } : {}),
-    features: Object.freeze([...client.features, ...(options.features ?? [])]),
+    ...(timeout !== undefined ? { timeout } : {}),
+    ...(retry !== undefined ? { retry } : {}),
+    ...(acceptStatus !== undefined ? { acceptStatus } : {}),
+    features: mergeFeatures(client.features, options.features),
     transport: client.transport,
     runtime: client.runtime,
     credentials: options.credentials ?? client.credentials,
+    scope: client.scope,
   };
 }
 
@@ -152,9 +197,5 @@ export function withCredentials(config: RequestConfiguration, credentials: Reque
 }
 
 export function withFeature(config: RequestConfiguration, feature: RequestFeature): RequestConfiguration {
-  const existing = config.features.findIndex((item) => item.name === feature.name);
-  const features = [...config.features];
-  if (existing >= 0) features[existing] = feature;
-  else features.push(feature);
-  return { ...config, features: Object.freeze(features) };
+  return { ...config, features: mergeFeatures(config.features, [feature]) };
 }

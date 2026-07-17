@@ -1,6 +1,6 @@
 # Framework roadmap
 
-The website and interactive playground begin after the framework reaches at least 90% readiness. Current framework readiness is approximately 85–88%.
+The website and interactive playground begin after the framework reaches at least 90% readiness. Current framework readiness is approximately 88%.
 
 ## Completed core
 
@@ -13,7 +13,9 @@ The website and interactive playground begin after the framework reaches at leas
 - in-flight request deduplication;
 - idempotency for retryable writes;
 - execution and consumption error mapping;
-- schema validation and transformation.
+- schema validation and transformation;
+- zero-config static requests, reusable client defaults, request options, and fluent policy composition;
+- client-scoped cache and deduplication isolation with tenant-aware keys.
 
 ## Completed runtime hardening
 
@@ -21,13 +23,14 @@ The website and interactive playground begin after the framework reaches at leas
 - Workers/Edge compatibility suite executing inside workerd without Node globals.
 - Next.js App Router production fixture covering server, client, and Route Handler boundaries.
 - Framework-agnostic CacheStore conformance runner for external adapters.
+- Browser bundle regression budget for the complete public API.
 
 ## Public package readiness
 
 1. Streaming execution RFC and explicit streaming API.
 2. Consumption telemetry decision.
 3. Standalone packed-consumer and export-condition tests beyond the Next fixture.
-4. Bundle-size and tree-shaking budgets.
+4. Tree-shaking and per-entry bundle budgets beyond the complete public API budget.
 5. License, package metadata, formal support matrix, and release strategy.
 
 ## Website phase

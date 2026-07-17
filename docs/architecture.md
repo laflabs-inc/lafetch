@@ -3,7 +3,7 @@
 ## Public model
 
 ```text
-LafetchClient
+lafetch.get() or LafetchClient
   -> immutable RequestBuilder
     -> normalized RequestConfiguration
       -> Feature resolver
@@ -12,6 +12,25 @@ LafetchClient
 ```
 
 The fluent chain is declarative. Chain order does not wrap nested middleware and does not define runtime order. The executor resolves a stable lifecycle plan before dispatch.
+
+The public API has three progressive layers. The zero-config `lafetch` object is a default client, `create()` defines reusable application defaults and an isolation boundary, and `.use()` exposes the Feature runtime for advanced extensions. Official policies can be expressed either as request options or fluent methods; both normalize to the same request configuration.
+
+Configuration precedence is client defaults, request options, then fluent methods.
+
+## State isolation
+
+Mutable policy resources have explicit owners:
+
+| State | Owner | Lifetime |
+| --- | --- | --- |
+| Builder execution Promise | one immutable builder | until its consumers settle |
+| Feature `state` | one Feature in one execution | one request execution |
+| Feature `metadata` | all Features in one execution | one request execution |
+| Default memory cache | one client | client lifetime |
+| In-flight deduplication registry | one client | entries live only while leaders execute |
+| Custom `CacheStore` | caller | caller-defined |
+
+Independently created clients never share a process-wide cache or deduplication registry. The zero-config `lafetch` object is itself one default client; use `create()` for application or tenant boundaries. `create()` and `extend()` each create a new, lazily initialized policy scope. Sharing an explicit store remains possible, but requires the caller to pass the same adapter deliberately.
 
 ## Execution scopes
 
@@ -119,6 +138,8 @@ An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response
 - URL user information is removed from diagnostics;
 - Fetch credentials default to `omit`;
 - credentialed and sensitive requests bypass built-in cache and deduplication;
+- default cache and deduplication state never crosses client boundaries;
+- cache and deduplication keys include all normalized request headers;
 - transport and Feature conflicts fail before network dispatch.
 
 ## Consumption scope

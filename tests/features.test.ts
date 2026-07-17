@@ -59,6 +59,28 @@ describe("request features", () => {
     expect(requestHook).toHaveBeenCalledOnce();
   });
 
+  it("applies the same override rule to request options and extend()", async () => {
+    const clientHook = vi.fn();
+    const requestHook = vi.fn();
+    const extendedHook = vi.fn();
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+      features: [{ name: "trace", hooks: { prepare: clientHook } }],
+    });
+
+    await api.get("/options", {
+      features: [{ name: "trace", hooks: { prepare: requestHook } }],
+    });
+    await api.extend({
+      features: [{ name: "trace", hooks: { prepare: extendedHook } }],
+    }).get("/extended");
+
+    expect(clientHook).not.toHaveBeenCalled();
+    expect(requestHook).toHaveBeenCalledOnce();
+    expect(extendedHook).toHaveBeenCalledOnce();
+  });
+
   it("rejects exclusive capability conflicts", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
