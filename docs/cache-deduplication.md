@@ -21,6 +21,8 @@ Unsafe methods require a caller-owned key. A key is a trust boundary; callers mu
 
 Runtime-specific stores should be tested for clone isolation, expiry, concurrent reads and writes, bounded storage or external eviction, and safe failure behavior.
 
+The `@laflabs/lafetch/testing` export provides `runCacheStoreConformance()`. It is framework-agnostic and currently checks round-trip behavior, independently consumable response clones, and optional deletion. Adapter projects can translate its result objects into their own test framework assertions.
+
 ## Deduplication ownership
 
 The first matching request is the leader. Followers await its retained response but keep their own abort and timeout signals. Aborting a follower never cancels the leader. If a leader ends through abort or timeout, an active follower may fall back to its own Transport execution.

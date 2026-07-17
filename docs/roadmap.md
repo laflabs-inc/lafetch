@@ -1,6 +1,6 @@
 # Framework roadmap
 
-The website and interactive playground begin after the framework reaches at least 90% readiness. Current framework readiness is approximately 75–80%.
+The website and interactive playground begin after the framework reaches at least 90% readiness. Current framework readiness is approximately 85–88%.
 
 ## Completed core
 
@@ -15,20 +15,20 @@ The website and interactive playground begin after the framework reaches at leas
 - execution and consumption error mapping;
 - schema validation and transformation.
 
-## Runtime hardening — next
+## Completed runtime hardening
 
-1. Browser integration suite using a real HTTP fixture.
-2. Workers/Edge compatibility suite without Node globals.
-3. Next.js App Router fixture covering server and client boundaries.
-4. CacheStore conformance tests for external adapters.
+- Browser integration suite using a real HTTP fixture.
+- Workers/Edge compatibility suite executing inside workerd without Node globals.
+- Next.js App Router production fixture covering server, client, and Route Handler boundaries.
+- Framework-agnostic CacheStore conformance runner for external adapters.
 
 ## Public package readiness
 
 1. Streaming execution RFC and explicit streaming API.
 2. Consumption telemetry decision.
-3. Packed-consumer type and export-condition tests.
-4. Bundle-size and tree-shaking checks.
-5. License, package metadata, support matrix, and release strategy.
+3. Standalone packed-consumer and export-condition tests beyond the Next fixture.
+4. Bundle-size and tree-shaking budgets.
+5. License, package metadata, formal support matrix, and release strategy.
 
 ## Website phase
 
