@@ -2,7 +2,7 @@
 
 Lafetch is a DX-first, policy-composable TypeScript HTTP client built on the Fetch standard.
 
-> Status: `v0.1` kernel prototype. The package is intentionally private and not ready for npm publication.
+> Status: pre-release framework development. Core request policies are implemented, but runtime compatibility and packaging work remain before npm publication.
 
 ```ts
 import { lafetch } from "@laflabs/lafetch";
@@ -15,6 +15,7 @@ const user = await api
   .get("/users/123")
   .timeout("3s")
   .retry(3)
+  .cache("30s")
   .json<User>();
 ```
 
@@ -102,6 +103,13 @@ const created = await api
 
 `retry(3)` means **at most three total attempts**, including the initial attempt. By default only `GET`, `HEAD`, and `OPTIONS` are retried.
 
+Credentials default to `"omit"`. Opt in explicitly at client or request scope.
+
+```ts
+const api = lafetch.create({ credentials: "same-origin" });
+await api.get("/session").credentials("include");
+```
+
 Streaming request bodies are not replayable. Use `bodyFactory()` when every attempt needs a fresh body.
 
 ```ts
@@ -110,6 +118,67 @@ await api
   .bodyFactory(() => createUploadStream())
   .retry({ attempts: 2, methods: ["POST"] });
 ```
+
+### Cache and deduplication
+
+Cache completed safe responses and share concurrent safe requests with separate policies.
+
+```ts
+const users = await api
+  .get("/users")
+  .cache("30s")
+  .dedupe()
+  .json<User[]>();
+```
+
+The default memory cache is bounded to 500 entries. Credentialed requests, authorization headers, `Set-Cookie`, restrictive `Cache-Control`, and responses with `Vary` bypass the default cache. GET and HEAD are the default cache and deduplication methods. Unsafe methods require an explicit custom key.
+
+```ts
+import { MemoryCacheStore } from "@laflabs/lafetch";
+
+const store = new MemoryCacheStore(1_000);
+await api.get("/catalog").cache({ ttl: "5m", store });
+```
+
+### Idempotent writes
+
+Idempotency adds one stable key for the entire retry sequence. It makes the current method retryable when `retry.methods` is omitted; an explicit method list remains authoritative.
+
+```ts
+await api
+  .post("/payments")
+  .jsonBody(input)
+  .idempotency()
+  .retry(3);
+```
+
+An existing `Idempotency-Key` is preserved. Custom asynchronous key generation and header names are supported.
+
+### Schema validation and error mapping
+
+Schema validation runs after HTTP execution and response decoding. It accepts a function or an object with `parse()` or `validate()` and can transform the returned type.
+
+```ts
+const userSchema = {
+  parse(value: unknown): User {
+    return validateUser(value);
+  },
+};
+
+const user = await api.get("/me").schema(userSchema).json();
+```
+
+Execution failures and response-consumption failures have separate mapping scopes.
+
+```ts
+await api
+  .get("/users/123")
+  .mapError((error) => mapApiError(error))
+  .schema(userSchema)
+  .mapDecodeError((error) => mapPayloadError(error));
+```
+
+`raw()` always returns a response clone and deliberately bypasses schema consumption.
 
 ### Abort and timeout
 
@@ -162,6 +231,8 @@ await api.get("/users").use(requestIdFeature);
 ```
 
 Feature order is resolved from `before` and `after` relationships. Exclusive capability conflicts, missing requirements, and ordering cycles fail before Transport dispatch.
+
+Strict `before`/`after` references must name an installed Feature. Use `optionalBefore` or `optionalAfter` for optional integrations.
 
 ### Feature Runtime controls
 
@@ -235,6 +306,8 @@ Request snapshots never include bodies and redact credential headers and token-l
 - `HttpAbortError`
 - `HttpStatusError`
 - `HttpDecodeError`
+- `HttpConsumptionError`
+- `HttpSchemaError`
 - `HttpConfigurationError`
 - `HttpFeatureConflictError`
 - `HttpFeatureError`

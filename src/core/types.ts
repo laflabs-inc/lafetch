@@ -84,6 +84,7 @@ export interface RequestOptions {
   readonly timeout?: TimeoutInput;
   readonly retry?: RetryInput;
   readonly acceptStatus?: StatusMatcher;
+  readonly credentials?: RequestCredentials;
   readonly features?: readonly RequestFeature[];
 }
 
@@ -92,6 +93,8 @@ export interface ClientOptions {
   readonly headers?: HeadersInit;
   readonly transport?: Transport;
   readonly features?: readonly RequestFeature[];
+  /** Defaults to `omit` so credentials are never sent implicitly. */
+  readonly credentials?: RequestCredentials;
   /** Intended for deterministic tests and specialized runtimes. */
   readonly runtime?: Partial<RuntimeAdapter>;
 }
@@ -101,6 +104,7 @@ export interface MutableRequestDraft {
   method: string;
   headers: Headers;
   body: BodySource;
+  credentials: RequestCredentials;
 }
 
 export type BodyFactory = () => BodyInit | null | Promise<BodyInit | null>;
@@ -206,6 +210,10 @@ export interface FeatureCapabilities {
 export interface FeatureOrdering {
   readonly before?: readonly string[];
   readonly after?: readonly string[];
+  /** Like `before`, but ignored when the target is not installed. */
+  readonly optionalBefore?: readonly string[];
+  /** Like `after`, but ignored when the target is not installed. */
+  readonly optionalAfter?: readonly string[];
 }
 
 export interface FeatureBaseContext {

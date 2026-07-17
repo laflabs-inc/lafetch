@@ -20,9 +20,11 @@ const SENSITIVE_HEADERS = new Set([
   "x-api-key",
 ]);
 
+const SENSITIVE_NAME = /^(?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|credential|password|refresh[-_]?token|secret|session(?:id)?|token)$/i;
+
 function redactHeader(name: string, value: string): string {
   const normalized = name.toLowerCase();
-  if (SENSITIVE_HEADERS.has(normalized) || normalized.includes("token") || normalized.includes("secret")) {
+  if (SENSITIVE_HEADERS.has(normalized) || SENSITIVE_NAME.test(normalized)) {
     return "[REDACTED]";
   }
   return value;
@@ -41,9 +43,11 @@ export function snapshotRequest(request: Request | RequestSnapshot): RequestSnap
   }
 
   const url = new URL(request.url);
+  url.username = "";
+  url.password = "";
   for (const key of [...url.searchParams.keys()]) {
     const normalized = key.toLowerCase();
-    if (normalized.includes("token") || normalized.includes("secret") || normalized.includes("key")) {
+    if (SENSITIVE_NAME.test(normalized)) {
       url.searchParams.set(key, "[REDACTED]");
     }
   }
@@ -118,6 +122,22 @@ export class HttpDecodeError extends HttpError {
   constructor(responseType: string, options: HttpErrorOptions = {}) {
     super(`Failed to decode the HTTP response as ${responseType}.`, "ERR_HTTP_DECODE", options);
     this.responseType = responseType;
+  }
+}
+
+export class HttpConsumptionError extends HttpError {
+  constructor(message: string, options: HttpErrorOptions = {}) {
+    super(message, "ERR_HTTP_CONSUMPTION", options);
+  }
+}
+
+export class HttpSchemaError extends HttpConsumptionError {
+  readonly issues?: unknown;
+
+  constructor(message = "The HTTP response did not match the configured schema.", options: HttpErrorOptions & { issues?: unknown } = {}) {
+    super(message, options);
+    this.name = "HttpSchemaError";
+    if (options.issues !== undefined) this.issues = options.issues;
   }
 }
 

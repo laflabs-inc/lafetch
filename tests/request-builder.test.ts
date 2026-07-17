@@ -204,4 +204,23 @@ describe("cancellation", () => {
     });
     expect(transport.calls).toHaveLength(0);
   });
+
+  it("applies the total timeout while buffering the response body", async () => {
+    let cancelled = false;
+    const body = new ReadableStream({
+      pull() {},
+      cancel() { cancelled = true; },
+    });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(body)),
+    });
+
+    await expect(api.get("/stream").timeout("10ms")).rejects.toMatchObject({
+      code: "ERR_HTTP_TIMEOUT",
+      scope: "total",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cancelled).toBe(true);
+  });
 });
