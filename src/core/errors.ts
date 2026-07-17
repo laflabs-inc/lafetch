@@ -29,12 +29,16 @@ function redactHeader(name: string, value: string): string {
 }
 
 export function snapshotRequest(request: Request | RequestSnapshot): RequestSnapshot {
-  if (!(request instanceof Request)) return request;
-
   const headers: Record<string, string> = {};
-  request.headers.forEach((value, name) => {
-    headers[name] = redactHeader(name, value);
-  });
+  if (request instanceof Request) {
+    request.headers.forEach((value, name) => {
+      headers[name] = redactHeader(name, value);
+    });
+  } else {
+    for (const [name, value] of Object.entries(request.headers)) {
+      headers[name.toLowerCase()] = redactHeader(name, value);
+    }
+  }
 
   const url = new URL(request.url);
   for (const key of [...url.searchParams.keys()]) {

@@ -3,12 +3,13 @@ import {
   HttpAbortError,
   HttpConfigurationError,
   HttpError,
-  HttpFeatureError,
   HttpNonReplayableBodyError,
   HttpStatusError,
   HttpTimeoutError,
   HttpTransportError,
+  snapshotRequest,
 } from "./errors.js";
+import { FeatureRuntime, type AttemptErrorInput } from "./feature-runtime.js";
 import { resolveFeatures } from "./features.js";
 import { applyQuery, resolveUrl } from "./query.js";
 import { cancellationError, composeSignals, createDeadlineSignal } from "./signals.js";
@@ -17,10 +18,10 @@ import type {
   BodySource,
   MutableRequestDraft,
   RawExecution,
-  RequestFeature,
+  RequestEventErrorSnapshot,
+  RequestEventResponseSnapshot,
   RequestMeta,
   RetryOptions,
-  TimeoutOptions,
 } from "./types.js";
 
 interface NormalizedRetry {
@@ -87,7 +88,13 @@ function retryAfterMs(response: Response, now: number): number | undefined {
   return Math.max(0, date - now);
 }
 
-function retryDelay(retry: NormalizedRetry, failedAttempt: number, random: number, response?: Response, now = Date.now()): number {
+function retryDelay(
+  retry: NormalizedRetry,
+  failedAttempt: number,
+  random: number,
+  response?: Response,
+  now = Date.now(),
+): number {
   if (response && retry.respectRetryAfter) {
     const headerDelay = retryAfterMs(response, now);
     if (headerDelay !== undefined) return Math.min(headerDelay, retry.maxMs);
@@ -134,20 +141,6 @@ function canRetry(retry: NormalizedRetry, method: string, attempt: number): bool
   return attempt < retry.attempts && retry.methods.has(method);
 }
 
-async function notifyAttemptError(
-  features: readonly RequestFeature[],
-  context: Parameters<NonNullable<NonNullable<RequestFeature["hooks"]>["onAttemptError"]>>[0],
-): Promise<void> {
-  for (const feature of features) {
-    try {
-      await feature.hooks?.onAttemptError?.(context);
-    } catch (cause) {
-      if (cause instanceof HttpError) throw cause;
-      throw new HttpFeatureError(feature.name, "onAttemptError", { cause });
-    }
-  }
-}
-
 async function bufferResponse(response: Response): Promise<Response> {
   const retained = response.clone();
   await response.arrayBuffer();
@@ -163,18 +156,70 @@ function normalizeFailure(error: unknown, signal: AbortSignal, request?: Request
   });
 }
 
+function ensureError(error: unknown, request?: Request): Error {
+  if (error instanceof Error) return error;
+  return new HttpTransportError("The HTTP request failed with a non-Error value.", {
+    cause: error,
+    ...(request !== undefined ? { request } : {}),
+  });
+}
+
+function snapshotDraft(draft: MutableRequestDraft) {
+  const headers: Record<string, string> = {};
+  draft.headers.forEach((value, name) => {
+    headers[name] = value;
+  });
+  return snapshotRequest({ method: draft.method, url: draft.url.toString(), headers });
+}
+
+function snapshotResponse(response: Response): RequestEventResponseSnapshot {
+  return Object.freeze({ status: response.status, statusText: response.statusText });
+}
+
+function snapshotError(error: Error): RequestEventErrorSnapshot {
+  return Object.freeze({
+    name: error.name,
+    message: error.message,
+    ...(error instanceof HttpError ? { code: error.code } : {}),
+    ...(error instanceof HttpStatusError ? { status: error.status } : {}),
+    ...(error instanceof HttpTimeoutError ? { scope: error.scope } : {}),
+  });
+}
+
+async function reportAttemptError(
+  runtime: FeatureRuntime,
+  config: RequestConfiguration,
+  input: AttemptErrorInput,
+): Promise<void> {
+  await runtime.onAttemptError(input);
+  const error = ensureError(input.error, input.request);
+  await runtime.emit(Object.freeze({
+    type: "attempt:error",
+    requestId: runtime.requestId,
+    timestamp: config.runtime.now(),
+    attempt: input.attempt,
+    ...(input.request !== undefined ? { request: snapshotRequest(input.request) } : {}),
+    error: snapshotError(error),
+    willRetry: input.willRetry,
+    ...(input.retryDelayMs !== undefined ? { retryDelayMs: input.retryDelayMs } : {}),
+  }));
+}
+
 export async function executeRequest(config: RequestConfiguration): Promise<RawExecution> {
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
   const timeout = normalizeTimeout(config.timeout);
   const retry = normalizeRetry(config.retry);
-  const features = resolveFeatures(config.features);
-  const metadata = new Map<string, unknown>();
+  const featureRuntime = new FeatureRuntime(resolveFeatures(config.features), requestId);
   const totalDeadline = createDeadlineSignal("total", timeout.totalMs);
   const requestSignal = composeSignals([config.signal, totalDeadline.signal]);
   let attempts = 0;
+  let finalRequest: Request | undefined;
   let finalResponse: Response | undefined;
-  let finalError: unknown;
+  let finalSource: string | undefined;
+  let finalError: Error | undefined;
+  let execution: RawExecution | undefined;
+  let endedAt: number | undefined;
 
   const baseDraft: MutableRequestDraft = {
     url: applyQuery(resolveUrl(config.input, config.baseUrl), config.query),
@@ -185,14 +230,14 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
 
   try {
     if (requestSignal.signal.aborted) throw cancellationError(requestSignal.signal);
-    for (const feature of features) {
-      try {
-        await feature.hooks?.prepare?.({ requestId, metadata, draft: baseDraft, signal: requestSignal.signal });
-      } catch (cause) {
-        if (cause instanceof HttpError) throw cause;
-        throw new HttpFeatureError(feature.name, "prepare", { cause });
-      }
-    }
+    await featureRuntime.emit(Object.freeze({
+      type: "request:start",
+      requestId,
+      timestamp: config.runtime.now(),
+      request: snapshotDraft(baseDraft),
+    }));
+    await featureRuntime.prepare(baseDraft, requestSignal.signal);
+
     if (baseDraft.body.kind === "value" && isReadableStream(baseDraft.body.value) && retry.attempts > 1) {
       throw new HttpNonReplayableBodyError();
     }
@@ -206,109 +251,167 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
 
       try {
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
-        for (const feature of features) {
-          try {
-            await feature.hooks?.beforeAttempt?.({
-              requestId,
-              metadata,
-              draft: attemptDraft,
-              attempt,
-              signal: attemptSignal.signal,
-            });
-          } catch (cause) {
-            if (cause instanceof HttpError) throw cause;
-            throw new HttpFeatureError(feature.name, "beforeAttempt", { cause });
-          }
-        }
+        await featureRuntime.beforeAttempt(attemptDraft, attempt, attemptSignal.signal);
 
         request = await buildRequest(attemptDraft, attemptSignal.signal);
+        finalRequest = request;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
-        const response = await config.transport.send(request, { requestId, attempt, signal: attemptSignal.signal });
-        if (!(response instanceof Response)) {
-          throw new HttpTransportError(`Transport "${config.transport.name}" returned a non-Response value.`, { request });
-        }
+        await featureRuntime.emit(Object.freeze({
+          type: "attempt:start",
+          requestId,
+          timestamp: config.runtime.now(),
+          attempt,
+          request: snapshotRequest(request),
+        }));
 
-        for (const feature of features) {
-          try {
-            await feature.hooks?.afterResponse?.({ requestId, metadata, request, response, attempt });
-          } catch (cause) {
-            if (cause instanceof HttpError) throw cause;
-            throw new HttpFeatureError(feature.name, "afterResponse", { cause });
+        const intercepted = await featureRuntime.intercept(request, attempt, attemptSignal.signal);
+        let response: Response;
+        let source: string;
+        if (intercepted) {
+          response = intercepted.response;
+          source = intercepted.source;
+        } else {
+          source = config.transport.name;
+          response = await config.transport.send(request, { requestId, attempt, signal: attemptSignal.signal });
+          if (!(response instanceof Response)) {
+            throw new HttpTransportError(`Transport "${config.transport.name}" returned a non-Response value.`, { request });
           }
         }
+
+        if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
+        response = await featureRuntime.afterResponse(request, response, attempt, source);
+        await featureRuntime.emit(Object.freeze({
+          type: "attempt:response",
+          requestId,
+          timestamp: config.runtime.now(),
+          attempt,
+          request: snapshotRequest(request),
+          response: snapshotResponse(response),
+          source,
+        }));
 
         const accepted = isAcceptedStatus(response.status, config.acceptStatus);
         const willRetry = !accepted && retry.statuses.has(response.status) && canRetry(retry, attemptDraft.method, attempt);
         if (willRetry) {
-          const statusError = new HttpStatusError(response, { request });
-          await notifyAttemptError(features, { requestId, metadata, request, error: statusError, attempt, willRetry: true });
-          await response.body?.cancel().catch(() => undefined);
           const delay = retryDelay(retry, attempt, config.runtime.random(), response, config.runtime.now());
+          const statusError = new HttpStatusError(response, { request });
+          await reportAttemptError(featureRuntime, config, {
+            request,
+            error: statusError,
+            attempt,
+            willRetry: true,
+            retryDelayMs: delay,
+          });
+          await response.body?.cancel().catch(() => undefined);
           await config.runtime.sleep(delay, requestSignal.signal);
           continue;
         }
 
         const retained = await bufferResponse(response);
+        finalResponse = retained;
+        finalSource = source;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
         if (!accepted) throw new HttpStatusError(retained, { request });
 
-        finalResponse = retained;
-        const endedAt = config.runtime.now();
+        endedAt = config.runtime.now();
         const meta: RequestMeta = Object.freeze({
           requestId,
           attempts,
           startedAt,
           endedAt,
           durationMs: Math.max(0, endedAt - startedAt),
-          transport: config.transport.name,
+          transport: source,
         });
-        return { request, response: retained, meta };
+        execution = { request, response: retained, meta };
+        break;
       } catch (caught) {
         const error = normalizeFailure(caught, attemptSignal.signal, request);
         const retryableFailure =
           (error instanceof HttpTransportError && retry.networkErrors) ||
           (error instanceof HttpTimeoutError && error.scope === "attempt");
         const willRetry = retryableFailure && canRetry(retry, attemptDraft.method, attempt);
-        await notifyAttemptError(features, {
-          requestId,
-          metadata,
+        const delay = willRetry
+          ? retryDelay(retry, attempt, config.runtime.random(), undefined, config.runtime.now())
+          : undefined;
+        await reportAttemptError(featureRuntime, config, {
           ...(request !== undefined ? { request } : {}),
           error,
           attempt,
           willRetry,
+          ...(delay !== undefined ? { retryDelayMs: delay } : {}),
         });
         if (!willRetry || error instanceof HttpAbortError || (error instanceof HttpTimeoutError && error.scope === "total")) {
           throw error;
         }
-        const delay = retryDelay(retry, attempt, config.runtime.random(), undefined, config.runtime.now());
-        await config.runtime.sleep(delay, requestSignal.signal);
+        await config.runtime.sleep(delay!, requestSignal.signal);
       } finally {
         attemptSignal.cleanup();
         attemptDeadline.cleanup();
       }
     }
 
-    throw new HttpTransportError("The HTTP request exhausted its attempts without a result.");
+    if (!execution) throw new HttpTransportError("The HTTP request exhausted its attempts without a result.");
   } catch (caught) {
-    finalError = requestSignal.signal.aborted ? cancellationError(requestSignal.signal, caught) : caught;
-    throw finalError;
-  } finally {
-    let finalizeError: unknown;
-    for (const feature of [...features].reverse()) {
-      try {
-        await feature.hooks?.finalize?.({
-          requestId,
-          metadata,
-          ...(finalResponse !== undefined ? { response: finalResponse } : {}),
-          ...(finalError !== undefined ? { error: finalError } : {}),
-          attempts,
-        });
-      } catch (error) {
-        finalizeError ??= error instanceof HttpError ? error : new HttpFeatureError(feature.name, "finalize", { cause: error });
-      }
+    const error = requestSignal.signal.aborted
+      ? cancellationError(requestSignal.signal, caught)
+      : ensureError(caught, finalRequest);
+    try {
+      finalError = await featureRuntime.mapError(error, attempts, finalRequest);
+    } catch (mappingError) {
+      finalError = ensureError(mappingError, finalRequest);
     }
+    endedAt ??= config.runtime.now();
+  }
+
+  try {
+    await featureRuntime.finalize({
+      ...(finalRequest !== undefined ? { request: finalRequest } : {}),
+      ...(finalResponse !== undefined ? { response: finalResponse } : {}),
+      ...(finalError !== undefined ? { error: finalError } : {}),
+      attempts,
+      ...(finalSource !== undefined ? { source: finalSource } : {}),
+    });
+  } catch (finalizeError) {
+    finalError ??= ensureError(finalizeError, finalRequest);
+    endedAt ??= config.runtime.now();
+  } finally {
     requestSignal.cleanup();
     totalDeadline.cleanup();
-    if (finalError === undefined && finalizeError !== undefined) throw finalizeError;
   }
+
+  const completedAt = endedAt ?? config.runtime.now();
+  const durationMs = Math.max(0, completedAt - startedAt);
+
+  if (finalError) {
+    try {
+      await featureRuntime.emit(Object.freeze({
+        type: "request:error",
+        requestId,
+        timestamp: config.runtime.now(),
+        attempts,
+        durationMs,
+        ...(finalRequest !== undefined ? { request: snapshotRequest(finalRequest) } : {}),
+        error: snapshotError(finalError),
+      }));
+    } catch (eventError) {
+      finalError = ensureError(eventError, finalRequest);
+    }
+    throw finalError;
+  }
+
+  if (!execution || !finalRequest || !finalResponse || !finalSource) {
+    throw new HttpTransportError("The HTTP request completed without an execution result.");
+  }
+
+  await featureRuntime.emit(Object.freeze({
+    type: "request:success",
+    requestId,
+    timestamp: config.runtime.now(),
+    attempts,
+    durationMs,
+    request: snapshotRequest(finalRequest),
+    response: snapshotResponse(finalResponse),
+    source: finalSource,
+  }));
+  return execution;
 }

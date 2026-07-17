@@ -15,6 +15,7 @@ import {
 } from "./core/config.js";
 import { decodeResponse, type ResponseMode } from "./core/decode.js";
 import { executeRequest } from "./core/executor.js";
+import { telemetry as createTelemetryFeature, type TelemetryInput } from "./features/telemetry.js";
 import type {
   BodyFactory,
   HttpResult,
@@ -39,6 +40,7 @@ export interface RequestBuilder<TData = unknown> extends PromiseLike<HttpResult<
   timeout(timeout: TimeoutInput): RequestBuilder<TData>;
   retry(retry: RetryInput): RequestBuilder<TData>;
   acceptStatus(matcher: StatusMatcher): RequestBuilder<TData>;
+  telemetry(input: TelemetryInput): RequestBuilder<TData>;
   use(feature: RequestFeature): RequestBuilder<TData>;
   send<TResult = TData>(): Promise<HttpResult<TResult>>;
   json<TResult = TData>(): Promise<TResult>;
@@ -119,6 +121,10 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
 
   acceptStatus(matcher: StatusMatcher): RequestBuilder<TData> {
     return this.#next(withAcceptedStatus(this.configuration, matcher));
+  }
+
+  telemetry(input: TelemetryInput): RequestBuilder<TData> {
+    return this.#next(withFeature(this.configuration, createTelemetryFeature(input)));
   }
 
   use(feature: RequestFeature): RequestBuilder<TData> {

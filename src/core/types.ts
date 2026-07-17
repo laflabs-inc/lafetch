@@ -112,6 +112,86 @@ export type BodySource =
 
 export type CapabilityMode = "exclusive" | "composable" | "observer";
 
+/** Mutable storage isolated to one Feature for the lifetime of one request. */
+export type FeatureState = Map<PropertyKey, unknown>;
+
+export interface RequestEventRequestSnapshot {
+  readonly method: string;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
+export interface RequestEventResponseSnapshot {
+  readonly status: number;
+  readonly statusText: string;
+}
+
+export interface RequestEventErrorSnapshot {
+  readonly name: string;
+  readonly message: string;
+  readonly code?: string;
+  readonly status?: number;
+  readonly scope?: TimeoutScope;
+}
+
+interface RequestEventBase {
+  readonly requestId: string;
+  readonly timestamp: number;
+}
+
+export interface RequestStartedEvent extends RequestEventBase {
+  readonly type: "request:start";
+  readonly request: RequestEventRequestSnapshot;
+}
+
+export interface AttemptStartedEvent extends RequestEventBase {
+  readonly type: "attempt:start";
+  readonly attempt: number;
+  readonly request: RequestEventRequestSnapshot;
+}
+
+export interface AttemptResponseEvent extends RequestEventBase {
+  readonly type: "attempt:response";
+  readonly attempt: number;
+  readonly request: RequestEventRequestSnapshot;
+  readonly response: RequestEventResponseSnapshot;
+  readonly source: string;
+}
+
+export interface AttemptErrorEvent extends RequestEventBase {
+  readonly type: "attempt:error";
+  readonly attempt: number;
+  readonly request?: RequestEventRequestSnapshot;
+  readonly error: RequestEventErrorSnapshot;
+  readonly willRetry: boolean;
+  readonly retryDelayMs?: number;
+}
+
+export interface RequestSucceededEvent extends RequestEventBase {
+  readonly type: "request:success";
+  readonly attempts: number;
+  readonly durationMs: number;
+  readonly request: RequestEventRequestSnapshot;
+  readonly response: RequestEventResponseSnapshot;
+  readonly source: string;
+}
+
+export interface RequestFailedEvent extends RequestEventBase {
+  readonly type: "request:error";
+  readonly attempts: number;
+  readonly durationMs: number;
+  readonly request?: RequestEventRequestSnapshot;
+  readonly error: RequestEventErrorSnapshot;
+}
+
+export type RequestEvent =
+  | RequestStartedEvent
+  | AttemptStartedEvent
+  | AttemptResponseEvent
+  | AttemptErrorEvent
+  | RequestSucceededEvent
+  | RequestFailedEvent;
+
 export interface ProvidedCapability {
   readonly name: string;
   readonly mode?: CapabilityMode;
@@ -131,6 +211,7 @@ export interface FeatureOrdering {
 export interface FeatureBaseContext {
   readonly requestId: string;
   readonly metadata: Map<string, unknown>;
+  readonly state: FeatureState;
 }
 
 export interface PrepareContext extends FeatureBaseContext {
@@ -144,10 +225,17 @@ export interface BeforeAttemptContext extends FeatureBaseContext {
   readonly signal: AbortSignal;
 }
 
+export interface InterceptContext extends FeatureBaseContext {
+  readonly request: Request;
+  readonly attempt: number;
+  readonly signal: AbortSignal;
+}
+
 export interface AfterResponseContext extends FeatureBaseContext {
   readonly request: Request;
   readonly response: Response;
   readonly attempt: number;
+  readonly source: string;
 }
 
 export interface AttemptErrorContext extends FeatureBaseContext {
@@ -155,19 +243,38 @@ export interface AttemptErrorContext extends FeatureBaseContext {
   readonly error: unknown;
   readonly attempt: number;
   readonly willRetry: boolean;
+  readonly retryDelayMs?: number;
+}
+
+export interface MapErrorContext extends FeatureBaseContext {
+  readonly request?: Request;
+  readonly error: Error;
+  readonly attempts: number;
+}
+
+export interface FeatureEventContext extends FeatureBaseContext {
+  readonly event: RequestEvent;
 }
 
 export interface FinalizeContext extends FeatureBaseContext {
+  readonly request?: Request;
   readonly response?: Response;
   readonly error?: unknown;
   readonly attempts: number;
+  readonly source?: string;
 }
 
 export interface RequestFeatureHooks {
   prepare?(context: PrepareContext): void | Promise<void>;
   beforeAttempt?(context: BeforeAttemptContext): void | Promise<void>;
-  afterResponse?(context: AfterResponseContext): void | Promise<void>;
+  /** Return a Response to skip Transport dispatch for this attempt. */
+  intercept?(context: InterceptContext): Response | void | Promise<Response | void>;
+  /** Return a Response to replace the current response for later Features. */
+  afterResponse?(context: AfterResponseContext): Response | void | Promise<Response | void>;
   onAttemptError?(context: AttemptErrorContext): void | Promise<void>;
+  /** Runs once for the final failure, in reverse resolved Feature order. */
+  mapError?(context: MapErrorContext): Error | void | Promise<Error | void>;
+  onEvent?(context: FeatureEventContext): void | Promise<void>;
   finalize?(context: FinalizeContext): void | Promise<void>;
 }
 
@@ -183,4 +290,3 @@ export interface RawExecution {
   readonly response: Response;
   readonly meta: RequestMeta;
 }
-
