@@ -4,14 +4,11 @@ import type { Duration, RequestFeature } from "../core/types.js";
 import { hasSensitiveRequest, requestKey } from "./request-key.js";
 
 export interface CacheOptions {
-  readonly ttl?: Duration;
   readonly store?: CacheStore;
   readonly methods?: readonly string[];
   readonly statuses?: readonly number[];
   readonly key?: string | ((request: Request) => string | Promise<string>);
 }
-
-export type CacheInput = Duration | CacheOptions;
 
 const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
@@ -42,13 +39,17 @@ interface CacheRuntime {
 }
 
 /** @internal */
-export function createCacheFeature(input?: CacheInput, runtime?: Partial<CacheRuntime>): RequestFeature {
-  const options: CacheOptions = typeof input === "number" || typeof input === "string" ? { ttl: input } : (input ?? {});
-  const ttlMs = durationToMs(options.ttl ?? "30s", "cache.ttl");
+export function createCacheFeature(
+  ttl: Duration,
+  options: CacheOptions = {},
+  runtime?: Partial<CacheRuntime>,
+): RequestFeature {
+  const ttlMs = durationToMs(ttl, "cache.ttl");
   const store = options.store ?? runtime?.store ?? new MemoryCacheStore();
   const now = runtime?.now ?? Date.now;
   const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
   const statuses = new Set(options.statuses ?? [200]);
+  const key = options.key;
 
   return {
     name: "cache",
@@ -56,19 +57,19 @@ export function createCacheFeature(input?: CacheInput, runtime?: Partial<CacheRu
     ordering: { optionalBefore: ["dedupe"] },
     hooks: {
       async prepare({ draft, state }) {
-        const unsafeWithoutCustomKey = !methods.has(draft.method) && options.key === undefined;
+        const unsafeWithoutCustomKey = !methods.has(draft.method) && key === undefined;
         const bypass = unsafeWithoutCustomKey || hasSensitiveRequest(draft);
         state.set(bypassState, bypass);
-        if (!bypass && typeof options.key !== "function") state.set(keyState, options.key ?? requestKey(draft));
+        if (!bypass && typeof key !== "function") state.set(keyState, key ?? requestKey(draft));
       },
       async intercept({ request, state }) {
         if (state.get(bypassState)) return;
-        const key = typeof options.key === "function" ? await options.key(request) : state.get(keyState);
-        if (typeof key !== "string") return;
-        state.set(keyState, key);
-        const entry = await store.get(key);
+        const resolvedKey = typeof key === "function" ? await key(request) : state.get(keyState);
+        if (typeof resolvedKey !== "string") return;
+        state.set(keyState, resolvedKey);
+        const entry = await store.get(resolvedKey);
         if (!entry || entry.expiresAt <= now()) {
-          if (entry) await store.delete?.(key);
+          if (entry) await store.delete?.(resolvedKey);
           return;
         }
         return entry.response.clone();
@@ -83,8 +84,4 @@ export function createCacheFeature(input?: CacheInput, runtime?: Partial<CacheRu
       },
     },
   };
-}
-
-export function cache(input?: CacheInput): RequestFeature {
-  return createCacheFeature(input);
 }

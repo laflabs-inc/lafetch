@@ -14,12 +14,11 @@ describe("public API conventions", () => {
     });
 
     const result = await api
-      .get("/users")
+      .get<{ page: string; source: string }>("/users")
       .query({ page: 2 })
       .header("X-Source", "test")
       .timeout("1s")
-      .retry(1)
-      .json<{ page: string; source: string }>();
+      .retry(1);
 
     expect(result).toEqual({ page: "2", source: "test" });
   });
@@ -34,12 +33,40 @@ describe("public API conventions", () => {
       api.get("/users", { retry: 2 });
       // @ts-expect-error Request policies do not belong in shared client configuration.
       lafetch.create({ timeout: "1s" });
+      // @ts-expect-error Request Features are composed on a request, not a client.
+      lafetch.create({ features: [] });
+      // @ts-expect-error JSON configures a request body and therefore requires a value.
+      api.post("/users").json();
+      // @ts-expect-error response() is the only decoded response-envelope terminal.
+      api.get("/users").send();
+      // @ts-expect-error A client boundary is created only through lafetch.create().
+      api.extend({ baseUrl: "https://other.example.com" });
+      // @ts-expect-error Custom methods use request(method, url), without an option object.
+      api.request("/cache", { method: "PURGE" });
+      // @ts-expect-error Attempt timeouts use the explicit attemptTimeout() method.
+      api.get("/users").timeout({ total: "3s", attempt: "1s" });
+      // @ts-expect-error Retry always starts with an additional retry count.
+      api.get("/users").retry({ attempts: 2 });
+      // @ts-expect-error Backoff uses one structured form inside retry options.
+      api.get("/users").retry(2, { backoff: "fixed" });
+      // @ts-expect-error Cache always starts with an explicit TTL.
+      api.get("/users").cache();
+      // @ts-expect-error Cache options are the second argument, never an alternate first argument.
+      api.get("/users").cache({ ttl: "30s" });
+      // @ts-expect-error Telemetry always starts with its event handler.
+      api.get("/users").telemetry({ onEvent() {} });
+      // @ts-expect-error Response schemas use validate().
+      api.get("/users").schema(() => true);
+      // @ts-expect-error One mapError() handles request and response failures.
+      api.get("/users").mapDecodeError((error: Error) => error);
     }
 
     type HasDirectFactoryExport = "createClient" extends keyof typeof publicApi ? true : false;
     expectTypeOf<HasDirectFactoryExport>().toEqualTypeOf<false>();
     expect(Object.keys(lafetch)).toEqual(["create"]);
     expect(publicApi).not.toHaveProperty("createClient");
+    expect(publicApi).not.toHaveProperty("telemetry");
     expect(typeof api.get).toBe("function");
+    expect(api).not.toHaveProperty("extend");
   });
 });

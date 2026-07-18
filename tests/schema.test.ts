@@ -16,26 +16,32 @@ const userSchema = {
 describe("response schema", () => {
   it("validates, transforms, and infers the result", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
-    const result = await api.get("https://api.example.com/user").schema(userSchema);
-    expect(result.data.id).toBe("1");
-    expectTypeOf(result.data).toEqualTypeOf<User>();
+    const result = await api.get("https://api.example.com/user").validate(userSchema);
+    expect(result.id).toBe("1");
+    expectTypeOf(result).toEqualTypeOf<User>();
   });
 
-  it("uses a distinct consumption error mapping scope", async () => {
+  it("maps response validation failures through the unified error mapper", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ nope: true })) });
     const error = await api
       .get("https://api.example.com/user")
-      .schema(userSchema)
-      .mapDecodeError((caught) => new TypeError("bad payload", { cause: caught }))
+      .validate(userSchema)
+      .mapError((caught, context) => {
+        expect(context.phase).toBe("response");
+        return new TypeError("bad payload", { cause: caught });
+      })
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(TypeError);
-    expect((error as Error).cause).toBeInstanceOf(HttpSchemaError);
+    expect((error as Error).cause).toMatchObject({
+      name: "HttpSchemaError",
+      code: "ERR_HTTP_SCHEMA",
+    });
   });
 
   it("keeps raw response access outside schema consumption", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ nope: true })) });
-    const response = await api.get("https://api.example.com/user").schema(userSchema).raw();
+    const response = await api.get("https://api.example.com/user").validate(userSchema).raw();
     expect(response.status).toBe(200);
   });
 });

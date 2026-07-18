@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { HttpStatusError, lafetch, snapshotRequest } from "../src/index.js";
+import { HttpStatusError, lafetch } from "../src/index.js";
+import { snapshotRequest } from "../src/core/errors.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("safe diagnostics", () => {

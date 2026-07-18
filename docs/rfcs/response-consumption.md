@@ -1,26 +1,28 @@
 # RFC: response consumption pipeline
 
-Status: accepted and implemented, except consumption telemetry.
+Status: superseded by and incorporated into the v0.2 public API.
 
 ## Motivation
 
-HTTP execution, response decoding, and application schema validation fail for different reasons. Treating all of them as execution failures would make retry and error mapping unsafe.
+HTTP execution, response decoding, and application schema validation fail for different reasons. They must remain separate internally so invalid payloads are never retried as Transport failures, while the public API should expose one predictable failure-mapping path.
 
 ## Decision
 
-The request builder owns one memoized raw execution. Each consumer receives a Response clone and runs:
+Each immutable request builder owns one memoized raw execution. Every data consumer receives a Response clone and runs:
 
-1. explicit or automatic decoding;
-2. optional schema parsing, validation, or transformation;
-3. optional consumption-error mapping.
+1. automatic or explicit `as()` decoding;
+2. optional `validate()` parsing, validation, or transformation;
+3. unified final `mapError()` handling when either execution or consumption fails.
 
-Execution `.mapError()` is completed before this pipeline. `.mapDecodeError()` only observes failures from response consumption. `.raw()` bypasses the entire pipeline.
+Direct `await` returns decoded data. `response()` returns the same data with HTTP and execution metadata. `raw()` returns a Response clone and bypasses decoding and validation.
 
-Schemas may be a function, an object with `parse(value)`, or an object with `validate(value)`. A schema can return a transformed value, `true` to retain the decoded value, `false` to reject it, or a value/issues result object. Schema failures become `HttpSchemaError` unless already represented by that type.
+Schemas may be functions, objects with `parse(value)`, or objects with `validate(value)`. They may return transformed values, booleans, or value/issues result objects. Schema failures become `HttpSchemaError` unless already represented by that type.
 
 ## Consequences
 
-- Invalid data is never retried as a transport failure.
-- Multiple consumers remain isolated.
-- Schema output can drive TypeScript inference.
-- Consumption telemetry needs a separate event family and remains a follow-up decision.
+- the common JSON path has no terminal decoder ceremony;
+- invalid data is never retried as a network failure;
+- one error mapper can convert Transport, status, decoding, and schema failures;
+- multiple consumers remain isolated through Response clones;
+- schema output drives TypeScript inference;
+- true streaming remains a separate explicit execution mode because it cannot preserve the buffered multi-consumer invariant.

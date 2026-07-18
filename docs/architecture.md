@@ -19,10 +19,10 @@ The public API has three strict roles. `lafetch` is only a client factory, each 
 Application requests have one public grammar:
 
 ```text
-client.method(url).configure().policy().consume()
+client.method(url).configure().policy() -> await data
 ```
 
-Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. This removes competing policy syntaxes and precedence rules. The low-level `request()` entry point exists for custom HTTP methods and adapter code; it is not the application-level golden path.
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns decoded data directly. `response()` opts into the decoded response envelope and `raw()` opts into the Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
 
 ## State isolation
 
@@ -37,7 +37,7 @@ Mutable policy resources have explicit owners:
 | In-flight deduplication registry | one client | entries live only while leaders execute |
 | Custom `CacheStore` | caller | caller-defined |
 
-Independently created clients never share a process-wide cache or deduplication registry. Every request therefore belongs to an explicit application, tenant, or request boundary. `create()` and `extend()` each create a new, lazily initialized policy scope. Sharing an explicit store remains possible, but requires the caller to pass the same adapter deliberately.
+Independently created clients never share a process-wide cache or deduplication registry. Every request therefore belongs to an explicit application, tenant, or request boundary created by `lafetch.create()`. Sharing an explicit store remains possible, but requires the caller to pass the same adapter deliberately.
 
 ## Execution scopes
 
@@ -51,7 +51,7 @@ Request scope runs once:
 6. map a final error in reverse Feature order when necessary;
 7. run finalizers in reverse order and emit the final request event.
 
-Official policies participate at specific boundaries: cache and deduplication may intercept dispatch, idempotency mutates attempt drafts, execution error mapping runs after the final attempt, and schema validation runs later in response-consumption scope.
+Official policies participate at specific boundaries: cache and deduplication may intercept dispatch, idempotency mutates attempt drafts, Feature error mapping runs after the final attempt, and response validation runs later in response-consumption scope. Builder `mapError()` is applied after both execution and consumption have reached a final failure.
 
 Attempt scope runs for every retry:
 
@@ -62,8 +62,8 @@ Attempt scope runs for every retry:
 5. emit `attempt:start`;
 6. run `intercept` hooks until one returns a Response, otherwise call the Transport;
 7. run `afterResponse` hooks, passing replacements to later Features;
-8. emit the response or attempt error event;
-9. decide whether to retry and expose the selected backoff delay;
+8. emit the response event and keep the attempt deadline active through final body retention;
+9. emit an attempt error when needed, decide whether to retry, and expose the selected backoff delay;
 10. wait for backoff before the next attempt.
 
 ## Promise-like invariant
@@ -76,11 +76,13 @@ one builder instance = at most one Transport execution sequence
 
 Calling another fluent method creates a new immutable builder with a separate execution identity.
 
+Builder inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
+
 The kernel currently buffers the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. True streaming will require a separate explicit execution path rather than weakening this invariant silently.
 
 ## Retry invariant
 
-`attempts` is the maximum total number of attempts, not the number of retries after the first request.
+The public `retry(count)` value is the number of additional retries after the initial request. Internal execution and `meta.attempts` continue to count total attempts.
 
 Default retry policy:
 
@@ -103,6 +105,8 @@ Capabilities use one of three modes:
 - `observer`: multiple non-owning observers.
 
 The resolver validates required and conflicting capabilities, constructs a graph from ordering relationships, and applies a stable topological sort. Strict `before` and `after` references must resolve and cannot target the same Feature. `optionalBefore` and `optionalAfter` express soft integration edges. Finalizers run in reverse resolved order and each receives an isolated Response clone.
+
+Feature names are unique within a request. Registering the same official policy twice or shadowing it with a custom Feature is rejected before dispatch instead of applying an order-dependent last-write rule.
 
 ## Feature Runtime controls
 
@@ -151,16 +155,15 @@ An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response
 
 ## Consumption scope
 
-Execution produces one retained raw Response. Each terminal consumer works on a clone, decodes it, optionally validates or transforms it through a schema, and optionally maps consumption failures. Execution `.mapError()` is completed before this pipeline. `.raw()` is intentionally outside it.
+Execution produces one retained raw Response. Each data consumer works on a clone, decodes it according to the builder's `as()` mode, and optionally validates or transforms it through `validate()`. Direct `await` returns the resulting data. `response()` wraps the same data with status, headers, and metadata. A unified builder `mapError()` handles final execution and consumption failures, while `.raw()` remains outside decoding and validation.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 
 ## Decisions still open
 
-- final package and repository name availability;
 - license (`Apache-2.0` is a strong candidate because it includes an explicit patent grant);
 - supported Node.js LTS matrix at the first public release;
 - external schema ecosystem compatibility beyond the current `parse`/`validate` contract;
 - cache ownership and revalidation contracts for Next.js;
 - true streaming builder semantics;
-- whether `RequestBuilder` should remain thenable after external user testing.
+- external user testing of the data-first thenable contract.

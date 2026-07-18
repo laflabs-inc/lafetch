@@ -8,13 +8,6 @@ export type StatusMatcher = readonly number[] | ((status: number) => boolean);
 
 export type TimeoutScope = "total" | "attempt";
 
-export interface TimeoutOptions {
-  readonly total?: Duration;
-  readonly attempt?: Duration;
-}
-
-export type TimeoutInput = Duration | TimeoutOptions;
-
 export type BackoffType = "fixed" | "exponential";
 export type JitterType = "none" | "full";
 
@@ -26,16 +19,12 @@ export interface BackoffOptions {
 }
 
 export interface RetryOptions {
-  /** Maximum total attempts, including the initial request. */
-  readonly attempts: number;
   readonly methods?: readonly string[];
   readonly statuses?: readonly number[];
   readonly networkErrors?: boolean;
   readonly respectRetryAfter?: boolean;
-  readonly backoff?: BackoffType | BackoffOptions;
+  readonly backoff?: BackoffOptions;
 }
-
-export type RetryInput = number | RetryOptions;
 
 export interface RequestMeta {
   readonly requestId: string;
@@ -46,7 +35,7 @@ export interface RequestMeta {
   readonly transport: string;
 }
 
-export interface HttpResult<T> {
+export interface LafetchResponse<T> {
   readonly data: T;
   readonly status: number;
   readonly statusText: string;
@@ -74,22 +63,10 @@ export interface RuntimeAdapter {
   requestId(): string;
 }
 
-export interface RequestOptions {
-  readonly method?: string;
-  readonly headers?: HeadersInit;
-  readonly query?: QueryParams;
-  readonly body?: BodyInit | null;
-  readonly json?: unknown;
-  readonly signal?: AbortSignal;
-  readonly credentials?: RequestCredentials;
-  readonly features?: readonly RequestFeature[];
-}
-
 export interface ClientOptions {
   readonly baseUrl?: string | URL;
   readonly headers?: HeadersInit;
   readonly transport?: Transport;
-  readonly features?: readonly RequestFeature[];
   /** Defaults to `omit` so credentials are never sent implicitly. */
   readonly credentials?: RequestCredentials;
   /** Intended for deterministic tests and specialized runtimes. */

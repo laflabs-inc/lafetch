@@ -1,93 +1,64 @@
 import {
   createClientPolicyScope,
   createRequestConfiguration,
-  mergeFeatures,
   type ClientConfiguration,
 } from "./core/config.js";
 import { createRuntime } from "./core/runtime.js";
-import type { ClientOptions, RequestOptions } from "./core/types.js";
+import type { ClientOptions } from "./core/types.js";
 import { createRequestBuilder, type RequestBuilder } from "./request-builder.js";
 import { fetchTransport } from "./transports/fetch.js";
 
-function mergeClientOptions(
-  base: ClientConfiguration,
-  options: ClientOptions,
-): ClientConfiguration {
-  const headers = new Headers(base.headers);
-  if (options.headers) new Headers(options.headers).forEach((value, name) => headers.set(name, value));
-  const runtime = options.runtime ? createRuntime({ ...base.runtime, ...options.runtime }) : base.runtime;
-
-  const configuration: ClientConfiguration = Object.freeze({
-    ...(options.baseUrl !== undefined
-      ? { baseUrl: options.baseUrl }
-      : base.baseUrl !== undefined
-        ? { baseUrl: base.baseUrl }
-        : {}),
-    headers,
-    transport: options.transport ?? base.transport,
-    features: mergeFeatures(base.features, options.features),
-    runtime,
-    credentials: options.credentials ?? base.credentials,
-    scope: createClientPolicyScope(runtime.now),
-  });
-  return configuration;
-}
-
 export interface LafetchClient {
-  /** Low-level entry point. Prefer the named HTTP methods for application requests. */
-  request<TData = unknown>(input: string | URL, options?: RequestOptions): RequestBuilder<TData>;
+  /** Custom-method entry point. Prefer the named HTTP methods when possible. */
+  request<TData = unknown>(method: string, input: string | URL): RequestBuilder<TData>;
   get<TData = unknown>(input: string | URL): RequestBuilder<TData>;
   post<TData = unknown>(input: string | URL): RequestBuilder<TData>;
   put<TData = unknown>(input: string | URL): RequestBuilder<TData>;
   patch<TData = unknown>(input: string | URL): RequestBuilder<TData>;
   delete<TData = unknown>(input: string | URL): RequestBuilder<TData>;
   head<TData = unknown>(input: string | URL): RequestBuilder<TData>;
-  extend(options?: ClientOptions): LafetchClient;
 }
 
 class LafetchClientImplementation implements LafetchClient {
   constructor(private readonly configuration: ClientConfiguration) {}
 
-  request<TData = unknown>(input: string | URL, options: RequestOptions = {}): RequestBuilder<TData> {
-    return createRequestBuilder<TData>(createRequestConfiguration(this.configuration, input, options));
+  request<TData = unknown>(method: string, input: string | URL): RequestBuilder<TData> {
+    return createRequestBuilder<TData>(createRequestConfiguration(this.configuration, input, method));
   }
 
   get<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>(input, { method: "GET" });
+    return this.request<TData>("GET", input);
   }
 
   post<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>(input, { method: "POST" });
+    return this.request<TData>("POST", input);
   }
 
   put<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>(input, { method: "PUT" });
+    return this.request<TData>("PUT", input);
   }
 
   patch<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>(input, { method: "PATCH" });
+    return this.request<TData>("PATCH", input);
   }
 
   delete<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>(input, { method: "DELETE" });
+    return this.request<TData>("DELETE", input);
   }
 
   head<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>(input, { method: "HEAD" });
-  }
-
-  extend(options: ClientOptions = {}): LafetchClient {
-    return new LafetchClientImplementation(mergeClientOptions(this.configuration, options));
+    return this.request<TData>("HEAD", input);
   }
 }
 
 export function createClient(options: ClientOptions = {}): LafetchClient {
   const runtime = createRuntime(options.runtime);
   const configuration: ClientConfiguration = Object.freeze({
-    ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+    ...(options.baseUrl !== undefined
+      ? { baseUrl: options.baseUrl instanceof URL ? new URL(options.baseUrl) : options.baseUrl }
+      : {}),
     headers: new Headers(options.headers),
     transport: options.transport ?? fetchTransport(),
-    features: Object.freeze([...(options.features ?? [])]),
     runtime,
     credentials: options.credentials ?? "omit",
     scope: createClientPolicyScope(runtime.now),

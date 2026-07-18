@@ -45,17 +45,18 @@ export function createDedupeFeature(
 ): RequestFeature {
   const executions = sharedExecutions as Map<string, SharedExecution>;
   const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
+  const configuredKey = options.key;
   return {
     name: "dedupe",
     capabilities: { provides: [{ name: "dedupe", mode: "exclusive" }] },
     hooks: {
       prepare({ draft, state }) {
-        if ((!methods.has(draft.method) && options.key === undefined) || hasSensitiveRequest(draft)) return;
-        if (typeof options.key !== "function") state.set(keyState, options.key ?? requestKey(draft));
+        if ((!methods.has(draft.method) && configuredKey === undefined) || hasSensitiveRequest(draft)) return;
+        if (typeof configuredKey !== "function") state.set(keyState, configuredKey ?? requestKey(draft));
       },
       async intercept({ request, signal, state }) {
         let key = state.get(keyState);
-        if (key === undefined && typeof options.key === "function") key = await options.key(request);
+        if (key === undefined && typeof configuredKey === "function") key = await configuredKey(request);
         if (typeof key !== "string") return;
         state.set(keyState, key);
         const existing = executions.get(key);

@@ -15,8 +15,8 @@ describe("deduplication", () => {
     });
 
     const [first, second] = await Promise.all([
-      api.get("/dedupe/basic").dedupe().json<{ ok: boolean }>(),
-      api.get("/dedupe/basic").dedupe().json<{ ok: boolean }>(),
+      api.get<{ ok: boolean }>("/dedupe/basic").dedupe(),
+      api.get<{ ok: boolean }>("/dedupe/basic").dedupe(),
     ]);
 
     expect(first.ok).toBe(true);
@@ -33,8 +33,8 @@ describe("deduplication", () => {
         return Response.json({ ok: true });
       }),
     });
-    const leader = api.get("/dedupe/abort").dedupe().json<{ ok: boolean }>();
-    const follower = api.get("/dedupe/abort").signal(controller.signal).dedupe().json();
+    const leader = api.get<{ ok: boolean }>("/dedupe/abort").dedupe();
+    const follower = api.get("/dedupe/abort").signal(controller.signal).dedupe();
     setTimeout(() => controller.abort("follower cancelled"), 5);
 
     await expect(follower).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
@@ -55,8 +55,8 @@ describe("deduplication", () => {
       }),
     });
 
-    const leader = api.get("/dedupe/fallback").signal(leaderController.signal).dedupe().json();
-    const follower = api.get("/dedupe/fallback").dedupe().json<{ fallback: boolean }>();
+    const leader = api.get("/dedupe/fallback").signal(leaderController.signal).dedupe();
+    const follower = api.get<{ fallback: boolean }>("/dedupe/fallback").dedupe();
     setTimeout(() => leaderController.abort("leader cancelled"), 5);
 
     await expect(leader).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
@@ -81,8 +81,8 @@ describe("deduplication", () => {
     });
 
     const [first, second] = await Promise.all([
-      firstApi.get("/dedupe/isolated").dedupe().json<{ tenant: string }>(),
-      secondApi.get("/dedupe/isolated").dedupe().json<{ tenant: string }>(),
+      firstApi.get<{ tenant: string }>("/dedupe/isolated").dedupe(),
+      secondApi.get<{ tenant: string }>("/dedupe/isolated").dedupe(),
     ]);
 
     expect(first.tenant).toBe("first");
@@ -101,8 +101,8 @@ describe("deduplication", () => {
     });
 
     const [first, second] = await Promise.all([
-      api.get("/dedupe/tenant").header("X-Tenant", "first").dedupe().json<{ tenant: string }>(),
-      api.get("/dedupe/tenant").header("X-Tenant", "second").dedupe().json<{ tenant: string }>(),
+      api.get<{ tenant: string }>("/dedupe/tenant").header("X-Tenant", "first").dedupe(),
+      api.get<{ tenant: string }>("/dedupe/tenant").header("X-Tenant", "second").dedupe(),
     ]);
 
     expect(first.tenant).toBe("first");

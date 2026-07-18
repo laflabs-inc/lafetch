@@ -1,23 +1,34 @@
-export interface ConsumptionErrorContext {
-  readonly request: Request;
-  readonly response: Response;
+export type RequestErrorPhase = "request" | "response";
+
+export interface RequestErrorContext {
+  readonly phase: RequestErrorPhase;
+  readonly request?: Request;
+  readonly response?: Response;
 }
 
-export type ConsumptionErrorMapper = (
+export type RequestErrorMapper = (
   error: Error,
-  context: ConsumptionErrorContext,
+  context: RequestErrorContext,
 ) => Error | void | Promise<Error | void>;
 
-export async function mapConsumptionError(
-  mapper: ConsumptionErrorMapper | undefined,
+function toError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error("The HTTP request failed with a non-Error value.", { cause: error });
+}
+
+export async function mapRequestError(
+  mappers: readonly RequestErrorMapper[],
   error: unknown,
-  context: ConsumptionErrorContext,
+  context: RequestErrorContext,
 ): Promise<never> {
-  const current = error instanceof Error ? error : new Error("Response consumption failed.", { cause: error });
-  if (!mapper) throw current;
-  const mapped = await mapper(current, context);
-  if (mapped !== undefined && !(mapped instanceof Error)) {
-    throw new TypeError("mapDecodeError() must return an Error or undefined.");
+  let current = toError(error);
+  for (let index = mappers.length - 1; index >= 0; index -= 1) {
+    const mapped = await mappers[index]!(current, context);
+    if (mapped !== undefined && !(mapped instanceof Error)) {
+      throw new TypeError("mapError() must return an Error or undefined.");
+    }
+    current = mapped ?? current;
   }
-  throw mapped ?? current;
+  throw current;
 }

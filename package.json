@@ -1,7 +1,7 @@
 {
   "name": "@laflabs/lafetch",
-  "version": "0.1.0-alpha.0",
-  "description": "A DX-first, policy-composable TypeScript HTTP client built on Fetch.",
+  "version": "0.2.0-alpha.0",
+  "description": "A data-first TypeScript HTTP client with readable reliability policies.",
   "type": "module",
   "packageManager": "pnpm@10.13.1",
   "private": true,
@@ -22,6 +22,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./feature": {
+      "types": "./dist/feature.d.ts",
+      "import": "./dist/feature.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
@@ -34,8 +38,9 @@
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:worker": "vitest run tests/worker-runtime.test.ts",
     "test:next": "pnpm build && pnpm --filter @laflabs/lafetch-next-fixture build",
+    "test:package": "node scripts/verify-package.mjs",
     "test:watch": "vitest",
-    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm test:package",
     "check:runtimes": "pnpm test:browser && pnpm test:worker && pnpm test:next"
   },
   "devDependencies": {

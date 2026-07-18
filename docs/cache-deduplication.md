@@ -19,13 +19,13 @@ Unsafe methods require a caller-owned key. A key is a trust boundary; callers mu
 
 ## Store contract
 
-The implicit memory store and in-flight registry are created lazily and belong to one client instance. `extend()` starts a fresh scope. This prevents clients with different Transports, tenants, or test fixtures from sharing state accidentally. Reusing an explicit custom `CacheStore` is an intentional opt-in to shared ownership.
+The implicit memory store and in-flight registry are created lazily and belong to one client instance. Only `lafetch.create()` establishes a new scope. This prevents clients with different Transports, tenants, or test fixtures from sharing state accidentally. Reusing an explicit custom `CacheStore` is an intentional opt-in to shared ownership.
 
 `CacheStore` is asynchronous-compatible and stores a Response plus an absolute expiry time. Implementations must return independently consumable Response instances. `MemoryCacheStore` clones entries, expires lazily, and uses bounded least-recently-used eviction.
 
 Runtime-specific stores should be tested for clone isolation, expiry, concurrent reads and writes, bounded storage or external eviction, and safe failure behavior.
 
-The `@laflabs/lafetch/testing` export provides `runCacheStoreConformance()`. It is framework-agnostic and currently checks round-trip behavior, independently consumable response clones, and optional deletion. Adapter projects can translate its result objects into their own test framework assertions.
+The `@laflabs/lafetch/testing` export provides `runCacheStoreConformance()`. It is independent of any test framework and currently checks round-trip behavior, independently consumable response clones, and optional deletion. Adapter projects can translate its result objects into their own assertions.
 
 ## Deduplication ownership
 
