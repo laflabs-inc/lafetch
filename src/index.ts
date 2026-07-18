@@ -1,4 +1,3 @@
-export { createClient } from "./client.js";
 export type { LafetchClient } from "./client.js";
 export { lafetch } from "./lafetch.js";
 export type { Lafetch } from "./lafetch.js";

@@ -3,17 +3,18 @@
 ## Public model
 
 ```text
-lafetch.get() or LafetchClient
-  -> immutable RequestBuilder
-    -> normalized RequestConfiguration
-      -> Feature resolver
-        -> request / attempt lifecycle
-          -> Transport
+lafetch.create()
+  -> LafetchClient.method(url)
+    -> immutable RequestBuilder
+      -> normalized RequestConfiguration
+        -> Feature resolver
+          -> request / attempt lifecycle
+            -> Transport
 ```
 
 The fluent chain is declarative. Chain order does not wrap nested middleware and does not define runtime order. The executor resolves a stable lifecycle plan before dispatch.
 
-The public API has three strict roles. The zero-config `lafetch` object and created clients expose the same HTTP methods, `create()` defines shared environment configuration and an isolation boundary, and `.use()` exposes the Feature runtime only for advanced extensions.
+The public API has three strict roles. `lafetch` is only a client factory, each explicitly created client owns shared environment configuration and an isolation boundary, and `.use()` exposes the Feature runtime only for advanced extensions. There is no process-wide default client or static request shortcut.
 
 Application requests have one public grammar:
 
@@ -36,7 +37,7 @@ Mutable policy resources have explicit owners:
 | In-flight deduplication registry | one client | entries live only while leaders execute |
 | Custom `CacheStore` | caller | caller-defined |
 
-Independently created clients never share a process-wide cache or deduplication registry. The zero-config `lafetch` object is itself one default client; use `create()` for application or tenant boundaries. `create()` and `extend()` each create a new, lazily initialized policy scope. Sharing an explicit store remains possible, but requires the caller to pass the same adapter deliberately.
+Independently created clients never share a process-wide cache or deduplication registry. Every request therefore belongs to an explicit application, tenant, or request boundary. `create()` and `extend()` each create a new, lazily initialized policy scope. Sharing an explicit store remains possible, but requires the caller to pass the same adapter deliberately.
 
 ## Execution scopes
 

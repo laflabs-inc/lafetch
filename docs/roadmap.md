@@ -14,7 +14,7 @@ The website and interactive playground begin after the framework reaches at leas
 - idempotency for retryable writes;
 - execution and consumption error mapping;
 - schema validation and transformation;
-- one canonical fluent request grammar for zero-config and created clients;
+- one canonical fluent request grammar behind an explicit client factory;
 - client-scoped cache and deduplication isolation with tenant-aware keys.
 
 ## Completed runtime hardening
