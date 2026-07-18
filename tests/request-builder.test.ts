@@ -22,9 +22,10 @@ function json(value: unknown, init: ResponseInit = {}): Response {
 }
 
 describe("RequestBuilder", () => {
-  it("supports zero-config requests through lafetch.get()", async () => {
+  it("supports clients without shared configuration", async () => {
     const payload = encodeURIComponent(JSON.stringify({ id: "1", name: "Dohyun" }));
-    const user = await lafetch.get(`data:application/json,${payload}`).json<User>();
+    const api = lafetch.create();
+    const user = await api.get(`data:application/json,${payload}`).json<User>();
 
     expect(user.name).toBe("Dohyun");
   });

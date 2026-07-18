@@ -9,22 +9,14 @@ Lafetch is a DX-first TypeScript HTTP client built on the Fetch standard. It use
 Every application request follows the same shape:
 
 ```text
-client.method(url).configure().policy().consume()
+lafetch.create() -> client.method(url).configure().policy().consume()
 ```
 
-No setup is required for a one-off request.
+Every request starts from an explicitly created client. `lafetch` is a factory, not a process-wide HTTP client.
 
 ```ts
 import { lafetch } from "@laflabs/lafetch";
 
-const user = await lafetch
-  .get("https://api.example.com/users/123")
-  .json<User>();
-```
-
-Create a client only for shared environment configuration such as a base URL, headers, credentials, or Transport. Each created client is also an explicit cache and in-flight deduplication isolation boundary.
-
-```ts
 const api = lafetch.create({
   baseUrl: "https://api.example.com",
   headers: { "X-App": "console" },
@@ -37,9 +29,12 @@ const user = await api
   .json<User>();
 ```
 
+Call `lafetch.create()` without options when no shared configuration is needed. The request grammar remains identical. Each client is an explicit cache and in-flight deduplication isolation boundary.
+
 The grammar is intentionally fixed:
 
-- `create()` owns shared environment configuration;
+- `lafetch` exposes only `create()`;
+- `create()` establishes shared environment configuration and an isolation boundary;
 - `get()`, `post()`, and the other HTTP methods accept only the URL;
 - query, headers, body, timeout, retry, cache, deduplication, idempotency, validation, and telemetry use fluent methods;
 - `json()`, `text()`, `raw()`, `send()`, or `await` consumes the request;
