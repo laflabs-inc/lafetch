@@ -39,12 +39,12 @@ interface NormalizedRetry {
 const DEFAULT_RETRY_METHODS = ["GET", "HEAD", "OPTIONS"];
 const DEFAULT_RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
 
-function normalizeTimeout(input: RequestConfiguration["timeout"]): { totalMs?: number; attemptMs?: number } {
-  if (input === undefined) return {};
-  if (typeof input === "number" || typeof input === "string") return { totalMs: durationToMs(input, "timeout") };
+function normalizeTimeout(config: RequestConfiguration): { totalMs?: number; attemptMs?: number } {
   return {
-    ...(input.total !== undefined ? { totalMs: durationToMs(input.total, "timeout.total") } : {}),
-    ...(input.attempt !== undefined ? { attemptMs: durationToMs(input.attempt, "timeout.attempt") } : {}),
+    ...(config.timeout !== undefined ? { totalMs: durationToMs(config.timeout, "timeout") } : {}),
+    ...(config.attemptTimeout !== undefined
+      ? { attemptMs: durationToMs(config.attemptTimeout, "attemptTimeout") }
+      : {}),
   };
 }
 
@@ -53,18 +53,19 @@ function normalizeRetry(
   method: string,
   features: readonly { capabilities?: { provides?: readonly { name: string }[] } }[],
 ): NormalizedRetry {
-  const options: RetryOptions = typeof input === "number" ? { attempts: input } : (input ?? { attempts: 1 });
-  if (!Number.isInteger(options.attempts) || options.attempts < 1) {
-    throw new HttpConfigurationError("retry.attempts must be an integer greater than or equal to 1.");
+  const retries = input?.retries ?? 0;
+  const options: RetryOptions = input?.options ?? {};
+  if (!Number.isInteger(retries) || retries < 0) {
+    throw new HttpConfigurationError("retry() requires a non-negative integer retry count.");
   }
 
-  const backoff = typeof options.backoff === "string" ? { type: options.backoff } : (options.backoff ?? {});
+  const backoff = options.backoff ?? {};
   const hasIdempotency = features.some((feature) =>
     feature.capabilities?.provides?.some((capability) => capability.name === "idempotency"),
   );
   const retryMethods = options.methods ?? (hasIdempotency ? [...DEFAULT_RETRY_METHODS, method] : DEFAULT_RETRY_METHODS);
   return {
-    attempts: options.attempts,
+    attempts: retries + 1,
     methods: new Set(retryMethods.map((retryMethod) => retryMethod.toUpperCase())),
     statuses: new Set(options.statuses ?? DEFAULT_RETRY_STATUSES),
     networkErrors: options.networkErrors ?? true,
@@ -251,7 +252,7 @@ async function reportAttemptError(
 export async function executeRequest(config: RequestConfiguration): Promise<RawExecution> {
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
-  const timeout = normalizeTimeout(config.timeout);
+  const timeout = normalizeTimeout(config);
   const resolvedFeatures = resolveFeatures(config.features);
   const retry = normalizeRetry(config.retry, config.method, resolvedFeatures);
   const featureRuntime = new FeatureRuntime(resolvedFeatures, requestId);
@@ -352,7 +353,7 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
           continue;
         }
 
-        const retained = await bufferResponse(response, requestSignal.signal);
+        const retained = await bufferResponse(response, attemptSignal.signal);
         finalResponse = retained;
         finalSource = source;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);

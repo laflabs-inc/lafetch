@@ -11,8 +11,8 @@ describe("cache", () => {
       transport: mockTransport(() => Response.json({ call: ++calls })),
     });
 
-    const first = await api.get("/cache/basic").cache({ ttl: "1m", store }).json<{ call: number }>();
-    const second = await api.get("/cache/basic").cache({ ttl: "1m", store }).json<{ call: number }>();
+    const first = await api.get<{ call: number }>("/cache/basic").cache("1m", { store });
+    const second = await api.get<{ call: number }>("/cache/basic").cache("1m", { store });
 
     expect(first.call).toBe(1);
     expect(second.call).toBe(1);
@@ -27,8 +27,8 @@ describe("cache", () => {
       transport: mockTransport(() => Response.json({ call: ++calls })),
     });
 
-    await api.get("/cache/private").credentials("include").cache({ store });
-    await api.get("/cache/private").credentials("include").cache({ store });
+    await api.get("/cache/private").credentials("include").cache("30s", { store });
+    await api.get("/cache/private").credentials("include").cache("30s", { store });
 
     expect(calls).toBe(2);
   });
@@ -62,24 +62,11 @@ describe("cache", () => {
       transport: mockTransport(() => Response.json({ tenant: "second" })),
     });
 
-    const first = await firstApi.get("/cache/isolated").cache().json<{ tenant: string }>();
-    const second = await secondApi.get("/cache/isolated").cache().json<{ tenant: string }>();
+    const first = await firstApi.get<{ tenant: string }>("/cache/isolated").cache("30s");
+    const second = await secondApi.get<{ tenant: string }>("/cache/isolated").cache("30s");
 
     expect(first.tenant).toBe("first");
     expect(second.tenant).toBe("second");
-  });
-
-  it("creates a fresh policy scope for extend()", async () => {
-    const base = lafetch.create({
-      baseUrl: "https://api.example.com",
-      transport: mockTransport(() => Response.json({ client: "base" })),
-    });
-    const extended = base.extend({
-      transport: mockTransport(() => Response.json({ client: "extended" })),
-    });
-
-    expect((await base.get("/cache/extended").cache().json<{ client: string }>()).client).toBe("base");
-    expect((await extended.get("/cache/extended").cache().json<{ client: string }>()).client).toBe("extended");
   });
 
   it("includes tenant and representation headers in the default key", async () => {
@@ -92,10 +79,8 @@ describe("cache", () => {
       }),
     });
 
-    const first = await api.get("/cache/tenant").header("X-Tenant", "first").cache()
-      .json<{ tenant: string }>();
-    const second = await api.get("/cache/tenant").header("X-Tenant", "second").cache()
-      .json<{ tenant: string }>();
+    const first = await api.get<{ tenant: string }>("/cache/tenant").header("X-Tenant", "first").cache("30s");
+    const second = await api.get<{ tenant: string }>("/cache/tenant").header("X-Tenant", "second").cache("30s");
 
     expect(first.tenant).toBe("first");
     expect(second.tenant).toBe("second");
@@ -112,7 +97,7 @@ describe("cache", () => {
       )),
     });
 
-    expect((await api.get("/cache/server-policy").cache("1m").json<{ call: number }>()).call).toBe(1);
-    expect((await api.get("/cache/server-policy").cache("1m").json<{ call: number }>()).call).toBe(2);
+    expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).call).toBe(1);
+    expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).call).toBe(2);
   });
 });

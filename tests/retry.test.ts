@@ -7,7 +7,6 @@ function success(): Response {
 }
 
 const noDelay = {
-  attempts: 3,
   backoff: { type: "fixed" as const, base: 0, jitter: "none" as const },
 };
 
@@ -20,11 +19,31 @@ describe("retry", () => {
     });
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    const result = await api.get<{ ok: boolean }>("/health").retry(noDelay);
+    const result = await api.get<{ ok: boolean }>("/health").retry(2, noDelay).response();
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(3);
     expect(transport.calls).toHaveLength(3);
+  });
+
+  it("snapshots retry options when the policy is declared", async () => {
+    let attempt = 0;
+    const statuses = [503];
+    const options = {
+      statuses,
+      backoff: { type: "fixed" as const, base: 0, jitter: "none" as const },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => ++attempt === 1 ? new Response(null, { status: 503 }) : success()),
+    });
+    const request = api.get<{ ok: boolean }>("/health").retry(1, options);
+
+    statuses.length = 0;
+    options.backoff.base = 10_000;
+
+    await expect(request).resolves.toEqual({ ok: true });
+    expect(attempt).toBe(2);
   });
 
   it("retries transport errors", async () => {
@@ -36,7 +55,7 @@ describe("retry", () => {
     });
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    const result = await api.get<{ ok: boolean }>("/health").retry({ ...noDelay, attempts: 2 });
+    const result = await api.get<{ ok: boolean }>("/health").retry(1, noDelay).response();
 
     expect(result.meta.attempts).toBe(2);
   });
@@ -45,7 +64,7 @@ describe("retry", () => {
     const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    await expect(api.post("/jobs").jsonBody({ task: "x" }).retry(noDelay)).rejects.toMatchObject({ status: 503 });
+    await expect(api.post("/jobs").json({ task: "x" }).retry(2, noDelay)).rejects.toMatchObject({ status: 503 });
     expect(transport.calls).toHaveLength(1);
   });
 
@@ -60,7 +79,7 @@ describe("retry", () => {
     await api
       .post("/jobs")
       .bodyFactory(() => `attempt-body`)
-      .retry({ ...noDelay, attempts: 2, methods: ["POST"] });
+      .retry(1, { ...noDelay, methods: ["POST"] });
 
     expect(bodies).toEqual(["attempt-body", "attempt-body"]);
   });
@@ -76,7 +95,7 @@ describe("retry", () => {
     });
 
     await expect(
-      api.post("/upload").body(stream).retry({ ...noDelay, methods: ["POST"] }),
+      api.post("/upload").body(stream).retry(2, { ...noDelay, methods: ["POST"] }),
     ).rejects.toBeInstanceOf(HttpNonReplayableBodyError);
     expect(transport.calls).toHaveLength(0);
   });
@@ -89,7 +108,7 @@ describe("retry", () => {
       }),
     });
 
-    await expect(api.get("/health").retry({ ...noDelay, attempts: 2 })).rejects.toBeInstanceOf(HttpTransportError);
+    await expect(api.get("/health").retry(1, noDelay)).rejects.toBeInstanceOf(HttpTransportError);
   });
 
   it("can retry an attempt timeout without retrying a total timeout", async () => {
@@ -105,11 +124,34 @@ describe("retry", () => {
 
     const result = await api
       .get<{ ok: boolean }>("/health")
-      .timeout({ total: "200ms", attempt: "10ms" })
-      .retry({ ...noDelay, attempts: 2 });
+      .timeout("200ms")
+      .attemptTimeout("10ms")
+      .retry(1, noDelay)
+      .response();
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(2);
+  });
+
+  it("keeps the attempt timeout active while consuming the response body", async () => {
+    let calls = 0;
+    const transport = mockTransport(() => {
+      calls += 1;
+      if (calls === 2) return success();
+      return new Response(new ReadableStream({ pull() {} }));
+    });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    const result = await api
+      .get<{ ok: boolean }>("/health")
+      .timeout("200ms")
+      .attemptTimeout("10ms")
+      .retry(1, noDelay)
+      .response();
+
+    expect(result.data.ok).toBe(true);
+    expect(result.meta.attempts).toBe(2);
+    expect(transport.calls).toHaveLength(2);
   });
 
   it("does not retry a failing bodyFactory as a transport error", async () => {
@@ -121,7 +163,7 @@ describe("retry", () => {
       .bodyFactory(() => {
         throw new Error("cannot create body");
       })
-      .retry(noDelay);
+      .retry(2, noDelay);
 
     await expect(request).rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
     expect(transport.calls).toHaveLength(0);

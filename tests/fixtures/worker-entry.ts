@@ -16,13 +16,12 @@ export default {
     });
     const result = await api
       .get("https://fixture.invalid/runtime")
-      .retry({ attempts: 2, backoff: { type: "fixed", base: 0, jitter: "none" } })
-      .schema({
+      .retry(1, { backoff: { type: "fixed", base: 0, jitter: "none" } })
+      .validate({
         parse(value: unknown): { calls: number; processGlobal: boolean } {
           return value as { calls: number; processGlobal: boolean };
         },
-      })
-      .json();
+      });
     return Response.json(result);
   },
 };

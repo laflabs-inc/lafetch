@@ -13,7 +13,7 @@ export function mergeQuery(base: ReadonlyMap<string, QueryValue>, next: QueryPar
   const merged = new Map(base);
   for (const [key, value] of Object.entries(next)) {
     if (value === undefined) merged.delete(key);
-    else merged.set(key, value);
+    else merged.set(key, isQueryArray(value) ? Object.freeze([...value]) : value);
   }
   return merged;
 }

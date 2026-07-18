@@ -5,7 +5,7 @@ import {
   HttpStatusError,
   HttpTimeoutError,
   lafetch,
-  type HttpResult,
+  type LafetchResponse,
 } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
@@ -25,7 +25,7 @@ describe("RequestBuilder", () => {
   it("supports clients without shared configuration", async () => {
     const payload = encodeURIComponent(JSON.stringify({ id: "1", name: "Dohyun" }));
     const api = lafetch.create();
-    const user = await api.get(`data:application/json,${payload}`).json<User>();
+    const user = await api.get<User>(`data:application/json,${payload}`);
 
     expect(user.name).toBe("Dohyun");
   });
@@ -40,9 +40,9 @@ describe("RequestBuilder", () => {
     const [first, second] = await Promise.all([request, request]);
 
     expect(transport.calls).toHaveLength(1);
-    expect(first.data).toEqual({ id: "1", name: "Dohyun" });
-    expect(second.data).toEqual(first.data);
-    expectTypeOf(first).toEqualTypeOf<HttpResult<User>>();
+    expect(first).toEqual({ id: "1", name: "Dohyun" });
+    expect(second).toEqual(first);
+    expectTypeOf(first).toEqualTypeOf<User>();
   });
 
   it("supports then, catch, and finally like a Promise", async () => {
@@ -54,7 +54,7 @@ describe("RequestBuilder", () => {
 
     const name = await api
       .get<User>("/users/1")
-      .then(({ data }) => data.name)
+      .then((user) => user.name)
       .catch(() => "fallback")
       .finally(finallySpy);
 
@@ -62,13 +62,13 @@ describe("RequestBuilder", () => {
     expect(finallySpy).toHaveBeenCalledOnce();
   });
 
-  it("provides data-only terminal decoders", async () => {
+  it("returns decoded data directly", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => json({ id: "1", name: "Dohyun" })),
     });
 
-    const user = await api.get("/users/1").json<User>();
+    const user = await api.get<User>("/users/1");
 
     expect(user.name).toBe("Dohyun");
     expectTypeOf(user).toEqualTypeOf<User>();
@@ -84,8 +84,34 @@ describe("RequestBuilder", () => {
       transport: mockTransport(() => responses.shift()!),
     });
 
-    expect((await api.get<string>("/hello")).data).toBe("hello");
-    expect((await api.get<void>("/empty")).data).toBeUndefined();
+    expect(await api.get<string>("/hello")).toBe("hello");
+    expect(await api.get<void>("/empty")).toBeUndefined();
+  });
+
+  it("declares an explicit response decoder with as()", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response('{"id":"1","name":"Dohyun"}', {
+        headers: { "content-type": "text/plain" },
+      })),
+    });
+
+    const user = await api.get<User>("/users/1").as("json");
+
+    expect(user.name).toBe("Dohyun");
+    expectTypeOf(user).toEqualTypeOf<User>();
+  });
+
+  it("supports custom methods without an option-object request path", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((request) => {
+        expect(request.method).toBe("PURGE");
+        return new Response(null, { status: 204 });
+      }),
+    });
+
+    await api.request<void>("PURGE", "/cache/entries");
   });
 
   it("builds query, headers, and JSON bodies", async () => {
@@ -102,8 +128,7 @@ describe("RequestBuilder", () => {
       .post("/users")
       .query({ tag: ["a", "b"], active: true, empty: null, omitted: undefined })
       .header("X-Client", "lafetch")
-      .jsonBody({ name: "Dohyun" })
-      .json();
+      .json({ name: "Dohyun" });
   });
 
   it("keeps chained builders immutable", async () => {
@@ -124,6 +149,29 @@ describe("RequestBuilder", () => {
     expect(observed).toEqual([null, "yes"]);
   });
 
+  it("snapshots URL, query, and status-list inputs when a builder is declared", async () => {
+    const observed: string[] = [];
+    const transport = mockTransport((request) => {
+      observed.push(request.url);
+      return new Response(null, { status: 404 });
+    });
+    const api = lafetch.create({ transport });
+    const url = new URL("https://api.example.com/original");
+    const tags = ["first"];
+    const accepted = [404];
+    const request = api
+      .get<void>(url)
+      .query({ tag: tags })
+      .acceptStatus(accepted);
+
+    url.pathname = "/mutated";
+    tags.push("second");
+    accepted.length = 0;
+
+    await request;
+    expect(observed).toEqual(["https://api.example.com/original?tag=first"]);
+  });
+
   it("throws HttpStatusError by default and supports accepted statuses", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
@@ -136,9 +184,13 @@ describe("RequestBuilder", () => {
       status: 404,
     });
 
-    const result = await api.get<{ code: string }>("/missing").acceptStatus([404]);
+    const result = await api
+      .get<{ code: string }>("/missing")
+      .acceptStatus([404])
+      .response();
     expect(result.status).toBe(404);
     expect(result.data.code).toBe("NOT_FOUND");
+    expectTypeOf(result).toEqualTypeOf<LafetchResponse<{ code: string }>>();
   });
 
   it("throws HttpDecodeError for invalid JSON", async () => {
@@ -147,7 +199,7 @@ describe("RequestBuilder", () => {
       transport: mockTransport(() => new Response("not json", { headers: { "content-type": "application/json" } })),
     });
 
-    await expect(api.get("/broken").json()).rejects.toBeInstanceOf(HttpDecodeError);
+    await expect(api.get("/broken")).rejects.toBeInstanceOf(HttpDecodeError);
   });
 
   it("returns a clone of the raw Response", async () => {
@@ -177,7 +229,7 @@ describe("cancellation", () => {
     });
     const request = api.get("/slow").signal(controller.signal);
 
-    const promise = request.send();
+    const promise = request.then((value) => value);
     controller.abort("user cancelled");
 
     await expect(promise).rejects.toBeInstanceOf(HttpAbortError);

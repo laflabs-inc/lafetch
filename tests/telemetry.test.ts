@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  HttpFeatureError,
-  lafetch,
-  telemetry,
-  type RequestEvent,
-} from "../src/index.js";
+import { lafetch } from "../src/index.js";
+import type { RequestEvent } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("telemetry", () => {
@@ -33,8 +29,7 @@ describe("telemetry", () => {
     await api
       .get("/health?access_token=secret")
       .header("Authorization", "Bearer secret")
-      .retry({
-        attempts: 2,
+      .retry(1, {
         backoff: { type: "fixed", base: 25, jitter: "none" },
       })
       .telemetry((event) => { events.push(event); });
@@ -81,18 +76,20 @@ describe("telemetry", () => {
     });
   });
 
-  it("supports client-level telemetry and ignores sink failures by default", async () => {
+  it("isolates telemetry sink failures from the HTTP request", async () => {
     const eventTypes: string[] = [];
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [telemetry((event) => {
-        eventTypes.push(event.type);
-        throw new Error("telemetry backend is unavailable");
-      })],
     });
 
-    const result = await api.get("/health");
+    const result = await api
+      .get("/health")
+      .telemetry((event) => {
+        eventTypes.push(event.type);
+        throw new Error("telemetry backend is unavailable");
+      })
+      .response();
 
     expect(result.status).toBe(204);
     expect(eventTypes).toEqual([
@@ -132,18 +129,4 @@ describe("telemetry", () => {
     });
   });
 
-  it("can make telemetry failures explicit", async () => {
-    const transport = mockTransport(() => new Response(null, { status: 204 }));
-    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
-
-    const request = api.get("/health").telemetry({
-      failureMode: "throw",
-      onEvent() {
-        throw new Error("sink failed");
-      },
-    });
-
-    await expect(request).rejects.toBeInstanceOf(HttpFeatureError);
-    expect(transport.calls).toHaveLength(0);
-  });
 });

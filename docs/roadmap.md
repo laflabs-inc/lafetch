@@ -1,43 +1,40 @@
-# Framework roadmap
+# Library roadmap
 
-The website and interactive playground begin after the framework reaches at least 90% readiness. Current framework readiness is approximately 88%.
+The website and interactive playground begin only after the public library contract passes the release gates below. Readiness is tracked through evidence rather than an approximate percentage.
 
-## Completed core
+## Implemented foundation
 
-- immutable Promise-like request DSL;
+- explicit client factory and isolated mutable policy state;
+- immutable, lazy, Promise-compatible request builder;
 - replaceable Fetch-based Transport;
-- timeout, abort, retry, backoff, and replay safety;
-- Feature capability resolution, lifecycle, ordering, and conflict checks;
-- telemetry and safe diagnostic snapshots;
-- bounded memory cache and custom store contract;
-- in-flight request deduplication;
-- idempotency for retryable writes;
-- execution and consumption error mapping;
-- schema validation and transformation;
-- one canonical fluent request grammar behind an explicit client factory;
-- client-scoped cache and deduplication isolation with tenant-aware keys.
+- total timeout, attempt timeout, abort, retry, backoff, and replay safety;
+- bounded cache, custom store contract, and in-flight deduplication;
+- idempotency, response validation, unified error mapping, and telemetry;
+- Feature capability resolution, ordering, lifecycle, and conflicts;
+- sensitive diagnostic redaction;
+- packed tarball installation, public export, and declaration consumption checks;
+- Browser, Node.js, Next.js, and Workers/Edge fixtures.
 
-## Completed runtime hardening
+## v0.2 API stabilization
 
-- Browser integration suite using a real HTTP fixture.
-- Workers/Edge compatibility suite executing inside workerd without Node globals.
-- Next.js App Router production fixture covering server, client, and Route Handler boundaries.
-- Framework-agnostic CacheStore conformance runner for external adapters.
-- Browser bundle regression budget for the complete public API.
+1. Data-first direct `await` and explicit `response()` envelope.
+2. Canonical JSON body, response decoder, validation, timeout, and retry names.
+3. Request-only Feature composition and advanced `./feature` entry point.
+4. Reduced root export surface and migration documentation.
+5. External usage review against the golden examples.
 
-## Public package readiness
+## Public release gates
 
-1. Streaming execution RFC and explicit streaming API.
-2. Consumption telemetry decision.
-3. Standalone packed-consumer and export-condition tests beyond the Next fixture.
-4. Tree-shaking and per-entry bundle budgets beyond the complete public API budget.
-5. License, package metadata, formal support matrix, and release strategy.
+1. Explicit streaming execution contract and bounded-memory tests.
+2. Tree-shaking and per-entry bundle budgets.
+3. License, package metadata, support policy, and release automation.
+4. Final Node.js and runtime support matrix.
 
 ## Website phase
 
-After the framework gate is met:
+After the release gates pass:
 
-- documentation site generated from the stable public API;
-- browser playground with a safe mock or public fixture Transport;
-- copyable DSL recipes and lifecycle visualizer;
+- documentation generated from the stable public API;
+- browser playground using a safe fixture Transport;
+- copyable recipes and a lifecycle visualizer;
 - compatibility and bundle-size pages.

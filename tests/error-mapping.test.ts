@@ -10,9 +10,10 @@ describe("error mapping", () => {
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 404 })),
     });
-    await expect(api.get("/missing").mapError((error) =>
-      error instanceof HttpStatusError ? new NotFoundError("missing", { cause: error }) : error,
-    )).rejects.toBeInstanceOf(NotFoundError);
+    await expect(api.get("/missing").mapError((error, context) => {
+      expect(context.phase).toBe("request");
+      return error instanceof HttpStatusError ? new NotFoundError("missing", { cause: error }) : error;
+    })).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it("composes multiple fluent mappers instead of replacing the previous mapper", async () => {

@@ -121,6 +121,7 @@ export class HttpConsumptionError extends HttpError {
 }
 
 export class HttpSchemaError extends HttpConsumptionError {
+  override readonly code = "ERR_HTTP_SCHEMA";
   readonly issues?: unknown;
 
   constructor(message = "The HTTP response did not match the configured schema.", options: HttpErrorOptions & { issues?: unknown } = {}) {

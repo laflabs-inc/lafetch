@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { HttpFeatureConflictError, HttpFeatureError, lafetch, type RequestFeature } from "../src/index.js";
+import { HttpFeatureConflictError, HttpFeatureError, lafetch } from "../src/index.js";
+import { defineFeature, type RequestFeature } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("request features", () => {
@@ -27,10 +28,9 @@ describe("request features", () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [second, first],
     });
 
-    await api.get("/resource");
+    await api.get("/resource").use(second).use(first);
 
     expect(events).toEqual([
       "first:prepare",
@@ -44,62 +44,79 @@ describe("request features", () => {
     ]);
   });
 
-  it("lets a request override a client feature with the same name", async () => {
-    const clientHook = vi.fn();
+  it("rejects duplicate Feature names instead of silently overriding policy", async () => {
+    const firstHook = vi.fn();
     const requestHook = vi.fn();
+    const transport = mockTransport(() => new Response(null, { status: 204 }));
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
-      transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [{ name: "trace", hooks: { prepare: clientHook } }],
+      transport,
     });
 
-    await api.get("/resource").use({ name: "trace", hooks: { prepare: requestHook } });
+    await expect(api
+      .get("/resource")
+      .use({ name: "trace", hooks: { prepare: firstHook } })
+      .use({ name: "trace", hooks: { prepare: requestHook } }))
+      .rejects.toBeInstanceOf(HttpFeatureConflictError);
 
-    expect(clientHook).not.toHaveBeenCalled();
-    expect(requestHook).toHaveBeenCalledOnce();
+    expect(firstHook).not.toHaveBeenCalled();
+    expect(requestHook).not.toHaveBeenCalled();
+    expect(transport.calls).toHaveLength(0);
   });
 
-  it("applies the same override rule to extend()", async () => {
-    const clientHook = vi.fn();
-    const extendedHook = vi.fn();
+  it("preserves Feature inference through the advanced helper", () => {
+    const feature = defineFeature({
+      name: "typed-feature",
+      hooks: { prepare: vi.fn() },
+    });
+
+    expect(feature.name).toBe("typed-feature");
+  });
+
+  it("snapshots a custom Feature when it is attached to a builder", async () => {
+    const originalHook = vi.fn();
+    const mutatedHook = vi.fn();
+    const feature: RequestFeature = {
+      name: "stable-feature",
+      hooks: { prepare: originalHook },
+    };
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [{ name: "trace", hooks: { prepare: clientHook } }],
     });
+    const request = api.get("/resource").use(feature);
 
-    await api.extend({
-      features: [{ name: "trace", hooks: { prepare: extendedHook } }],
-    }).get("/extended");
+    feature.hooks!.prepare = mutatedHook;
 
-    expect(clientHook).not.toHaveBeenCalled();
-    expect(extendedHook).toHaveBeenCalledOnce();
+    await request;
+    expect(originalHook).toHaveBeenCalledOnce();
+    expect(mutatedHook).not.toHaveBeenCalled();
   });
 
   it("rejects exclusive capability conflicts", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [
-        { name: "memory-cache", capabilities: { provides: [{ name: "cache" }] } },
-        { name: "redis-cache", capabilities: { provides: [{ name: "cache" }] } },
-      ],
     });
 
-    await expect(api.get("/resource")).rejects.toBeInstanceOf(HttpFeatureConflictError);
+    await expect(api
+      .get("/resource")
+      .use({ name: "memory-cache", capabilities: { provides: [{ name: "cache" }] } })
+      .use({ name: "redis-cache", capabilities: { provides: [{ name: "cache" }] } }))
+      .rejects.toBeInstanceOf(HttpFeatureConflictError);
   });
 
   it("rejects ordering cycles", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [
-        { name: "a", ordering: { after: ["b"] } },
-        { name: "b", ordering: { after: ["a"] } },
-      ],
     });
 
-    await expect(api.get("/resource")).rejects.toMatchObject({
+    await expect(api
+      .get("/resource")
+      .use({ name: "a", ordering: { after: ["b"] } })
+      .use({ name: "b", ordering: { after: ["a"] } }))
+      .rejects.toMatchObject({
       code: "ERR_HTTP_FEATURE_CONFLICT",
     });
   });
@@ -117,7 +134,7 @@ describe("request features", () => {
       },
     });
 
-    await expect(request.retry(3)).rejects.toBeInstanceOf(HttpFeatureError);
+    await expect(request.retry(2)).rejects.toBeInstanceOf(HttpFeatureError);
     expect(transport.calls).toHaveLength(0);
   });
 
@@ -151,10 +168,9 @@ describe("request features", () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 204 })),
-      features: [first, second],
     });
 
-    await api.get("/resource");
+    await api.get("/resource").use(first).use(second);
 
     expect(observations).toEqual(["false", "request-metadata", "first-state", "second-state"]);
   });
@@ -166,26 +182,24 @@ describe("request features", () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport,
-      features: [
-        {
-          name: "fixture",
-          hooks: {
-            intercept: () => Response.json({ value: 1 }),
-          },
-        },
-        {
-          name: "transform",
-          hooks: {
-            async afterResponse({ response }) {
-              const data = await response.json() as { value: number };
-              return Response.json({ value: data.value + 1 });
-            },
-          },
-        },
-      ],
     });
 
-    const result = await api.get<{ value: number }>("/resource");
+    const result = await api
+      .get<{ value: number }>("/resource")
+      .use({
+        name: "fixture",
+        hooks: { intercept: () => Response.json({ value: 1 }) },
+      })
+      .use({
+        name: "transform",
+        hooks: {
+          async afterResponse({ response }) {
+            const data = await response.json() as { value: number };
+            return Response.json({ value: data.value + 1 });
+          },
+        },
+      })
+      .response();
 
     expect(result.data).toEqual({ value: 2 });
     expect(result.meta.transport).toBe("feature:fixture");
@@ -211,10 +225,10 @@ describe("request features", () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response(null, { status: 500, statusText: "Broken" })),
-      features: [first, second],
     });
 
-    await expect(api.get("/resource")).rejects.toThrow("first:second:HTTP 500 Broken.");
+    await expect(api.get("/resource").use(first).use(second))
+      .rejects.toThrow("first:second:HTTP 500 Broken.");
     expect(finalized).toEqual([
       "first:second:HTTP 500 Broken.",
       "first:second:HTTP 500 Broken.",
@@ -233,7 +247,7 @@ describe("request features", () => {
     await expect(api.get("/optional").use({
       name: "optional",
       ordering: { optionalBefore: ["missing"] },
-    })).resolves.toMatchObject({ status: 204 });
+    }).response()).resolves.toMatchObject({ status: 204 });
   });
 
   it("isolates finalizer response bodies", async () => {
@@ -241,15 +255,19 @@ describe("request features", () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response("payload")),
-      features: ["first", "second"].map((name) => ({
-        name,
-        hooks: { finalize: async ({ response }: { response?: Response }) => {
-          bodies.push(await response!.text());
-        } },
-      })),
     });
 
-    await api.get("/finalize");
+    const request = ["first", "second"].reduce(
+      (builder, name) => builder.use({
+        name,
+        hooks: { finalize: async ({ response }) => {
+          bodies.push(await response!.text());
+        } },
+      }),
+      api.get("/finalize"),
+    );
+
+    await request;
     expect(bodies).toEqual(["payload", "payload"]);
   });
 });

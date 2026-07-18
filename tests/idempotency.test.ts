@@ -15,8 +15,7 @@ describe("idempotency", () => {
       }),
     });
 
-    await api.post("/jobs").idempotency({ key: "stable" }).retry({
-      attempts: 2,
+    await api.post("/jobs").idempotency({ key: "stable" }).retry(1, {
       backoff: { type: "fixed", base: 0, jitter: "none" },
     });
 
