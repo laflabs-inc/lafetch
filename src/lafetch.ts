@@ -1,7 +1,8 @@
-import { createClient, type LafetchClient, type LafetchClientOptions } from "./client.js";
+import { createClient, type LafetchClient } from "./client.js";
+import type { ClientOptions } from "./core/types.js";
 
 export interface Lafetch extends LafetchClient {
-  create(options?: LafetchClientOptions): LafetchClient;
+  create(options?: ClientOptions): LafetchClient;
 }
 
 const defaultClient = createClient();
