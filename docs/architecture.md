@@ -13,9 +13,15 @@ lafetch.get() or LafetchClient
 
 The fluent chain is declarative. Chain order does not wrap nested middleware and does not define runtime order. The executor resolves a stable lifecycle plan before dispatch.
 
-The public API has three progressive layers. The zero-config `lafetch` object is a default client, `create()` defines reusable application defaults and an isolation boundary, and `.use()` exposes the Feature runtime for advanced extensions. Official policies can be expressed either as request options or fluent methods; both normalize to the same request configuration.
+The public API has three strict roles. The zero-config `lafetch` object and created clients expose the same HTTP methods, `create()` defines shared environment configuration and an isolation boundary, and `.use()` exposes the Feature runtime only for advanced extensions.
 
-Configuration precedence is client defaults, request options, then fluent methods.
+Application requests have one public grammar:
+
+```text
+client.method(url).configure().policy().consume()
+```
+
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. This removes competing policy syntaxes and precedence rules. The low-level `request()` entry point exists for custom HTTP methods and adapter code; it is not the application-level golden path.
 
 ## State isolation
 

@@ -4,7 +4,6 @@ import { mergeQuery } from "./query.js";
 import type {
   BodyFactory,
   BodySource,
-  ClientOptions,
   QueryParams,
   QueryValue,
   RequestFeature,
@@ -23,9 +22,6 @@ export interface ClientConfiguration {
   readonly features: readonly RequestFeature[];
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
-  readonly timeout?: TimeoutInput;
-  readonly retry?: RetryInput;
-  readonly acceptStatus?: StatusMatcher;
   readonly scope: ClientPolicyScope;
 }
 
@@ -117,10 +113,6 @@ export function createRequestConfiguration(
 
   const query = mergeQuery(new Map(), options.query ?? {});
   const body = bodyFromOptions(options, headers);
-  const timeout = options.timeout === false ? undefined : (options.timeout ?? client.timeout);
-  const retry = options.retry === false ? undefined : (options.retry ?? client.retry);
-  const acceptStatus = options.acceptStatus ?? client.acceptStatus;
-
   return {
     input,
     ...(client.baseUrl !== undefined ? { baseUrl: client.baseUrl } : {}),
@@ -129,9 +121,6 @@ export function createRequestConfiguration(
     query,
     body,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    ...(timeout !== undefined ? { timeout } : {}),
-    ...(retry !== undefined ? { retry } : {}),
-    ...(acceptStatus !== undefined ? { acceptStatus } : {}),
     features: mergeFeatures(client.features, options.features),
     transport: client.transport,
     runtime: client.runtime,

@@ -1,12 +1,5 @@
 export { createClient } from "./client.js";
-export type {
-  ClientOptions,
-  LafetchClient,
-  LafetchClientOptions,
-  LafetchRequestOptions,
-  RequestOptions,
-  RequestPolicyOptions,
-} from "./client.js";
+export type { LafetchClient } from "./client.js";
 export { lafetch } from "./lafetch.js";
 export type { Lafetch } from "./lafetch.js";
 export type { RequestBuilder } from "./request-builder.js";
@@ -60,6 +53,7 @@ export type {
   BodyFactory,
   BodySource,
   CapabilityMode,
+  ClientOptions,
   Duration,
   FeatureCapabilities,
   FeatureEventContext,
@@ -83,6 +77,7 @@ export type {
   RequestEventResponseSnapshot,
   RequestFailedEvent,
   RequestMeta,
+  RequestOptions,
   RequestStartedEvent,
   RequestSucceededEvent,
   RetryInput,

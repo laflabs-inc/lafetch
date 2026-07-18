@@ -41,10 +41,9 @@ describe("safe diagnostics", () => {
     });
 
     const error = await api
-      .get("https://api.example.com/failure", {
-        headers: { "X-Auth-Token": "header-secret", "X-Tokenizer": "public" },
-        query: { user_token: "query-secret", tokenizer: "public" },
-      })
+      .get("https://api.example.com/failure")
+      .headers({ "X-Auth-Token": "header-secret", "X-Tokenizer": "public" })
+      .query({ user_token: "query-secret", tokenizer: "public" })
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(HttpStatusError);

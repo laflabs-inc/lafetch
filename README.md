@@ -1,10 +1,16 @@
 # Lafetch
 
-Lafetch is a DX-first TypeScript HTTP client built on the Fetch standard. Start with an Axios-like API, then add request policies only where they are useful.
+Lafetch is a DX-first TypeScript HTTP client built on the Fetch standard. It uses one fluent request grammar from simple Fetch calls through advanced policies.
 
 > Status: pre-release framework development. The core and runtime matrix are implemented; package publication and the explicit streaming API remain before the first public release.
 
-## 30-second start
+## Standard usage
+
+Every application request follows the same shape:
+
+```text
+client.method(url).configure().policy().consume()
+```
 
 No setup is required for a one-off request.
 
@@ -16,48 +22,30 @@ const user = await lafetch
   .json<User>();
 ```
 
-Create a client when requests share a base URL or policy defaults. Each created client is also an explicit cache and in-flight deduplication isolation boundary.
+Create a client only for shared environment configuration such as a base URL, headers, credentials, or Transport. Each created client is also an explicit cache and in-flight deduplication isolation boundary.
 
 ```ts
 const api = lafetch.create({
   baseUrl: "https://api.example.com",
-  timeout: "5s",
-  retry: 2,
-  dedupe: true,
+  headers: { "X-App": "console" },
 });
 
-const user = await api.get("/users/123").json<User>();
-```
-
-Use request options when everything should be visible in one object.
-
-```ts
-const created = await api.post("/users", {
-  json: { name: "Dohyun" },
-  timeout: "3s",
-  retry: 3,
-  idempotency: true,
-}).json<User>();
-```
-
-Use the fluent form when a policy reads better as a chain. Both forms run through the same kernel.
-
-```ts
-const users = await api
-  .get("/users")
+const user = await api
+  .get("/users/123")
   .timeout("3s")
   .retry(3)
-  .cache("30s")
-  .json<User[]>();
+  .json<User>();
 ```
 
-The precedence is client defaults, then request options, then fluent methods. A request can disable inherited `timeout`, `retry`, `cache`, `dedupe`, or `telemetry` with `false` in its options.
+The grammar is intentionally fixed:
 
-Most application code should need only these three levels:
+- `create()` owns shared environment configuration;
+- `get()`, `post()`, and the other HTTP methods accept only the URL;
+- query, headers, body, timeout, retry, cache, deduplication, idempotency, validation, and telemetry use fluent methods;
+- `json()`, `text()`, `raw()`, `send()`, or `await` consumes the request;
+- `.use(feature)` is reserved for custom lifecycle extensions.
 
-1. `lafetch.get(url)` for zero-config requests;
-2. `lafetch.create(defaults)` plus options or fluent methods for application APIs;
-3. `.use(feature)` only for custom lifecycle behavior.
+This removes policy precedence ambiguity: one request behavior has one public expression.
 
 ## Design goals
 
@@ -123,20 +111,7 @@ Chained builders are immutable. Creating a variant produces a new request execut
 
 ### Request configuration
 
-The compact option form supports query, headers, body, and official policies together.
-
-```ts
-const created = await api.post("/users", {
-  query: { notify: true },
-  headers: { "X-Request-Source": "admin" },
-  json: { name: "Dohyun" },
-  timeout: { total: "20s", attempt: "5s" },
-  retry: 3,
-  idempotency: true,
-}).json<User>();
-```
-
-The equivalent fluent form remains available for progressive composition.
+Request configuration and policies use the fluent builder consistently.
 
 ```ts
 const created = await api

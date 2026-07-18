@@ -140,30 +140,6 @@ describe("RequestBuilder", () => {
     expect(result.data.code).toBe("NOT_FOUND");
   });
 
-  it("inherits create() defaults and allows request-level opt outs", async () => {
-    let calls = 0;
-    const api = lafetch.create({
-      baseUrl: "https://api.example.com",
-      retry: 2,
-      acceptStatus: [404],
-      transport: mockTransport(() => {
-        calls += 1;
-        return calls === 1
-          ? new Response(null, { status: 503 })
-          : json({ code: "NOT_FOUND" }, { status: 404 });
-      }),
-      runtime: { random: () => 0, sleep: async () => undefined },
-    });
-
-    const accepted = await api.get<{ code: string }>("/defaults");
-    expect(accepted.data.code).toBe("NOT_FOUND");
-    expect(calls).toBe(2);
-
-    await expect(api.get("/no-retry", { retry: false, acceptStatus: [200] }))
-      .rejects.toMatchObject({ status: 404 });
-    expect(calls).toBe(3);
-  });
-
   it("throws HttpDecodeError for invalid JSON", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
@@ -223,23 +199,6 @@ describe("cancellation", () => {
 
     expect(error).toBeInstanceOf(HttpTimeoutError);
     expect(error).toMatchObject({ scope: "total", timeoutMs: 10 });
-  });
-
-  it("inherits a timeout default and supports a per-request opt out", async () => {
-    const api = lafetch.create({
-      baseUrl: "https://api.example.com",
-      timeout: "5ms",
-      transport: mockTransport(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 15));
-        return new Response(null, { status: 204 });
-      }),
-    });
-
-    await expect(api.get("/slow-default")).rejects.toMatchObject({
-      code: "ERR_HTTP_TIMEOUT",
-      scope: "total",
-    });
-    await expect(api.get("/slow-opt-out", { timeout: false })).resolves.toMatchObject({ status: 204 });
   });
 
   it("treats a zero timeout as an immediate deadline", async () => {
