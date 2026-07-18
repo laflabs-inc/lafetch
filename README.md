@@ -1,75 +1,93 @@
 # Lafetch
 
-Lafetch is a DX-first TypeScript HTTP client built on the Fetch standard. It uses one fluent request grammar from simple Fetch calls through advanced policies.
+> 요청 코드는 간단하게, 실패 처리는 안전하게.
 
-> Status: pre-release framework development. The core and runtime matrix are implemented; package publication and the explicit streaming API remain before the first public release.
+Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트입니다. 하나의 일관된 체이닝 API로 요청을 읽기 쉽게 만들고, 재시도·격리·검증·오류 처리처럼 놓치기 쉬운 부분은 안전한 기본값으로 다룹니다.
 
-## Standard usage
+> 현재 상태: 공개 배포 전 프레임워크 개발 단계입니다. 핵심 기능과 런타임 호환성 검증은 구현되었으며, 첫 공개 버전 전 스트리밍 API와 패키지 배포 준비가 남아 있습니다.
 
-Every application request follows the same shape:
+## 시작하기
 
-```text
-lafetch.create() -> client.method(url).configure().policy().consume()
-```
-
-Every request starts from an explicitly created client. `lafetch` is a factory, not a process-wide HTTP client.
+모든 요청은 명시적으로 생성한 클라이언트에서 시작합니다.
 
 ```ts
 import { lafetch } from "@laflabs/lafetch";
 
 const api = lafetch.create({
   baseUrl: "https://api.example.com",
-  headers: { "X-App": "console" },
 });
 
+const user = await api.get("/users/123").json<User>();
+```
+
+공통 설정이 없다면 `lafetch.create()`로 동일한 형태의 클라이언트를 만듭니다.
+
+## 왜 Lafetch인가요?
+
+### 편의성
+
+- 간단한 요청부터 고급 정책까지 한 가지 문법만 사용합니다.
+- 옵션 객체를 오가며 우선순위를 외울 필요 없이 요청을 위에서 아래로 읽습니다.
+- `await`뿐 아니라 `then`, `catch`, `finally`도 그대로 사용할 수 있습니다.
+- JSON, 텍스트, 원본 응답을 명확한 종결 메서드로 꺼냅니다.
+- TypeScript 타입 추론과 스키마 검증을 함께 사용할 수 있습니다.
+
+### 안정성
+
+- 재시도 가능한 메서드와 본문을 안전하게 구분합니다.
+- Timeout, Abort, Retry가 같은 요청 생명주기 안에서 충돌 없이 동작합니다.
+- Cache와 Deduplication 상태는 클라이언트별로 격리됩니다.
+- 인증 정보가 포함된 요청은 기본 캐시와 중복 제거에서 안전하게 제외됩니다.
+- 구조화된 오류와 민감 정보가 제거된 진단 데이터를 제공합니다.
+- Browser, Node.js, Next.js, Workers/Edge에서 같은 동작을 검증합니다.
+
+## 하나의 사용 규칙
+
+```text
+lafetch.create() → api.get(url) → .timeout().retry() → .json()
+```
+
+- `lafetch`는 `create()`만 제공하는 팩토리입니다.
+- `create()`는 공통 환경 설정과 상태 격리 경계를 만듭니다.
+- `get()`, `post()` 같은 HTTP 메서드는 URL만 받습니다.
+- 헤더, 본문, Timeout, Retry, Cache 같은 요청 동작은 체이닝 메서드로 설정합니다.
+- `json()`, `text()`, `raw()`, `send()` 또는 `await`로 요청을 실행합니다.
+- `.use(feature)`는 사용자 정의 생명주기 확장에만 사용합니다.
+
+하나의 동작을 표현하는 방법도 하나만 제공하여 옵션 우선순위와 팀별 사용법 차이를 줄입니다.
+
+## 자주 사용하는 요청
+
+### 데이터 조회
+
+```ts
+const users = await api.get("/users").json<User[]>();
+```
+
+### JSON 전송
+
+```ts
 const user = await api
-  .get("/users/123")
-  .timeout("3s")
-  .retry(3)
+  .post("/users")
+  .jsonBody({ name: "Dohyun" })
   .json<User>();
 ```
 
-Call `lafetch.create()` without options when no shared configuration is needed. The request grammar remains identical. Each client is an explicit cache and in-flight deduplication isolation boundary.
-
-The grammar is intentionally fixed:
-
-- `lafetch` exposes only `create()`;
-- `create()` establishes shared environment configuration and an isolation boundary;
-- `get()`, `post()`, and the other HTTP methods accept only the URL;
-- query, headers, body, timeout, retry, cache, deduplication, idempotency, validation, and telemetry use fluent methods;
-- `json()`, `text()`, `raw()`, `send()`, or `await` consumes the request;
-- `.use(feature)` is reserved for custom lifecycle extensions.
-
-This removes policy precedence ambiguity: one request behavior has one public expression.
-
-## Design goals
-
-- Keep simple requests short.
-- Keep complex request policy readable.
-- Use standard `Request`, `Response`, `Headers`, and `AbortSignal` objects.
-- Keep Transport replaceable and request Features composable.
-- Run the same semantics in browsers, Node.js, Next.js, and Fetch-compatible workers.
-- Fail safely for unsafe retries, non-replayable bodies, sensitive diagnostics, and Feature conflicts.
-
-Runtime compatibility is continuously checked against Node.js 20/22/24, Chromium, a `workerd` isolate, and a Next.js App Router production fixture. See [runtime compatibility](docs/runtime-compatibility.md) for the exact scope.
-
-## Core API
-
-### Result envelope
-
-Awaiting a builder directly returns an `HttpResult<T>`.
+### Timeout과 Retry
 
 ```ts
-const result = await api.get<User>("/users/123");
-
-result.data;
-result.status;
-result.headers;
-result.response;
-result.meta.attempts;
+const users = await api
+  .get("/users")
+  .timeout("3s")
+  .retry(3)
+  .json<User[]>();
 ```
 
-Data-only terminal methods return a normal `Promise`.
+`retry(3)`은 최초 요청을 포함해 최대 세 번 시도한다는 의미입니다. 기본적으로 `GET`, `HEAD`, `OPTIONS`만 자동 재시도합니다.
+
+## 응답 사용하기
+
+데이터만 필요하면 종결 메서드를 사용합니다.
 
 ```ts
 const user = await api.get("/users/123").json<User>();
@@ -77,258 +95,59 @@ const text = await api.get("/health").text();
 const response = await api.get("/download").raw();
 ```
 
-### Promise-compatible chaining
+상태 코드와 헤더까지 필요하면 요청 객체를 직접 `await`합니다.
 
-`RequestBuilder` is a lazy Promise-like value.
+```ts
+const result = await api.get<User>("/users/123");
+
+result.data;
+result.status;
+result.headers;
+result.meta.attempts;
+```
+
+요청 객체는 Promise처럼 사용할 수도 있습니다.
 
 ```ts
 api
   .get<User>("/users/123")
-  .timeout("3s")
-  .retry(3)
   .then(({ data }) => render(data))
   .catch(handleError)
   .finally(stopLoading);
 ```
 
-The request starts when the builder is consumed by `await`, `then`, `catch`, `finally`, `send`, or a terminal decoder. A single builder executes its Transport exactly once, even when it has multiple consumers.
+요청은 실제로 소비될 때까지 실행되지 않습니다. 같은 요청 객체를 여러 번 소비해도 전송은 한 번만 일어나며, 체이닝 메서드를 추가하면 별도의 불변 요청 객체가 생성됩니다.
 
-```ts
-const request = api.get<User>("/users/123");
+## 주요 기능
 
-const name = request.then(({ data }) => data.name);
-const email = request.then(({ data }) => data.email);
+| 기능 | 간단한 사용법 | 역할 |
+| --- | --- | --- |
+| Timeout | `.timeout("3s")` | 전체 요청 또는 개별 시도 제한 시간 |
+| Retry & Backoff | `.retry(3)` | 안전한 재시도와 지연 정책 |
+| Abort | `.signal(signal)` | 표준 `AbortSignal`을 통한 취소 |
+| Cache | `.cache("30s")` | 완료된 안전한 응답 캐시 |
+| Deduplication | `.dedupe()` | 동시에 발생한 동일 요청 공유 |
+| Idempotency | `.idempotency()` | 재시도되는 쓰기 요청의 키 유지 |
+| Schema | `.schema(schema)` | 응답 검증과 타입 변환 |
+| Error Mapping | `.mapError(mapper)` | 도메인 오류로 변환 |
+| Telemetry | `.telemetry(handler)` | 요청 생명주기 관찰 |
+| Feature | `.use(feature)` | 사용자 정의 요청 기능 조립 |
 
-await Promise.all([name, email]); // one HTTP execution
-```
+세부 옵션과 고급 예제는 [상세 사용 가이드](docs/advanced-usage.md)에서 확인할 수 있습니다.
 
-Chained builders are immutable. Creating a variant produces a new request execution.
+## 안전한 기본값
 
-### Request configuration
+- 자격 증명은 기본적으로 전송하지 않으며 `credentials`를 명시해야 합니다.
+- 기본 메모리 캐시는 최대 500개 항목으로 제한됩니다.
+- 인증 헤더, 토큰 형태의 쿼리, `Set-Cookie`, 제한적인 `Cache-Control`, `Vary`가 포함된 요청과 응답은 기본 캐시를 우회합니다.
+- Cache와 Deduplication 키에는 URL과 요청 헤더가 반영되어 테넌트별 응답이 섞이지 않습니다.
+- 스트리밍 본문처럼 재생할 수 없는 요청은 위험한 재시도 전에 거부됩니다.
+- 요청 본문은 Telemetry에 포함되지 않으며 인증 헤더와 토큰 형태의 쿼리는 진단 정보에서 제거됩니다.
+- Feature 충돌, 누락된 요구 기능, 실행 순환 참조는 네트워크 요청 전에 실패합니다.
 
-Request configuration and policies use the fluent builder consistently.
+## 오류 모델
 
-```ts
-const created = await api
-  .post("/users")
-  .query({ notify: true, tag: ["new", "member"] })
-  .header("X-Request-Source", "admin")
-  .jsonBody({ name: "Dohyun" })
-  .timeout({ total: "20s", attempt: "5s" })
-  .retry({
-    attempts: 3,
-    methods: ["POST"],
-    backoff: {
-      type: "exponential",
-      base: "200ms",
-      max: "10s",
-      jitter: "full",
-    },
-  })
-  .json<User>();
-```
-
-`retry(3)` means **at most three total attempts**, including the initial attempt. By default only `GET`, `HEAD`, and `OPTIONS` are retried.
-
-Credentials default to `"omit"`. Opt in explicitly at client or request scope.
-
-```ts
-const api = lafetch.create({ credentials: "same-origin" });
-await api.get("/session").credentials("include");
-```
-
-Streaming request bodies are not replayable. Use `bodyFactory()` when every attempt needs a fresh body.
-
-```ts
-await api
-  .post("/upload")
-  .bodyFactory(() => createUploadStream())
-  .retry({ attempts: 2, methods: ["POST"] });
-```
-
-### Cache and deduplication
-
-Cache completed safe responses and share concurrent safe requests with separate policies.
-
-```ts
-const users = await api
-  .get("/users")
-  .cache("30s")
-  .dedupe()
-  .json<User[]>();
-```
-
-The default memory cache is bounded to 500 entries. Credentialed requests, authorization headers, `Set-Cookie`, restrictive `Cache-Control`, and responses with `Vary` bypass the default cache. GET and HEAD are the default cache and deduplication methods. Unsafe methods require an explicit custom key.
-
-Default cache entries and in-flight deduplication are isolated per client, and `extend()` creates a new isolation scope. The safe key includes the URL and every request header, so tenant or representation headers cannot accidentally share a response. Token-bearing headers and query parameters bypass both policies. An explicitly supplied `CacheStore` is shared only where the caller reuses it.
-
-```ts
-import { MemoryCacheStore } from "@laflabs/lafetch";
-
-const store = new MemoryCacheStore(1_000);
-await api.get("/catalog").cache({ ttl: "5m", store });
-```
-
-### Idempotent writes
-
-Idempotency adds one stable key for the entire retry sequence. It makes the current method retryable when `retry.methods` is omitted; an explicit method list remains authoritative.
-
-```ts
-await api
-  .post("/payments")
-  .jsonBody(input)
-  .idempotency()
-  .retry(3);
-```
-
-An existing `Idempotency-Key` is preserved. Custom asynchronous key generation and header names are supported.
-
-### Schema validation and error mapping
-
-Schema validation runs after HTTP execution and response decoding. It accepts a function or an object with `parse()` or `validate()` and can transform the returned type.
-
-```ts
-const userSchema = {
-  parse(value: unknown): User {
-    return validateUser(value);
-  },
-};
-
-const user = await api.get("/me").schema(userSchema).json();
-```
-
-Execution failures and response-consumption failures have separate mapping scopes.
-
-```ts
-await api
-  .get("/users/123")
-  .mapError((error) => mapApiError(error))
-  .schema(userSchema)
-  .mapDecodeError((error) => mapPayloadError(error));
-```
-
-`raw()` always returns a response clone and deliberately bypasses schema consumption.
-
-### Abort and timeout
-
-```ts
-const controller = new AbortController();
-
-const request = api
-  .get("/reports")
-  .signal(controller.signal)
-  .timeout({ total: "30s", attempt: "10s" });
-
-controller.abort();
-```
-
-User cancellation throws `HttpAbortError`. Total and per-attempt deadlines throw `HttpTimeoutError` with a `scope` of `"total"` or `"attempt"`. Safe methods may retry an attempt timeout; a total timeout is always final.
-
-### Custom Transport
-
-```ts
-import type { Transport } from "@laflabs/lafetch";
-
-const transport: Transport = {
-  name: "custom",
-  async send(request, context) {
-    return customRuntimeFetch(request, context.signal);
-  },
-};
-
-const api = lafetch.create({ transport });
-```
-
-### Request Feature
-
-Official policies have first-class DSL methods. External behavior is installed with `.use()`.
-
-```ts
-const requestIdFeature = {
-  name: "request-id",
-  capabilities: {
-    provides: [{ name: "request-id", mode: "exclusive" }],
-  },
-  hooks: {
-    prepare({ draft, requestId }) {
-      draft.headers.set("X-Request-ID", requestId);
-    },
-  },
-};
-
-await api.get("/users").use(requestIdFeature);
-```
-
-Feature order is resolved from `before` and `after` relationships. Exclusive capability conflicts, missing requirements, and ordering cycles fail before Transport dispatch.
-
-Strict `before`/`after` references must name an installed Feature. Use `optionalBefore` or `optionalAfter` for optional integrations.
-
-### Feature Runtime controls
-
-Features receive isolated request-scoped `state` and a shared request-scoped `metadata` map. Control hooks can short-circuit Transport dispatch, replace a Response, or map the final Error without changing the fluent request API.
-
-```ts
-const fixtureFeature = {
-  name: "fixture",
-  hooks: {
-    intercept({ request }) {
-      if (new URL(request.url).pathname === "/health") {
-        return Response.json({ ok: true });
-      }
-    },
-    afterResponse({ response }) {
-      // Return undefined to keep the current Response,
-      // or return a Response to replace it for later Features.
-      return response;
-    },
-    mapError({ error }) {
-      return error;
-    },
-  },
-};
-
-const result = await api.get("/health").use(fixtureFeature);
-result.meta.transport; // "feature:fixture"
-```
-
-Only the first `intercept` hook that returns a Response skips dispatch. `afterResponse` runs in resolved order and passes replacements to later Features. `mapError` runs once for the final failure in reverse resolved order. `finalize` also runs in reverse order.
-
-### Telemetry
-
-Telemetry is an observer Feature and can be installed for one request with the fluent DSL.
-
-```ts
-await api
-  .get("/health")
-  .retry(3)
-  .telemetry((event) => {
-    console.log(event.type, event.requestId);
-  });
-```
-
-Install it at client scope when every request should be observed.
-
-```ts
-import { lafetch, telemetry } from "@laflabs/lafetch";
-
-const api = lafetch.create({
-  features: [
-    telemetry((event) => sendToCollector(event)),
-  ],
-});
-```
-
-The event sequence uses the following discriminated event types:
-
-- `request:start`;
-- `attempt:start`;
-- `attempt:response`;
-- `attempt:error`, including `willRetry` and `retryDelayMs`;
-- `request:success` or `request:error`.
-
-Request snapshots never include bodies and redact credential headers and token-like query values. Telemetry handler failures are ignored by default so an unavailable collector cannot fail an HTTP request. Set `failureMode: "throw"` when strict delivery is required.
-
-## Error model
+Lafetch는 실패 원인을 구분할 수 있도록 구조화된 오류를 제공합니다.
 
 - `HttpTransportError`
 - `HttpTimeoutError`
@@ -342,60 +161,54 @@ Request snapshots never include bodies and redact credential headers and token-l
 - `HttpFeatureError`
 - `HttpNonReplayableBodyError`
 
-Responses outside `200–299` throw `HttpStatusError` by default. Override the accepted range explicitly when an endpoint needs different semantics.
+기본 성공 범위는 HTTP `200–299`이며, 이외의 응답은 `HttpStatusError`를 발생시킵니다. 필요한 경우 요청별로 허용할 상태 코드를 명시할 수 있습니다.
 
-```ts
-const result = await api
-  .get<ApiResult>("/jobs/123")
-  .acceptStatus((status) => status === 200 || status === 404);
-```
+## 실행 환경
 
-Diagnostic request snapshots redact credential headers and token-like query values.
+| 환경 | 검증 범위 |
+| --- | --- |
+| 브라우저 | 실제 Chromium과 HTTP 픽스처 |
+| Node.js | Node.js 20, 22, 24 |
+| Next.js | App Router의 Server, Client, Route Handler |
+| Workers/Edge | Node.js 전역 객체가 없는 `workerd` 격리 환경 |
 
-## Adapter testing
+Lafetch는 표준 `Request`, `Response`, `Headers`, `AbortSignal`을 사용합니다. 기본 전송 계층(Transport)은 Fetch 기반이며 필요한 경우 런타임별 구현으로 교체할 수 있습니다.
 
-Custom cache adapters can reuse the framework-agnostic conformance runner from the testing export.
+정확한 범위는 [런타임 호환성 문서](docs/runtime-compatibility.md)를 참고하세요.
 
-```ts
-import { runCacheStoreConformance } from "@laflabs/lafetch/testing";
+## 확장 구조
 
-const results = await runCacheStoreConformance(() => new RedisCacheStore());
-if (results.some((result) => !result.passed)) throw new Error("Invalid CacheStore adapter");
-```
+공식 기능은 `.timeout()`, `.retry()`, `.cache()`처럼 전용 체이닝 메서드로 제공합니다. 외부 기능은 `.use(feature)`를 통해 동일한 요청 생명주기에 참여합니다.
 
-Mock Transports are also available from the testing export.
+Feature 실행 순서는 선언된 `before`와 `after` 관계로 결정되며, 체인을 작성한 순서가 암묵적인 미들웨어 중첩 순서가 되지 않습니다. Transport 역시 공개 인터페이스를 통해 교체할 수 있어 Fetch 호환 런타임 외의 실행 환경과 테스트 더블을 연결할 수 있습니다.
 
-```ts
-import { lafetch } from "@laflabs/lafetch";
-import { mockTransport } from "@laflabs/lafetch/testing";
+## 문서
 
-const transport = mockTransport(() =>
-  Response.json({ id: "user_123" }),
-);
+- [상세 사용 가이드](docs/advanced-usage.md)
+- [커널 아키텍처](docs/architecture.md)
+- [Cache와 Deduplication 설계](docs/cache-deduplication.md)
+- [응답 소비 RFC](docs/rfcs/response-consumption.md)
+- [런타임 호환성](docs/runtime-compatibility.md)
+- [개발 로드맵](docs/roadmap.md)
 
-const api = lafetch.create({
-  baseUrl: "https://api.example.com",
-  transport,
-});
-```
-
-## Development
+## 개발
 
 ```bash
 pnpm install
 pnpm check
 ```
 
-`pnpm check` runs strict TypeScript checking, the behavioral test suite, and the ESM declaration build.
+`pnpm check`는 엄격한 TypeScript 검사, 동작 테스트, ESM 선언 빌드를 실행합니다. 런타임 픽스처는 React나 Next.js를 코어 패키지에 결합하지 않고 실제 소비 환경의 호환성을 검증합니다.
 
-## Prototype boundaries
+## 현재 범위
 
-The following are intentionally not implemented yet:
+첫 공개 버전 전에 다음 작업이 남아 있습니다.
 
-- true streaming response mode;
-- React and Next.js integration packages;
-- consumption-specific telemetry events;
-- standalone packed-consumer and bundle-budget checks;
-- Laf ID authentication integration.
+- 명시적인 스트리밍 응답 API
+- React와 Next.js 선택 연동 패키지
+- 응답 소비 단계 Telemetry 결정
+- 독립 패키지 소비자 및 export condition 검증
+- 라이선스, 패키지 메타데이터, 배포 전략
+- Laf ID 초기 연동 사례
 
-Runtime fixtures verify framework compatibility without coupling the core package to React or Next.js. Framework integration packages remain optional future modules.
+웹사이트와 플레이그라운드는 공개 API가 충분히 안정화된 뒤 별도 단계로 진행합니다.
