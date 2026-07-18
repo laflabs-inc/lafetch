@@ -5,6 +5,7 @@ import {
 } from "./core/config.js";
 import { createRuntime } from "./core/runtime.js";
 import type { ClientOptions } from "./core/types.js";
+import { validateRequestCredentials } from "./core/validation.js";
 import { createRequestBuilder, type RequestBuilder } from "./request-builder.js";
 import { fetchTransport } from "./transports/fetch.js";
 
@@ -53,6 +54,9 @@ class LafetchClientImplementation implements LafetchClient {
 
 export function createClient(options: ClientOptions = {}): LafetchClient {
   const runtime = createRuntime(options.runtime);
+  const credentials = options.credentials === undefined
+    ? "omit"
+    : validateRequestCredentials(options.credentials, "lafetch.create() credentials");
   const configuration: ClientConfiguration = Object.freeze({
     ...(options.baseUrl !== undefined
       ? { baseUrl: options.baseUrl instanceof URL ? new URL(options.baseUrl) : options.baseUrl }
@@ -60,7 +64,7 @@ export function createClient(options: ClientOptions = {}): LafetchClient {
     headers: new Headers(options.headers),
     transport: options.transport ?? fetchTransport(),
     runtime,
-    credentials: options.credentials ?? "omit",
+    credentials,
     scope: createClientPolicyScope(runtime.now),
   });
   return new LafetchClientImplementation(configuration);
