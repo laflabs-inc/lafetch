@@ -81,11 +81,6 @@ export interface RequestOptions {
   readonly body?: BodyInit | null;
   readonly json?: unknown;
   readonly signal?: AbortSignal;
-  /** Set to false to disable a client-level timeout default. */
-  readonly timeout?: TimeoutInput | false;
-  /** Set to false to disable a client-level retry default. */
-  readonly retry?: RetryInput | false;
-  readonly acceptStatus?: StatusMatcher;
   readonly credentials?: RequestCredentials;
   readonly features?: readonly RequestFeature[];
 }
@@ -97,12 +92,6 @@ export interface ClientOptions {
   readonly features?: readonly RequestFeature[];
   /** Defaults to `omit` so credentials are never sent implicitly. */
   readonly credentials?: RequestCredentials;
-  /** Default timeout inherited by requests. */
-  readonly timeout?: TimeoutInput;
-  /** Default retry policy inherited by requests. */
-  readonly retry?: RetryInput;
-  /** Default accepted status matcher inherited by requests. */
-  readonly acceptStatus?: StatusMatcher;
   /** Intended for deterministic tests and specialized runtimes. */
   readonly runtime?: Partial<RuntimeAdapter>;
 }

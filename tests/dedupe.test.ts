@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dedupe, lafetch } from "../src/index.js";
+import { lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("deduplication", () => {
@@ -7,7 +7,6 @@ describe("deduplication", () => {
     let calls = 0;
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
-      features: [dedupe()],
       transport: mockTransport(async () => {
         calls += 1;
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -16,8 +15,8 @@ describe("deduplication", () => {
     });
 
     const [first, second] = await Promise.all([
-      api.get("/dedupe/basic").json<{ ok: boolean }>(),
-      api.get("/dedupe/basic").json<{ ok: boolean }>(),
+      api.get("/dedupe/basic").dedupe().json<{ ok: boolean }>(),
+      api.get("/dedupe/basic").dedupe().json<{ ok: boolean }>(),
     ]);
 
     expect(first.ok).toBe(true);
@@ -29,14 +28,13 @@ describe("deduplication", () => {
     const controller = new AbortController();
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
-      features: [dedupe()],
       transport: mockTransport(async () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
         return Response.json({ ok: true });
       }),
     });
-    const leader = api.get("/dedupe/abort").json<{ ok: boolean }>();
-    const follower = api.get("/dedupe/abort").signal(controller.signal).json();
+    const leader = api.get("/dedupe/abort").dedupe().json<{ ok: boolean }>();
+    const follower = api.get("/dedupe/abort").signal(controller.signal).dedupe().json();
     setTimeout(() => controller.abort("follower cancelled"), 5);
 
     await expect(follower).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
@@ -48,7 +46,6 @@ describe("deduplication", () => {
     let calls = 0;
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
-      features: [dedupe()],
       transport: mockTransport((_request, context) => {
         calls += 1;
         if (calls === 2) return Response.json({ fallback: true });
@@ -58,8 +55,8 @@ describe("deduplication", () => {
       }),
     });
 
-    const leader = api.get("/dedupe/fallback").signal(leaderController.signal).json();
-    const follower = api.get("/dedupe/fallback").json<{ fallback: boolean }>();
+    const leader = api.get("/dedupe/fallback").signal(leaderController.signal).dedupe().json();
+    const follower = api.get("/dedupe/fallback").dedupe().json<{ fallback: boolean }>();
     setTimeout(() => leaderController.abort("leader cancelled"), 5);
 
     await expect(leader).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
@@ -70,7 +67,6 @@ describe("deduplication", () => {
   it("isolates in-flight requests between clients", async () => {
     const firstApi = lafetch.create({
       baseUrl: "https://api.example.com",
-      dedupe: true,
       transport: mockTransport(async () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         return Response.json({ tenant: "first" });
@@ -78,7 +74,6 @@ describe("deduplication", () => {
     });
     const secondApi = lafetch.create({
       baseUrl: "https://api.example.com",
-      dedupe: true,
       transport: mockTransport(async () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         return Response.json({ tenant: "second" });
@@ -86,8 +81,8 @@ describe("deduplication", () => {
     });
 
     const [first, second] = await Promise.all([
-      firstApi.get("/dedupe/isolated").json<{ tenant: string }>(),
-      secondApi.get("/dedupe/isolated").json<{ tenant: string }>(),
+      firstApi.get("/dedupe/isolated").dedupe().json<{ tenant: string }>(),
+      secondApi.get("/dedupe/isolated").dedupe().json<{ tenant: string }>(),
     ]);
 
     expect(first.tenant).toBe("first");
@@ -98,7 +93,6 @@ describe("deduplication", () => {
     let calls = 0;
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
-      dedupe: true,
       transport: mockTransport(async (request) => {
         calls += 1;
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -107,8 +101,8 @@ describe("deduplication", () => {
     });
 
     const [first, second] = await Promise.all([
-      api.get("/dedupe/tenant", { headers: { "X-Tenant": "first" } }).json<{ tenant: string }>(),
-      api.get("/dedupe/tenant", { headers: { "X-Tenant": "second" } }).json<{ tenant: string }>(),
+      api.get("/dedupe/tenant").header("X-Tenant", "first").dedupe().json<{ tenant: string }>(),
+      api.get("/dedupe/tenant").header("X-Tenant", "second").dedupe().json<{ tenant: string }>(),
     ]);
 
     expect(first.tenant).toBe("first");
@@ -116,22 +110,4 @@ describe("deduplication", () => {
     expect(calls).toBe(2);
   });
 
-  it("supports the short request option API", async () => {
-    let calls = 0;
-    const api = lafetch.create({
-      baseUrl: "https://api.example.com",
-      transport: mockTransport(async () => {
-        calls += 1;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        return Response.json({ ok: true });
-      }),
-    });
-
-    await Promise.all([
-      api.get("/dedupe/options", { dedupe: true }),
-      api.get("/dedupe/options", { dedupe: true }),
-    ]);
-
-    expect(calls).toBe(1);
-  });
 });
