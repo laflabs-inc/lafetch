@@ -96,7 +96,7 @@ describe("RequestBuilder", () => {
       })),
     });
 
-    const user = await api.get("/users/1").asJson<User>();
+    const user = await api.get<User>("/users/1").asJson();
 
     expect(user.name).toBe("Dohyun");
     expectTypeOf(user).toEqualTypeOf<User>();

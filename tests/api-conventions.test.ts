@@ -84,8 +84,26 @@ describe("public API conventions", () => {
       api.get("/users").mapDecodeError((error: Error) => error);
 
       expectTypeOf(api.get("/users").asText()).toEqualTypeOf<Promise<string>>();
-      expectTypeOf(api.get("/users").asJson<{ id: string }>())
+      expectTypeOf(api.get<{ id: string }>("/users").asJson())
         .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.post<{ id: string }>("/users").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.put<{ id: string }>("/users/1").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.patch<{ id: string }>("/users/1").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.delete<{ id: string }>("/users/1").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.head<void>("/users").asJson()).toEqualTypeOf<Promise<void>>();
+      expectTypeOf(api.request<{ id: string }>("QUERY", "/users").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.get("/users/1").validate({
+        parse(value: unknown): { id: string } {
+          return value as { id: string };
+        },
+      }).asJson()).toEqualTypeOf<Promise<{ id: string }>>();
+      // @ts-expect-error Response data types are declared once on the HTTP method.
+      api.get("/users").asJson<{ id: string }>();
       expectTypeOf(api.get("/binary").asArrayBuffer()).toEqualTypeOf<Promise<ArrayBuffer>>();
       expectTypeOf(api.get("/file").asBlob()).toEqualTypeOf<Promise<Blob>>();
       expectTypeOf(api.get("/form").asFormData()).toEqualTypeOf<Promise<FormData>>();

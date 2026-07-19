@@ -92,8 +92,8 @@ interface CommonRequestOperations<
     options?: TelemetryOptions,
   ): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
   use(feature: RequestFeature): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  /** Consume the response as JSON and end Builder configuration. */
-  asJson<TJson = TData>(): Promise<TJson>;
+  /** Consume the response as JSON using the Builder data type and end configuration. */
+  asJson(): Promise<TData>;
   /** Consume the response as text and end Builder configuration. */
   asText(): Promise<string>;
   /** Consume the response as an ArrayBuffer and end Builder configuration. */
@@ -289,8 +289,8 @@ class RequestBuilderImplementation<TData = unknown> {
     return this.#next(withFeature(this.configuration, feature));
   }
 
-  async asJson<TJson = TData>(): Promise<TJson> {
-    return (await this.#consume<TJson>("json")).data;
+  async asJson(): Promise<TData> {
+    return (await this.#consume<TData>("json")).data;
   }
 
   async asText(): Promise<string> {

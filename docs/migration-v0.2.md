@@ -57,7 +57,7 @@ result.status;
 | `await request` → `HttpResult<T>` | `await request` → `T` | 데이터 우선 반환 |
 | `request.send()` | `request.asResponse()` | 전체 응답이 필요할 때만 사용 |
 | `request.jsonBody(value)` | `request.json(value)` | JSON 요청 본문 |
-| `request.json<T>()` | `await request` 또는 `.asJson<T>()` | 명시적 소비는 실제 Promise를 반환 |
+| `request.json<T>()` | `await api.get<T>(url)` 또는 `api.get<T>(url).asJson()` | 응답 타입은 HTTP 메서드에서 한 번만 선언 |
 | `request.text()` | `request.asText()` | 다른 형식도 `as*()` terminal로 통일 |
 | `request.schema(schema)` | `request.validate(schema)` | 검증과 타입 변환 |
 | `request.mapDecodeError()` | `request.mapError()` | 요청·응답 오류 매핑 통합 |
@@ -85,7 +85,7 @@ request.retry(2);               // v0.2
 
 ### JSON의 역할
 
-v0.2.1의 `json(value)`는 요청 본문만 설정합니다. JSON 응답은 기본 자동 디코딩에 맡기고, 서버의 `Content-Type`을 신뢰할 수 없을 때만 `.asJson<T>()`을 사용합니다. GET과 HEAD에서는 Fetch가 요청 본문을 허용하지 않으므로 `json(value)`, `body(value)`, `bodyFactory(factory)`가 TypeScript에 노출되지 않으며 JavaScript에서도 즉시 거부됩니다.
+v0.2.1의 `json(value)`는 요청 본문만 설정합니다. JSON 응답은 기본 자동 디코딩에 맡기고, 서버의 `Content-Type`을 신뢰할 수 없을 때만 `api.get<T>(url).asJson()`을 사용합니다. 응답 타입은 HTTP 메서드에서 한 번만 선언하며 `asJson<T>()` 형태는 제공하지 않습니다. GET과 HEAD에서는 Fetch가 요청 본문을 허용하지 않으므로 `json(value)`, `body(value)`, `bodyFactory(factory)`가 TypeScript에 노출되지 않으며 JavaScript에서도 즉시 거부됩니다.
 
 ### 오류 매핑
 

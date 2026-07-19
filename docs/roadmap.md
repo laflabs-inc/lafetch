@@ -90,11 +90,11 @@ const user = await api
 const user = await api.get<User>("/users/123");
 
 const created = await api
-  .post("/users")
+  .post<User>("/users")
   .json(input)
   .timeout("5s")
   .retry(2)
-  .asJson<User>();
+  .asJson();
 ```
 
 ### 작업 범위
@@ -103,6 +103,7 @@ const created = await api
 - 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
 - Request body 허용 여부와 buffered 여부만 추적하는 제한형 Type-State
 - `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal
+- 응답 타입을 모든 HTTP 진입 메서드에서 한 번만 선언하고 `asJson<T>()` 중복 문법 제거
 - 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
 - 기존 `as(type)`, `response()`, `raw()` 제거
 - 직접 `await`와 Promise 호환성 유지

@@ -45,12 +45,14 @@ const response = await api.get("/download").asRaw();
 서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 명시적인 `as*()` 종결 메서드를 사용합니다.
 
 ```ts
-const json = await api.get("/user").asJson<User>();
+const json = await api.get<User>("/user").asJson();
 const text = await api.get("/health").asText();
 const bytes = await api.get("/binary").asArrayBuffer();
 const blob = await api.get("/file").asBlob();
 const form = await api.get("/form").asFormData();
 ```
+
+응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `asJson<T>()`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
 
 각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. Streaming은 v0.3에서 `asStream()`으로 같은 규칙에 추가합니다.
 

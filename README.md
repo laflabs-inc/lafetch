@@ -131,10 +131,12 @@ Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다.
 기본적으로 `Content-Type`에 따라 JSON, 문자열, `ArrayBuffer`를 자동 선택합니다. 형식을 강제해야 할 때만 명시적인 `as*()` 종결 메서드를 사용합니다. 이 메서드들은 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실이 분명합니다.
 
 ```ts
-const user = await api.get("/users/123").asJson<User>();
+const user = await api.get<User>("/users/123").asJson();
 const health = await api.get("/health").asText();
 const file = await api.get("/files/1").asBlob();
 ```
+
+응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `asJson()`은 별도 타입 인자를 받지 않고 Builder의 데이터 타입을 그대로 반환하므로 서로 다른 타입을 중복 선언할 수 없습니다.
 
 `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`가 같은 종결 문법을 사용합니다. Streaming은 v0.3에서 `asStream()`으로 추가합니다.
 

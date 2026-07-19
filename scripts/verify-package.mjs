@@ -105,9 +105,19 @@ interface User { id: string }
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const request: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").use(feature);
-const explicit: Promise<User> = api.get("https://api.example.com/users/1").asJson<User>();
+const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").asJson();
+const methodResults: Promise<User>[] = [
+  api.post<User>("https://api.example.com/users").asJson(),
+  api.put<User>("https://api.example.com/users/1").asJson(),
+  api.patch<User>("https://api.example.com/users/1").asJson(),
+  api.delete<User>("https://api.example.com/users/1").asJson(),
+  api.request<User>("QUERY", "https://api.example.com/users").asJson(),
+];
+const headResult: Promise<void> = api.head<void>("https://api.example.com/users").asJson();
 const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").asResponse();
 if (false) {
+  // @ts-expect-error Response data types are declared on the HTTP method, not asJson().
+  api.get("/users").asJson<User>();
   // @ts-expect-error Response consumption uses explicit as* terminal methods.
   api.get("/users").as("json");
   // @ts-expect-error The old response() terminal is not part of the public grammar.
@@ -131,6 +141,8 @@ if (false) {
 }
 void request;
 void explicit;
+void methodResults;
+void headResult;
 void response;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
