@@ -2,6 +2,8 @@
 
 Status: superseded by and incorporated into the v0.2 public API.
 
+True Streaming과 Buffered 본문 크기 상한은 [v0.3 Streaming과 본문 안전성 RFC](v0.3-streaming-body-safety.md)에서 별도로 정의합니다.
+
 ## Motivation
 
 HTTP execution, response decoding, and application schema validation fail for different reasons. They must remain separate internally so invalid payloads are never retried as Transport failures, while the public API should expose one predictable failure-mapping path.
