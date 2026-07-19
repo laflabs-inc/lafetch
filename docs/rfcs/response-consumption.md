@@ -1,6 +1,6 @@
 # RFC: response consumption pipeline
 
-Status: superseded by and incorporated into the v0.2 public API.
+Status: superseded by and incorporated into the v0.2.1 Progressive Builder API.
 
 ## Motivation
 
@@ -10,11 +10,11 @@ HTTP execution, response decoding, and application schema validation fail for di
 
 Each immutable request builder owns one memoized raw execution. Every data consumer receives a Response clone and runs:
 
-1. automatic or explicit `as()` decoding;
+1. automatic decoding or an explicit `asJson()`, `asText()` and related terminal decoder;
 2. optional `validate()` parsing, validation, or transformation;
 3. unified final `mapError()` handling when either execution or consumption fails.
 
-Direct `await` returns decoded data. `response()` returns the same data with HTTP and execution metadata. `raw()` returns a Response clone and bypasses decoding and validation.
+Direct `await` returns automatically decoded data. Explicit `as*()` terminals select one decoder and return a real Promise. `asResponse()` returns automatically decoded data with HTTP and execution metadata. `asRaw()` returns a Response clone and bypasses decoding and validation.
 
 Schemas may be functions, objects with `parse(value)`, or objects with `validate(value)`. They may return transformed values, booleans, or value/issues result objects. Schema failures become `HttpSchemaError` unless already represented by that type.
 

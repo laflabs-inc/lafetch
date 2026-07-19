@@ -14,14 +14,15 @@
 - React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
 - 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
 
-## 현재 수준: v0.2.0-alpha
+## 현재 수준: v0.2.1-alpha
 
-현재 단계는 단순 프로토타입을 넘어선 **공개 API 재설계 알파**입니다. 기능 범위는 넓지만 Streaming, 대용량 응답, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
+현재 단계는 단순 프로토타입을 넘어선 **Progressive Builder 안정화 알파**입니다. 기능 범위는 넓지만 Streaming, 대용량 응답, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
 | 공개 API 방향 | 안정화 후보 |
 | 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
+| 제한된 Type-State와 `as*()` terminal | v0.2.1 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
 | Cache와 Deduplication | 기본 정책과 클라이언트 격리 구현 |
 | Idempotency, Validation, Error Mapping | 구현 완료 |
@@ -50,8 +51,8 @@ const user = await api
 ### 구현된 범위
 
 - 직접 `await`하면 디코딩된 데이터 `T` 반환
-- 전체 응답은 `response()`, Fetch 응답은 `raw()`로 명시
-- JSON 본문은 `json(value)`, 응답 형식 지정은 `as(type)`로 분리
+- 전체 응답과 Fetch 응답은 v0.2.1의 `asResponse()`, `asRaw()`로 명시
+- JSON 본문은 `json(value)`, 명시적 응답 소비는 `asJson()` 같은 `as*()` terminal로 분리
 - 응답 검증은 `validate(schema)`로 통일
 - 전체 Timeout과 시도 Timeout을 `timeout()`과 `attemptTimeout()`으로 분리
 - Retry의 숫자를 최초 시도 이후의 추가 재시도 횟수로 정의
@@ -64,13 +65,13 @@ const user = await api
 - 실제 tarball 설치와 루트, `./feature`, `./testing` export 소비 검증
 - 한국어 README, 상세 가이드, 마이그레이션 RFC 작성
 
-### 남은 작업
+### v0.2.0 이후 확인된 보강점
 
-1. `as()`, Credentials, Backoff, Jitter처럼 닫힌 문자열 값에 런타임 검증을 추가합니다.
-2. 잘못된 값이 기본 동작으로 조용히 처리되지 않고 `HttpConfigurationError`를 발생시키도록 합니다.
-3. TypeScript 오류와 JavaScript 런타임 오류를 함께 고정하는 공개 API 계약 테스트를 추가합니다.
-4. 기본 예제를 외부 사용자 관점에서 다시 검토합니다.
-5. v0.1에서 v0.2로의 마이그레이션 문서를 최종 검토합니다.
+- 문자열 기반 응답 형식과 소비 메서드의 역할이 시각적으로 분리되지 않았습니다.
+- 모든 요청이 같은 Builder 표면을 사용해 GET과 HEAD에서도 요청 본문 메서드가 IDE에 나타났습니다.
+- HTTP와 Feature의 모든 조합을 Type-State로 표현하면 공개 타입과 오류가 과도하게 복잡해질 위험이 확인되었습니다.
+
+이 항목은 v0.2.1에서 기능을 제거하지 않는 제한형 Type-State와 명시적인 `as*()` terminal로 보강합니다.
 
 ### 완료 조건
 
@@ -78,6 +79,42 @@ const user = await api
 - 잘못된 구성은 Transport 실행 전에 구조화된 오류로 실패해야 합니다.
 - Node.js 전체 매트릭스, Chromium, Next.js, Workers/Edge CI가 통과해야 합니다.
 - 독립 소비자가 공개 export와 선언 파일을 소스 경로 없이 사용할 수 있어야 합니다.
+
+## v0.2.1 — Progressive Builder와 소비 문법
+
+### 목표
+
+기능 개수를 줄이지 않고, 평범한 요청이 부담하는 개념과 잘못된 IDE 선택지만 줄입니다.
+
+```ts
+const user = await api.get<User>("/users/123");
+
+const created = await api
+  .post("/users")
+  .json(input)
+  .timeout("5s")
+  .retry(2)
+  .asJson<User>();
+```
+
+### 작업 범위
+
+- GET과 HEAD Builder에서 `json()`, `body()`, `bodyFactory()` 제거
+- 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
+- Request body 허용 여부와 buffered 여부만 추적하는 제한형 Type-State
+- `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal
+- 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
+- 기존 `as(type)`, `response()`, `raw()` 제거
+- 직접 `await`와 Promise 호환성 유지
+- TypeScript, JavaScript, 실제 tarball 소비 계약 테스트
+
+### 완료 조건
+
+- 일반 요청이 Feature 또는 Type-State 개념을 알지 않고 동작해야 합니다.
+- 명시적 `as*()` terminal은 실제 Promise를 반환해야 합니다.
+- 확실히 잘못된 조합만 타입에서 제거하고, 상황 의존 정책은 런타임 검증이 담당해야 합니다.
+- 공식 Timeout, Retry, Cache, Deduplication, Idempotency, Validation, Error Mapping, Telemetry 기능을 유지해야 합니다.
+- 전체 브라우저 공개 API가 기존 `12 KiB` gzip 예산을 지켜야 합니다.
 
 ## v0.3 — Streaming과 본문 안전성
 
@@ -88,7 +125,7 @@ const user = await api
 ### 작업 범위
 
 - Streaming 응답 공개 API RFC
-- `raw()`와 별도 Streaming 종결 방식의 책임 결정
+- buffered `asRaw()`와 streaming `asStream()`의 책임 분리
 - Streaming 응답의 단일 소비와 Builder 재사용 규칙
 - Buffered 응답의 최대 크기와 메모리 상한
 - `Content-Length`가 없거나 잘못된 응답의 크기 추적

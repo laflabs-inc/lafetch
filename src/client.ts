@@ -9,46 +9,64 @@ import { validateRequestCredentials } from "./core/validation.js";
 import { createRequestBuilder, type RequestBuilder } from "./request-builder.js";
 import { fetchTransport } from "./transports/fetch.js";
 
+type BodylessRequestBuilder<TData> = RequestBuilder<TData, "forbidden">;
+type BodyRequestBuilder<TData> = RequestBuilder<TData, "allowed">;
+type BodylessRequestMethod =
+  | `${"g" | "G"}${"e" | "E"}${"t" | "T"}`
+  | `${"h" | "H"}${"e" | "E"}${"a" | "A"}${"d" | "D"}`;
+
 export interface LafetchClient {
   /** Custom-method entry point. Prefer the named HTTP methods when possible. */
-  request<TData = unknown>(method: string, input: string | URL): RequestBuilder<TData>;
-  get<TData = unknown>(input: string | URL): RequestBuilder<TData>;
-  post<TData = unknown>(input: string | URL): RequestBuilder<TData>;
-  put<TData = unknown>(input: string | URL): RequestBuilder<TData>;
-  patch<TData = unknown>(input: string | URL): RequestBuilder<TData>;
-  delete<TData = unknown>(input: string | URL): RequestBuilder<TData>;
-  head<TData = unknown>(input: string | URL): RequestBuilder<TData>;
+  request<TData = unknown>(method: BodylessRequestMethod, input: string | URL): BodylessRequestBuilder<TData>;
+  request<TData = unknown>(method: string, input: string | URL): BodyRequestBuilder<TData>;
+  get<TData = unknown>(input: string | URL): BodylessRequestBuilder<TData>;
+  post<TData = unknown>(input: string | URL): BodyRequestBuilder<TData>;
+  put<TData = unknown>(input: string | URL): BodyRequestBuilder<TData>;
+  patch<TData = unknown>(input: string | URL): BodyRequestBuilder<TData>;
+  delete<TData = unknown>(input: string | URL): BodyRequestBuilder<TData>;
+  head<TData = unknown>(input: string | URL): BodylessRequestBuilder<TData>;
 }
 
 class LafetchClientImplementation implements LafetchClient {
   constructor(private readonly configuration: ClientConfiguration) {}
 
-  request<TData = unknown>(method: string, input: string | URL): RequestBuilder<TData> {
-    return createRequestBuilder<TData>(createRequestConfiguration(this.configuration, input, method));
+  request<TData = unknown>(
+    method: BodylessRequestMethod,
+    input: string | URL,
+  ): BodylessRequestBuilder<TData>;
+  request<TData = unknown>(method: string, input: string | URL): BodyRequestBuilder<TData>;
+  request<TData = unknown>(method: string, input: string | URL): BodyRequestBuilder<TData> {
+    return createRequestBuilder<TData, "allowed">(
+      createRequestConfiguration(this.configuration, input, method),
+    );
   }
 
-  get<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>("GET", input);
+  get<TData = unknown>(input: string | URL): BodylessRequestBuilder<TData> {
+    return createRequestBuilder<TData, "forbidden">(
+      createRequestConfiguration(this.configuration, input, "GET"),
+    );
   }
 
-  post<TData = unknown>(input: string | URL): RequestBuilder<TData> {
+  post<TData = unknown>(input: string | URL): BodyRequestBuilder<TData> {
     return this.request<TData>("POST", input);
   }
 
-  put<TData = unknown>(input: string | URL): RequestBuilder<TData> {
+  put<TData = unknown>(input: string | URL): BodyRequestBuilder<TData> {
     return this.request<TData>("PUT", input);
   }
 
-  patch<TData = unknown>(input: string | URL): RequestBuilder<TData> {
+  patch<TData = unknown>(input: string | URL): BodyRequestBuilder<TData> {
     return this.request<TData>("PATCH", input);
   }
 
-  delete<TData = unknown>(input: string | URL): RequestBuilder<TData> {
+  delete<TData = unknown>(input: string | URL): BodyRequestBuilder<TData> {
     return this.request<TData>("DELETE", input);
   }
 
-  head<TData = unknown>(input: string | URL): RequestBuilder<TData> {
-    return this.request<TData>("HEAD", input);
+  head<TData = unknown>(input: string | URL): BodylessRequestBuilder<TData> {
+    return createRequestBuilder<TData, "forbidden">(
+      createRequestConfiguration(this.configuration, input, "HEAD"),
+    );
   }
 }
 

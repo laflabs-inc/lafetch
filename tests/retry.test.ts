@@ -19,7 +19,7 @@ describe("retry", () => {
     });
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    const result = await api.get<{ ok: boolean }>("/health").retry(2, noDelay).response();
+    const result = await api.get<{ ok: boolean }>("/health").retry(2, noDelay).asResponse();
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(3);
@@ -55,7 +55,7 @@ describe("retry", () => {
     });
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    const result = await api.get<{ ok: boolean }>("/health").retry(1, noDelay).response();
+    const result = await api.get<{ ok: boolean }>("/health").retry(1, noDelay).asResponse();
 
     expect(result.meta.attempts).toBe(2);
   });
@@ -127,7 +127,7 @@ describe("retry", () => {
       .timeout("200ms")
       .attemptTimeout("10ms")
       .retry(1, noDelay)
-      .response();
+      .asResponse();
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(2);
@@ -147,7 +147,7 @@ describe("retry", () => {
       .timeout("200ms")
       .attemptTimeout("10ms")
       .retry(1, noDelay)
-      .response();
+      .asResponse();
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(2);
@@ -159,7 +159,7 @@ describe("retry", () => {
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
     const request = api
-      .get("/resource")
+      .post("/resource")
       .bodyFactory(() => {
         throw new Error("cannot create body");
       })

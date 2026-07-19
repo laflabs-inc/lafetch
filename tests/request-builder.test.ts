@@ -88,7 +88,7 @@ describe("RequestBuilder", () => {
     expect(await api.get<void>("/empty")).toBeUndefined();
   });
 
-  it("declares an explicit response decoder with as()", async () => {
+  it("uses explicit asJson() terminal consumption", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response('{"id":"1","name":"Dohyun"}', {
@@ -96,10 +96,33 @@ describe("RequestBuilder", () => {
       })),
     });
 
-    const user = await api.get<User>("/users/1").as("json");
+    const user = await api.get("/users/1").asJson<User>();
 
     expect(user.name).toBe("Dohyun");
     expectTypeOf(user).toEqualTypeOf<User>();
+  });
+
+  it("exposes explicit as* terminals as real Promises", async () => {
+    const responses = [
+      new Response("hello", { headers: { "content-type": "text/plain" } }),
+      new Response(new Uint8Array([1, 2, 3])),
+      new Response("blob body"),
+      new Response("name=Lafetch", {
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      }),
+    ];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => responses.shift()!),
+    });
+
+    const text = api.get("/text").asText();
+    expect(text).toBeInstanceOf(Promise);
+    expect(await text).toBe("hello");
+
+    expect([...new Uint8Array(await api.get("/bytes").asArrayBuffer())]).toEqual([1, 2, 3]);
+    expect(await (await api.get("/blob").asBlob()).text()).toBe("blob body");
+    expect((await api.get("/form").asFormData()).get("name")).toBe("Lafetch");
   });
 
   it("supports custom methods without an option-object request path", async () => {
@@ -112,6 +135,23 @@ describe("RequestBuilder", () => {
     });
 
     await api.request<void>("PURGE", "/cache/entries");
+  });
+
+  it("keeps request bodies available for body-capable custom methods", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async (request) => {
+        expect(request.method).toBe("QUERY");
+        expect(await request.json()).toEqual({ filter: "active" });
+        return json({ matches: 1 });
+      }),
+    });
+
+    const result = await api
+      .request<{ matches: number }>("QUERY", "/search")
+      .json({ filter: "active" });
+
+    expect(result.matches).toBe(1);
   });
 
   it("builds query, headers, and JSON bodies", async () => {
@@ -187,7 +227,7 @@ describe("RequestBuilder", () => {
     const result = await api
       .get<{ code: string }>("/missing")
       .acceptStatus([404])
-      .response();
+      .asResponse();
     expect(result.status).toBe(404);
     expect(result.data.code).toBe("NOT_FOUND");
     expectTypeOf(result).toEqualTypeOf<LafetchResponse<{ code: string }>>();
@@ -209,7 +249,7 @@ describe("RequestBuilder", () => {
     });
     const request = api.get("/raw");
 
-    const [first, second] = await Promise.all([request.raw(), request.raw()]);
+    const [first, second] = await Promise.all([request.asRaw(), request.asRaw()]);
 
     expect(await first.text()).toBe("raw body");
     expect(await second.text()).toBe("raw body");
