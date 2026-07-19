@@ -38,6 +38,7 @@ try {
     "dist/testing/index.js",
     "dist/testing/index.d.ts",
     "README.md",
+    "docs/migration-v0.2.md",
   ]) {
     if (!packagedFiles.has(requiredFile)) throw new Error(`Packed package is missing ${requiredFile}.`);
   }
@@ -50,7 +51,7 @@ try {
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], consumerDirectory);
 
   writeFileSync(join(consumerDirectory, "runtime.mjs"), `
-import { lafetch } from "@laflabs/lafetch";
+import { HttpConfigurationError, lafetch } from "@laflabs/lafetch";
 import { defineFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 
@@ -66,6 +67,29 @@ const result = await api.get("/probe").use(feature);
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
+
+const invalidConfigurations = [
+  () => api.get("/probe").as("yaml"),
+  () => api.get("/probe").as(null),
+  () => api.get("/probe").credentials("cross-origin"),
+  () => api.get("/probe").credentials(null),
+  () => lafetch.create({ credentials: "cross-origin" }),
+  () => lafetch.create({ credentials: null }),
+  () => api.get("/probe").retry(1, { backoff: "fixed" }),
+  () => api.get("/probe").retry(1, { backoff: { type: "linear" } }),
+  () => api.get("/probe").retry(1, { backoff: { type: null } }),
+  () => api.get("/probe").retry(1, { backoff: { jitter: "equal" } }),
+  () => api.get("/probe").retry(1, { backoff: { jitter: null } }),
+];
+for (const configure of invalidConfigurations) {
+  try {
+    configure();
+    throw new Error("Invalid packed-package configuration was accepted.");
+  } catch (error) {
+    if (!(error instanceof HttpConfigurationError)) throw error;
+  }
+}
+if (transport.calls.length !== 1) throw new Error("Invalid configuration reached the packed Transport.");
 `);
   run(process.execPath, ["runtime.mjs"], consumerDirectory);
 
@@ -79,6 +103,18 @@ const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const request: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").use(feature);
 const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").response();
+if (false) {
+  // @ts-expect-error Response types are a closed public contract.
+  api.get("/users").as("yaml");
+  // @ts-expect-error Request credentials use the Fetch standard values.
+  api.get("/users").credentials("cross-origin");
+  // @ts-expect-error Client credentials use the Fetch standard values.
+  lafetch.create({ credentials: "cross-origin" });
+  // @ts-expect-error Backoff types are a closed public contract.
+  api.get("/users").retry(1, { backoff: { type: "linear" } });
+  // @ts-expect-error Jitter types are a closed public contract.
+  api.get("/users").retry(1, { backoff: { jitter: "equal" } });
+}
 void request;
 void response;
 `);

@@ -17,6 +17,7 @@ import {
 } from "./core/config.js";
 import { decodeResponse, type ResponseMode } from "./core/decode.js";
 import { executeRequest } from "./core/executor.js";
+import { validateResponseMode } from "./core/validation.js";
 import {
   telemetry as createTelemetryFeature,
   type TelemetryHandler,
@@ -240,7 +241,12 @@ class RequestBuilderImplementation<TData = unknown> implements RequestBuilder<TD
   }
 
   as<TMode extends ResponseType>(mode: TMode): RequestBuilder<ResponseData<TData, TMode>> {
-    return this.#nextConsumption<ResponseData<TData, TMode>>(mode, this.responseSchema, this.errorMappers);
+    const responseMode = validateResponseMode(mode);
+    return this.#nextConsumption<ResponseData<TData, TMode>>(
+      responseMode,
+      this.responseSchema,
+      this.errorMappers,
+    );
   }
 
   async response(): Promise<LafetchResponse<TData>> {

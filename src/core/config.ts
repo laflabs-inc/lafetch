@@ -1,6 +1,11 @@
 import { HttpConfigurationError } from "./errors.js";
 import { MemoryCacheStore } from "./cache-store.js";
 import { mergeQuery } from "./query.js";
+import {
+  validateCapabilityMode,
+  validateRequestCredentials,
+  validateRetryOptions,
+} from "./validation.js";
 import type {
   BodyFactory,
   BodySource,
@@ -15,6 +20,7 @@ import type {
 } from "./types.js";
 
 function snapshotRetryOptions(options: RetryOptions): RetryOptions {
+  validateRetryOptions(options);
   return Object.freeze({
     ...(options.methods !== undefined ? { methods: Object.freeze([...options.methods]) } : {}),
     ...(options.statuses !== undefined ? { statuses: Object.freeze([...options.statuses]) } : {}),
@@ -29,7 +35,19 @@ function snapshotFeature(feature: RequestFeature): RequestFeature {
     ? undefined
     : Object.freeze({
       ...(feature.capabilities.provides !== undefined
-        ? { provides: Object.freeze(feature.capabilities.provides.map((item) => Object.freeze({ ...item }))) }
+        ? {
+          provides: Object.freeze(feature.capabilities.provides.map((item) => Object.freeze({
+            ...item,
+            ...(item.mode !== undefined
+              ? {
+                mode: validateCapabilityMode(
+                  item.mode,
+                  `Feature "${feature.name}" capability "${item.name}" mode`,
+                ),
+              }
+              : {}),
+          }))),
+        }
         : {}),
       ...(feature.capabilities.requires !== undefined
         ? { requires: Object.freeze([...feature.capabilities.requires]) }
@@ -209,7 +227,7 @@ export function withAcceptedStatus(config: RequestConfiguration, acceptStatus: S
 }
 
 export function withCredentials(config: RequestConfiguration, credentials: RequestCredentials): RequestConfiguration {
-  return { ...config, credentials };
+  return { ...config, credentials: validateRequestCredentials(credentials, "credentials() value") };
 }
 
 export function withFeature(config: RequestConfiguration, feature: RequestFeature): RequestConfiguration {

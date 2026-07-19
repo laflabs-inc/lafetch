@@ -52,6 +52,8 @@ const blob = await api.get<Blob>("/file").as("blob");
 const form = await api.get<FormData>("/form").as("formData");
 ```
 
+허용되는 값은 `"auto"`, `"json"`, `"text"`, `"arrayBuffer"`, `"blob"`, `"formData"`입니다. TypeScript는 다른 값을 컴파일 단계에서 거부하고, JavaScript에서도 요청 전에 `HttpConfigurationError`가 발생합니다.
+
 ## Promise 호환성과 실행 불변식
 
 `RequestBuilder<T>`는 지연 실행되는 `PromiseLike<T>`입니다.
@@ -103,6 +105,8 @@ const api = lafetch.create({ credentials: "same-origin" });
 await api.get("/session").credentials("include");
 ```
 
+Credentials는 Fetch 표준의 `"omit"`, `"same-origin"`, `"include"`만 허용합니다.
+
 ## Timeout
 
 전체 요청과 개별 시도는 서로 다른 메서드로 설정합니다.
@@ -141,6 +145,8 @@ await api.get<User>("/users/123").retry(2, {
 ```
 
 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다. 전체 Timeout과 사용자 Abort는 최종 실패이며, 허용된 메서드의 개별 시도 Timeout은 재시도할 수 있습니다.
+
+Backoff `type`은 `"fixed"` 또는 `"exponential"`, `jitter`는 `"none"` 또는 `"full"`만 허용합니다. v0.1의 축약형 `backoff: "fixed"`는 더 이상 허용하지 않습니다. 잘못된 값과 객체 형태는 기본값으로 대체하지 않고 요청 선언 시 `HttpConfigurationError`를 발생시킵니다.
 
 기존 `ReadableStream`은 다시 재생할 수 없습니다. 재시도마다 새로운 본문을 만들 수 있을 때만 `bodyFactory()`를 사용합니다.
 

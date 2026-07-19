@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import * as publicApi from "../src/index.js";
 import { lafetch } from "../src/index.js";
+import { defineFeature } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("public API conventions", () => {
@@ -49,6 +50,18 @@ describe("public API conventions", () => {
       api.get("/users").retry({ attempts: 2 });
       // @ts-expect-error Backoff uses one structured form inside retry options.
       api.get("/users").retry(2, { backoff: "fixed" });
+      // @ts-expect-error Response types are a closed public contract.
+      api.get("/users").as("yaml");
+      // @ts-expect-error Request credentials use the Fetch standard values.
+      api.get("/users").credentials("cross-origin");
+      // @ts-expect-error Client credentials use the Fetch standard values.
+      lafetch.create({ credentials: "cross-origin" });
+      // @ts-expect-error Backoff types are a closed public contract.
+      api.get("/users").retry(2, { backoff: { type: "linear" } });
+      // @ts-expect-error Jitter types are a closed public contract.
+      api.get("/users").retry(2, { backoff: { jitter: "equal" } });
+      // @ts-expect-error Capability modes are a closed advanced API contract.
+      defineFeature({ name: "invalid", capabilities: { provides: [{ name: "x", mode: "shared" }] } });
       // @ts-expect-error Cache always starts with an explicit TTL.
       api.get("/users").cache();
       // @ts-expect-error Cache options are the second argument, never an alternate first argument.
