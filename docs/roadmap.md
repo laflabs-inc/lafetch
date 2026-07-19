@@ -14,13 +14,13 @@
 - React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
 - 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
 
-## 현재 수준: v0.2.0-alpha
+## 현재 수준: v0.3 RFC
 
-현재 단계는 단순 프로토타입을 넘어선 **공개 API 재설계 알파**입니다. 기능 범위는 넓지만 Streaming, 대용량 응답, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
+v0.2 공개 API와 구성 안정화 조건을 완료하고, Streaming과 Buffered 본문 안전성의 공개 계약을 설계하고 있습니다. 기능 범위는 넓지만 Streaming, 대용량 응답, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
-| 공개 API 방향 | 안정화 후보 |
+| 공개 API 방향 | v0.2 계약 완료 |
 | 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
 | Cache와 Deduplication | 기본 정책과 클라이언트 격리 구현 |
@@ -64,13 +64,13 @@ const user = await api
 - 실제 tarball 설치와 루트, `./feature`, `./testing` export 소비 검증
 - 한국어 README, 상세 가이드, 마이그레이션 RFC 작성
 
-### 남은 작업
+### 완료된 안정화
 
-1. `as()`, Credentials, Backoff, Jitter처럼 닫힌 문자열 값에 런타임 검증을 추가합니다.
-2. 잘못된 값이 기본 동작으로 조용히 처리되지 않고 `HttpConfigurationError`를 발생시키도록 합니다.
-3. TypeScript 오류와 JavaScript 런타임 오류를 함께 고정하는 공개 API 계약 테스트를 추가합니다.
-4. 기본 예제를 외부 사용자 관점에서 다시 검토합니다.
-5. v0.1에서 v0.2로의 마이그레이션 문서를 최종 검토합니다.
+- `as()`, Credentials, Backoff, Jitter, Capability mode의 런타임 검증
+- 잘못된 닫힌 값을 Transport 실행 전에 `HttpConfigurationError`로 거부
+- TypeScript와 실제 JavaScript 및 tarball 소비 계약 테스트
+- 외부 사용자 관점의 기본 예제 검토
+- v0.1에서 v0.2로의 마이그레이션 가이드
 
 ### 완료 조건
 
@@ -80,6 +80,8 @@ const user = await api
 - 독립 소비자가 공개 export와 선언 파일을 소스 경로 없이 사용할 수 있어야 합니다.
 
 ## v0.3 — Streaming과 본문 안전성
+
+설계 제안: [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md)
 
 ### 목표
 
