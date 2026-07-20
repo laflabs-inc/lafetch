@@ -1,4 +1,3 @@
-import type { ResponseMode } from "./decode.js";
 import { HttpConfigurationError } from "./errors.js";
 import type {
   BackoffType,
@@ -7,7 +6,6 @@ import type {
   RetryOptions,
 } from "./types.js";
 
-const RESPONSE_MODES = ["auto", "json", "text", "arrayBuffer", "blob", "formData"] as const;
 const REQUEST_CREDENTIALS = ["omit", "same-origin", "include"] as const;
 const BACKOFF_TYPES = ["fixed", "exponential"] as const;
 const JITTER_TYPES = ["none", "full"] as const;
@@ -28,10 +26,6 @@ function closedString<TValue extends string>(
 
 function isOptionsObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function validateResponseMode(value: unknown): ResponseMode {
-  return closedString(value, RESPONSE_MODES, "as() response type");
 }
 
 export function validateRequestCredentials(value: unknown, label: string): RequestCredentials {

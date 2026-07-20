@@ -1,6 +1,6 @@
 {
   "name": "@laflabs/lafetch",
-  "version": "0.2.0-alpha.0",
+  "version": "0.2.1-alpha.0",
   "description": "A data-first TypeScript HTTP client with readable reliability policies.",
   "type": "module",
   "packageManager": "pnpm@10.13.1",

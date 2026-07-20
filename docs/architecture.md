@@ -22,7 +22,7 @@ Application requests have one public grammar:
 client.method(url).configure().policy() -> await data
 ```
 
-Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns decoded data directly. `response()` opts into the decoded response envelope and `raw()` opts into the Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns automatically decoded data directly. Explicit `asJson()`, `asText()` and related methods terminate configuration and return a real Promise. `asResponse()` opts into the decoded response envelope and `asRaw()` opts into the Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
 
 ## State isolation
 
@@ -155,7 +155,7 @@ An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response
 
 ## Consumption scope
 
-Execution produces one retained raw Response. Each data consumer works on a clone, decodes it according to the builder's `as()` mode, and optionally validates or transforms it through `validate()`. Direct `await` returns the resulting data. `response()` wraps the same data with status, headers, and metadata. A unified builder `mapError()` handles final execution and consumption failures, while `.raw()` remains outside decoding and validation.
+Execution produces one retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. Explicit `asJson()`, `asText()`, `asBlob()` and related terminals select one decoder and return a real Promise. `asResponse()` wraps automatically decoded data with status, headers, and metadata, while `asRaw()` remains outside decoding and validation. A unified builder `mapError()` handles final execution and consumption failures.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 

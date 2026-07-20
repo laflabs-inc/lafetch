@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import * as publicApi from "../src/index.js";
-import { lafetch } from "../src/index.js";
+import { lafetch, type LafetchResponse, type RequestBuilder } from "../src/index.js";
 import { defineFeature } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
 
@@ -38,7 +38,13 @@ describe("public API conventions", () => {
       lafetch.create({ features: [] });
       // @ts-expect-error JSON configures a request body and therefore requires a value.
       api.post("/users").json();
-      // @ts-expect-error response() is the only decoded response-envelope terminal.
+      // @ts-expect-error Fetch does not allow request bodies on GET.
+      api.get("/users").json({ filter: "active" });
+      // @ts-expect-error Fetch does not allow request bodies on HEAD.
+      api.head("/users").body("payload");
+      // @ts-expect-error The custom-method entry point preserves the GET body restriction.
+      api.request("GET", "/users").bodyFactory(() => "payload");
+      // @ts-expect-error asResponse() is the only decoded response-envelope terminal.
       api.get("/users").send();
       // @ts-expect-error A client boundary is created only through lafetch.create().
       api.extend({ baseUrl: "https://other.example.com" });
@@ -50,8 +56,12 @@ describe("public API conventions", () => {
       api.get("/users").retry({ attempts: 2 });
       // @ts-expect-error Backoff uses one structured form inside retry options.
       api.get("/users").retry(2, { backoff: "fixed" });
-      // @ts-expect-error Response types are a closed public contract.
-      api.get("/users").as("yaml");
+      // @ts-expect-error Response consumption uses explicit terminal methods.
+      api.get("/users").as("json");
+      // @ts-expect-error The old response() terminal is not part of the unified grammar.
+      api.get("/users").response();
+      // @ts-expect-error The old raw() terminal is not part of the unified grammar.
+      api.get("/users").raw();
       // @ts-expect-error Request credentials use the Fetch standard values.
       api.get("/users").credentials("cross-origin");
       // @ts-expect-error Client credentials use the Fetch standard values.
@@ -72,6 +82,41 @@ describe("public API conventions", () => {
       api.get("/users").schema(() => true);
       // @ts-expect-error One mapError() handles request and response failures.
       api.get("/users").mapDecodeError((error: Error) => error);
+
+      expectTypeOf(api.get("/users").asText()).toEqualTypeOf<Promise<string>>();
+      expectTypeOf(api.get<{ id: string }>("/users").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.post<{ id: string }>("/users").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.put<{ id: string }>("/users/1").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.patch<{ id: string }>("/users/1").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.delete<{ id: string }>("/users/1").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.head<void>("/users").asJson()).toEqualTypeOf<Promise<void>>();
+      expectTypeOf(api.request<{ id: string }>("QUERY", "/users").asJson())
+        .toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.get("/users/1").validate({
+        parse(value: unknown): { id: string } {
+          return value as { id: string };
+        },
+      }).asJson()).toEqualTypeOf<Promise<{ id: string }>>();
+      // @ts-expect-error Response data types are declared once on the HTTP method.
+      api.get("/users").asJson<{ id: string }>();
+      expectTypeOf(api.get("/binary").asArrayBuffer()).toEqualTypeOf<Promise<ArrayBuffer>>();
+      expectTypeOf(api.get("/file").asBlob()).toEqualTypeOf<Promise<Blob>>();
+      expectTypeOf(api.get("/form").asFormData()).toEqualTypeOf<Promise<FormData>>();
+      expectTypeOf(api.get<{ id: string }>("/users/1").asResponse())
+        .toEqualTypeOf<Promise<LafetchResponse<{ id: string }>>>();
+      expectTypeOf(api.get("/users").asRaw()).toEqualTypeOf<Promise<Response>>();
+      // @ts-expect-error Explicit response terminals return Promise and end Builder configuration.
+      api.get("/users").asJson().timeout("1s");
+      // @ts-expect-error Streaming remains outside the v0.2.1 buffered-consumption contract.
+      api.get("/users").asStream();
+
+      api.delete("/users/1").json({ reason: "duplicate" });
+      api.request("QUERY", "/search").json({ filter: "active" });
     }
 
     type HasDirectFactoryExport = "createClient" extends keyof typeof publicApi ? true : false;
@@ -81,5 +126,15 @@ describe("public API conventions", () => {
     expect(publicApi).not.toHaveProperty("telemetry");
     expect(typeof api.get).toBe("function");
     expect(api).not.toHaveProperty("extend");
+
+    expectTypeOf(api.get("/users")).toEqualTypeOf<RequestBuilder<unknown, "forbidden", "open">>();
+    expectTypeOf(api.post("/users")).toEqualTypeOf<RequestBuilder<unknown, "allowed", "open">>();
+    expectTypeOf(api.get("/users").cache("30s"))
+      .toEqualTypeOf<RequestBuilder<unknown, "forbidden", "buffered">>();
+
+    const generalGet: RequestBuilder<unknown> = api.get("/users");
+    const generalPost: RequestBuilder<unknown> = api.post("/users");
+    expectTypeOf(generalGet).toEqualTypeOf<RequestBuilder<unknown>>();
+    expectTypeOf(generalPost).toEqualTypeOf<RequestBuilder<unknown>>();
   });
 });

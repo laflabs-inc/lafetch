@@ -1,6 +1,6 @@
 # Lafetch 상세 사용 가이드
 
-이 문서는 Lafetch v0.2의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
+이 문서는 Lafetch v0.2.1의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
 
 ## 데이터, 전체 응답, 원본 응답
 
@@ -14,12 +14,12 @@ const user = await api.get<User>("/users/123");
 
 ### 전체 응답
 
-`response()`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
+`asResponse()`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
 
 ```ts
 const result = await api
   .get<User>("/users/123")
-  .response();
+  .asResponse();
 
 result.data;
 result.status;
@@ -33,30 +33,32 @@ result.meta.attempts;
 ### 원본 Response
 
 ```ts
-const response = await api.get("/download").raw();
+const response = await api.get("/download").asRaw();
 ```
 
-`raw()`는 응답 디코딩과 `validate()`를 적용하지 않습니다.
+`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않습니다.
 
 ## 응답 형식
 
 기본 `auto` 모드는 JSON 계열 Content-Type을 객체로, text·XML·form-urlencoded를 문자열로, 그 외 응답을 `ArrayBuffer`로 디코딩합니다. 빈 응답과 `HEAD`, `204`, `205`는 `undefined`를 반환합니다.
 
-서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 `as()`를 사용합니다.
+서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 명시적인 `as*()` 종결 메서드를 사용합니다.
 
 ```ts
-const json = await api.get<User>("/user").as("json");
-const text = await api.get<string>("/health").as("text");
-const bytes = await api.get<ArrayBuffer>("/binary").as("arrayBuffer");
-const blob = await api.get<Blob>("/file").as("blob");
-const form = await api.get<FormData>("/form").as("formData");
+const json = await api.get<User>("/user").asJson();
+const text = await api.get("/health").asText();
+const bytes = await api.get("/binary").asArrayBuffer();
+const blob = await api.get("/file").asBlob();
+const form = await api.get("/form").asFormData();
 ```
 
-허용되는 값은 `"auto"`, `"json"`, `"text"`, `"arrayBuffer"`, `"blob"`, `"formData"`입니다. TypeScript는 다른 값을 컴파일 단계에서 거부하고, JavaScript에서도 요청 전에 `HttpConfigurationError`가 발생합니다.
+응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `asJson<T>()`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
+
+각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. Streaming은 v0.3에서 `asStream()`으로 같은 규칙에 추가합니다.
 
 ## Promise 호환성과 실행 불변식
 
-`RequestBuilder<T>`는 지연 실행되는 `PromiseLike<T>`입니다.
+`RequestBuilder<T>`는 지연 실행되는 `PromiseLike<T>`입니다. 내부 타입 상태는 Fetch에서 요청 본문을 사용할 수 있는지와 향후 Streaming을 선택할 수 있는지만 추적합니다. 일반 사용자가 이 상태 타입을 직접 지정할 필요는 없습니다.
 
 ```ts
 api
@@ -95,6 +97,23 @@ const user = await api
 await api
   .post<void>("/upload")
   .body(formData);
+```
+
+`query()`는 모든 HTTP 메서드에서 사용할 수 있습니다. 반면 Fetch는 GET과 HEAD 요청 본문을 허용하지 않으므로 해당 Builder에서는 `json()`, `body()`, `bodyFactory()`가 노출되지 않습니다. JavaScript에서 같은 메서드를 호출하면 Transport 실행 전에 `HttpConfigurationError`가 발생합니다.
+
+```ts
+await api
+  .get<User[]>("/users")
+  .query({ active: true });
+```
+
+본문을 사용하는 안전하고 멱등적인 조회 API가 필요하고 서버가 지원한다면 사용자 정의 `QUERY` 메서드를 사용할 수 있습니다.
+
+```ts
+await api
+  .request<SearchResult>("QUERY", "/search")
+  .json({ filters })
+  .asJson();
 ```
 
 자격 증명의 기본값은 `"omit"`입니다. 클라이언트 또는 요청에서 명시적으로 활성화할 수 있습니다.

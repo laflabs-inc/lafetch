@@ -41,7 +41,7 @@ describe("response schema", () => {
 
   it("keeps raw response access outside schema consumption", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ nope: true })) });
-    const response = await api.get("https://api.example.com/user").validate(userSchema).raw();
+    const response = await api.get("https://api.example.com/user").validate(userSchema).asRaw();
     expect(response.status).toBe(200);
   });
 });

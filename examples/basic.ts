@@ -10,10 +10,9 @@ const api = lafetch.create({
 });
 
 const user = await api
-  .get("/users/123")
+  .get<User>("/users/123")
   .timeout("3s")
   .retry(3)
-  .json<User>();
+  .asJson();
 
 console.log(user.name);
-

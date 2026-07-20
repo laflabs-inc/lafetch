@@ -63,16 +63,19 @@ const transport = mockTransport((request) => Response.json({
   packageProbe: request.headers.get("x-package-probe"),
 }));
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
-const result = await api.get("/probe").use(feature);
+const result = await api.get("/probe").use(feature).asJson();
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
 
 const invalidConfigurations = [
-  () => api.get("/probe").as("yaml"),
-  () => api.get("/probe").as(null),
   () => api.get("/probe").credentials("cross-origin"),
   () => api.get("/probe").credentials(null),
+  () => api.get("/probe").json({ invalid: true }),
+  () => api.get("/probe").body("invalid"),
+  () => api.get("/probe").bodyFactory(() => "invalid"),
+  () => api.head("/probe").json({ invalid: true }),
+  () => api.request("GET", "/probe").body("invalid"),
   () => lafetch.create({ credentials: "cross-origin" }),
   () => lafetch.create({ credentials: null }),
   () => api.get("/probe").retry(1, { backoff: "fixed" }),
@@ -102,10 +105,31 @@ interface User { id: string }
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const request: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").use(feature);
-const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").response();
+const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").asJson();
+const methodResults: Promise<User>[] = [
+  api.post<User>("https://api.example.com/users").asJson(),
+  api.put<User>("https://api.example.com/users/1").asJson(),
+  api.patch<User>("https://api.example.com/users/1").asJson(),
+  api.delete<User>("https://api.example.com/users/1").asJson(),
+  api.request<User>("QUERY", "https://api.example.com/users").asJson(),
+];
+const headResult: Promise<void> = api.head<void>("https://api.example.com/users").asJson();
+const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").asResponse();
 if (false) {
-  // @ts-expect-error Response types are a closed public contract.
-  api.get("/users").as("yaml");
+  // @ts-expect-error Response data types are declared on the HTTP method, not asJson().
+  api.get("/users").asJson<User>();
+  // @ts-expect-error Response consumption uses explicit as* terminal methods.
+  api.get("/users").as("json");
+  // @ts-expect-error The old response() terminal is not part of the public grammar.
+  api.get("/users").response();
+  // @ts-expect-error The old raw() terminal is not part of the public grammar.
+  api.get("/users").raw();
+  // @ts-expect-error Fetch does not allow request bodies on GET.
+  api.get("/users").json({ filter: "active" });
+  // @ts-expect-error Fetch does not allow request bodies on HEAD.
+  api.head("/users").body("payload");
+  // @ts-expect-error Custom GET requests preserve the Fetch body restriction.
+  api.request("GET", "/users").bodyFactory(() => "payload");
   // @ts-expect-error Request credentials use the Fetch standard values.
   api.get("/users").credentials("cross-origin");
   // @ts-expect-error Client credentials use the Fetch standard values.
@@ -116,6 +140,9 @@ if (false) {
   api.get("/users").retry(1, { backoff: { jitter: "equal" } });
 }
 void request;
+void explicit;
+void methodResults;
+void headResult;
 void response;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
@@ -138,7 +165,7 @@ void response;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.2.0-alpha.0") {
+  if (installedPackage.version !== "0.2.1-alpha.0") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {

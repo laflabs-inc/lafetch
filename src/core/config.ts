@@ -142,6 +142,14 @@ function encodeJson(value: unknown): string {
   }
 }
 
+function assertRequestBodyAllowed(config: RequestConfiguration, operation: string): void {
+  if (config.method === "GET" || config.method === "HEAD") {
+    throw new HttpConfigurationError(
+      `${operation} cannot configure a request body for ${config.method}. Fetch does not allow GET or HEAD bodies.`,
+    );
+  }
+}
+
 export function createRequestConfiguration(
   client: ClientConfiguration,
   input: string | URL,
@@ -186,16 +194,19 @@ export function withoutHeader(config: RequestConfiguration, name: string): Reque
 }
 
 export function withJson(config: RequestConfiguration, value: unknown): RequestConfiguration {
+  assertRequestBodyAllowed(config, "json()");
   const headers = new Headers(config.headers);
   if (!headers.has("content-type")) headers.set("content-type", "application/json");
   return { ...config, headers, body: { kind: "value", value: encodeJson(value) } };
 }
 
 export function withBody(config: RequestConfiguration, value: BodyInit | null): RequestConfiguration {
+  assertRequestBodyAllowed(config, "body()");
   return { ...config, body: { kind: "value", value } };
 }
 
 export function withBodyFactory(config: RequestConfiguration, create: BodyFactory): RequestConfiguration {
+  assertRequestBodyAllowed(config, "bodyFactory()");
   return { ...config, body: { kind: "factory", create } };
 }
 
