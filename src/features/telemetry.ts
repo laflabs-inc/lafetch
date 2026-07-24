@@ -21,10 +21,10 @@ export function telemetry(handler: TelemetryHandler, options: TelemetryOptions =
       provides: Object.freeze([{ name: "telemetry", mode: "observer" as const }]),
     }),
     hooks: Object.freeze({
-      async onEvent({ event }: FeatureEventContext) {
-        try {
-          await handler(event);
-        } catch { /* official telemetry is observation-only */ }
+      onEvent({ event }: FeatureEventContext) {
+        void Promise.resolve()
+          .then(() => handler(event))
+          .catch(() => undefined);
       },
     }),
   });

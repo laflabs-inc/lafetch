@@ -27,6 +27,21 @@ function httpFixture(): Plugin {
           response.end(JSON.stringify({ attempt }));
           return;
         }
+        if (route === "/text") {
+          response.setHeader("content-type", "text/plain");
+          response.end("browser text");
+          return;
+        }
+        if (route === "/empty") {
+          response.statusCode = 204;
+          response.end();
+          return;
+        }
+        if (route === "/large") {
+          response.setHeader("content-type", "text/plain");
+          response.end("oversized");
+          return;
+        }
         response.setHeader("content-type", "application/json");
         response.end(JSON.stringify({
           method: request.method,

@@ -1,13 +1,13 @@
 import { MemoryCacheStore, type CacheStore } from "../core/cache-store.js";
 import { durationToMs } from "../core/duration.js";
 import type { Duration, RequestFeature } from "../core/types.js";
-import { hasSensitiveRequest, requestKey } from "./request-key.js";
+import { hasSensitiveRequest, resolveRequestKey, type RequestKey } from "./request-key.js";
 
 export interface CacheOptions {
   readonly store?: CacheStore;
   readonly methods?: readonly string[];
   readonly statuses?: readonly number[];
-  readonly key?: string | ((request: Request) => string | Promise<string>);
+  readonly key?: RequestKey;
 }
 
 const keyState = Symbol("cache.key");
@@ -54,18 +54,16 @@ export function createCacheFeature(
   return {
     name: "cache",
     capabilities: { provides: [{ name: "cache", mode: "exclusive" }] },
-    ordering: { optionalBefore: ["dedupe"] },
+    // Dedupe intercepts first, so reverse-order finalization commits Cache
+    // before followers are settled.
+    ordering: { optionalAfter: ["dedupe"] },
     hooks: {
-      async prepare({ draft, state }) {
-        const unsafeWithoutCustomKey = !methods.has(draft.method) && key === undefined;
-        const bypass = unsafeWithoutCustomKey || hasSensitiveRequest(draft);
-        state.set(bypassState, bypass);
-        if (!bypass && typeof key !== "function") state.set(keyState, key ?? requestKey(draft));
-      },
       async intercept({ request, state }) {
-        if (state.get(bypassState)) return;
-        const resolvedKey = typeof key === "function" ? await key(request) : state.get(keyState);
-        if (typeof resolvedKey !== "string") return;
+        state.delete(keyState);
+        const bypass = (key === undefined && !methods.has(request.method)) || hasSensitiveRequest(request);
+        state.set(bypassState, bypass);
+        if (bypass) return;
+        const resolvedKey = await resolveRequestKey(key, request);
         state.set(keyState, resolvedKey);
         const entry = await store.get(resolvedKey);
         if (!entry || entry.expiresAt <= now()) {
@@ -74,8 +72,14 @@ export function createCacheFeature(
         }
         return entry.response.clone();
       },
-      async afterResponse({ response, source, state }) {
-        if (state.get(bypassState) || source === "feature:cache" || !cacheableResponse(response, statuses)) return;
+      async finalize({ response, error, source, state }) {
+        if (
+          error !== undefined ||
+          response === undefined ||
+          state.get(bypassState) ||
+          source === "feature:cache" ||
+          !cacheableResponse(response, statuses)
+        ) return;
         const key = state.get(keyState);
         if (typeof key !== "string") return;
         const effectiveTtlMs = responseTtl(response, ttlMs);

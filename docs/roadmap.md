@@ -16,7 +16,7 @@
 
 ## 현재 수준: v0.2.1-alpha
 
-현재 단계는 단순 프로토타입을 넘어선 **Progressive Builder 안정화 알파**입니다. 기능 범위는 넓지만 Streaming, 대용량 응답, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
+현재 단계는 단순 프로토타입을 넘어선 **Progressive Builder 안정화 알파**입니다. Buffered 응답 상한과 핵심 격리 보강은 완료했지만 Streaming, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
@@ -24,14 +24,14 @@
 | 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
 | 제한된 Type-State와 `as*()` terminal | v0.2.1 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
-| Cache와 Deduplication | 기본 정책과 클라이언트 격리 구현 |
+| Cache와 Deduplication | 최종 Request 키, unsafe method, 클라이언트 격리 계약 테스트 |
 | Idempotency, Validation, Error Mapping | 구현 완료 |
 | Feature Runtime | 생명주기, 순서, Capability 충돌 구현 |
-| Telemetry | 요청 단위 관찰 기능 구현 |
+| Telemetry | 요청 단위 비차단 관찰 기능 구현 |
 | Transport 교체 | 구현 완료 |
 | Browser, Node.js, Next.js, Workers/Edge | 자동 검증 구성 |
 | npm 패키지 소비 | tarball 설치와 공개 export 검증 |
-| Streaming과 메모리 상한 | 미구현 |
+| Streaming과 메모리 상한 | Buffered 기본 16 MiB 상한 구현, Streaming 미구현 |
 | React와 Next.js 선택 모듈 | 미구현 |
 | 라이선스와 공개 배포 자동화 | 미완성 |
 
@@ -101,13 +101,19 @@ const created = await api
 
 - GET과 HEAD Builder에서 `json()`, `body()`, `bodyFactory()` 제거
 - 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
-- Request body 허용 여부와 buffered 여부만 추적하는 제한형 Type-State
+- Request body 허용 여부, buffered 여부, Schema 출력만 내부에서 추적하는 제한형 Type-State
 - `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal
 - 응답 타입을 모든 HTTP 진입 메서드에서 한 번만 선언하고 `asJson<T>()` 중복 문법 제거
 - 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
 - 기존 `as(type)`, `response()`, `raw()` 제거
 - 직접 `await`와 Promise 호환성 유지
 - TypeScript, JavaScript, 실제 tarball 소비 계약 테스트
+- 공개 `RequestBuilder<TData>`에서 내부 Type-State 제네릭 숨김
+- Schema 변환 이후 terminal 반환 타입 일치
+- Cache와 Deduplication 키를 `beforeAttempt` 이후 최종 Request에서 계산
+- unsafe method Cache와 Deduplication에 caller-owned key 강제
+- Buffered 응답 기본 16 MiB 상한과 `maxResponseBytes()` 추가
+- 느리거나 실패한 Telemetry handler와 HTTP 결과 격리
 
 ### 완료 조건
 
@@ -116,6 +122,7 @@ const created = await api
 - 확실히 잘못된 조합만 타입에서 제거하고, 상황 의존 정책은 런타임 검증이 담당해야 합니다.
 - 공식 Timeout, Retry, Cache, Deduplication, Idempotency, Validation, Error Mapping, Telemetry 기능을 유지해야 합니다.
 - 전체 브라우저 공개 API가 기존 `12 KiB` gzip 예산을 지켜야 합니다.
+- Cache, Deduplication, 빈 응답, Schema 변환의 타입·런타임 회귀 테스트가 통과해야 합니다.
 
 ## v0.3 — Streaming과 본문 안전성
 
@@ -127,9 +134,9 @@ const created = await api
 
 - Streaming 응답 공개 API RFC
 - buffered `asRaw()`와 streaming `asStream()`의 책임 분리
-- Streaming 응답의 단일 소비와 Builder 재사용 규칙
-- Buffered 응답의 최대 크기와 메모리 상한
-- `Content-Length`가 없거나 잘못된 응답의 크기 추적
+- Streaming 응답의 단일 소비와 Request 재사용 규칙
+- v0.2.1의 `maxResponseBytes()`와 Streaming 상한 계약 분리
+- `Content-Length`가 없거나 잘못된 Streaming 응답의 크기 추적
 - 본문 소비 중 전체 Timeout, 시도 Timeout, Abort 처리
 - Streaming 실패와 Retry의 경계
 - 대용량 다운로드와 Streaming 업로드 테스트

@@ -6,11 +6,11 @@ import {
 import { createRuntime } from "./core/runtime.js";
 import type { ClientOptions } from "./core/types.js";
 import { validateRequestCredentials } from "./core/validation.js";
-import { createRequestBuilder, type RequestBuilder } from "./request-builder.js";
+import { createRequestBuilder, type RequestBuilderState } from "./request-builder.js";
 import { fetchTransport } from "./transports/fetch.js";
 
-type BodylessRequestBuilder<TData> = RequestBuilder<TData, "forbidden">;
-type BodyRequestBuilder<TData> = RequestBuilder<TData, "allowed">;
+type BodylessRequestBuilder<TData> = RequestBuilderState<TData, "forbidden">;
+type BodyRequestBuilder<TData> = RequestBuilderState<TData, "allowed">;
 type BodylessRequestMethod =
   | `${"g" | "G"}${"e" | "E"}${"t" | "T"}`
   | `${"h" | "H"}${"e" | "E"}${"a" | "A"}${"d" | "D"}`;

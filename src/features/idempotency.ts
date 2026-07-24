@@ -1,3 +1,4 @@
+import { HttpConfigurationError } from "../core/errors.js";
 import type { RequestFeature } from "../core/types.js";
 
 export interface IdempotencyOptions {
@@ -23,6 +24,9 @@ export function idempotency(options: IdempotencyOptions = {}): RequestFeature {
         let key = state.get(keyState);
         if (typeof key !== "string") {
           key = typeof configuredKey === "function" ? await configuredKey() : (configuredKey ?? randomKey());
+          if (typeof key !== "string" || key.trim() === "") {
+            throw new HttpConfigurationError("Idempotency key must be a non-empty string.");
+          }
           state.set(keyState, key);
         }
         draft.headers.set(header, key as string);

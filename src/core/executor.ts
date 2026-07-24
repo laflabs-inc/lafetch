@@ -4,6 +4,7 @@ import {
   HttpConfigurationError,
   HttpError,
   HttpNonReplayableBodyError,
+  HttpResponseTooLargeError,
   HttpStatusError,
   HttpTimeoutError,
   HttpTransportError,
@@ -55,10 +56,6 @@ function normalizeRetry(
 ): NormalizedRetry {
   const retries = input?.retries ?? 0;
   const options: RetryOptions = input?.options ?? {};
-  if (!Number.isInteger(retries) || retries < 0) {
-    throw new HttpConfigurationError("retry() requires a non-negative integer retry count.");
-  }
-
   const backoff = options.backoff ?? {};
   const hasIdempotency = features.some((feature) =>
     feature.capabilities?.provides?.some((capability) => capability.name === "idempotency"),
@@ -85,7 +82,11 @@ function isAcceptedStatus(status: number, matcher: RequestConfiguration["acceptS
   if (!matcher) return status >= 200 && status <= 299;
   if (typeof matcher === "function") {
     try {
-      return matcher(status);
+      const accepted = matcher(status);
+      if (typeof accepted !== "boolean") {
+        throw new HttpConfigurationError("acceptStatus() predicate must return a boolean.");
+      }
+      return accepted;
     } catch (cause) {
       throw new HttpConfigurationError("acceptStatus() failed while evaluating the response status.", { cause });
     }
@@ -120,17 +121,42 @@ function retryDelay(
   return retry.jitter === "full" ? boundedRandom * capped : capped;
 }
 
-async function bodyForAttempt(source: BodySource): Promise<BodyInit | null | undefined> {
+function withCancellation<T>(
+  operation: () => T | PromiseLike<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) return Promise.reject(cancellationError(signal));
+  const promise = Promise.resolve().then(operation);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(cancellationError(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function bodyForAttempt(source: BodySource, signal: AbortSignal): Promise<BodyInit | null | undefined> {
   if (source.kind === "none") return undefined;
-  if (source.kind === "factory") return await source.create();
+  if (source.kind === "factory") {
+    return await withCancellation(() => source.create(), signal);
+  }
   return source.value;
 }
 
 async function buildRequest(draft: MutableRequestDraft, signal: AbortSignal): Promise<Request> {
   let body: BodyInit | null | undefined;
   try {
-    body = await bodyForAttempt(draft.body);
+    body = await bodyForAttempt(draft.body, signal);
   } catch (cause) {
+    if (signal.aborted) throw cancellationError(signal, cause);
     throw new HttpConfigurationError("bodyFactory() failed to create a request body.", { cause });
   }
   const init: RequestInit & { duplex?: "half" } = {
@@ -163,7 +189,12 @@ function canRetry(retry: NormalizedRetry, method: string, attempt: number): bool
   return attempt < retry.attempts && retry.methods.has(method);
 }
 
-async function bufferResponse(response: Response, signal: AbortSignal): Promise<Response> {
+async function bufferResponse(
+  response: Response,
+  signal: AbortSignal,
+  maxResponseBytes: number,
+  request: Request,
+): Promise<Response> {
   const retained = response.clone();
   const reader = response.body?.getReader();
   if (signal.aborted) {
@@ -178,7 +209,19 @@ async function bufferResponse(response: Response, signal: AbortSignal): Promise<
   try {
     const consume = async () => {
       if (!reader) return;
-      while (!(await reader.read()).done) { /* drain the body into the retained clone */ }
+      let receivedBytes = 0;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) return;
+        const chunkBytes = chunk.value?.byteLength;
+        if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 0) {
+          throw new HttpTransportError("The HTTP response body produced a non-byte chunk.", { request });
+        }
+        receivedBytes += chunkBytes;
+        if (receivedBytes > maxResponseBytes) {
+          throw new HttpResponseTooLargeError(maxResponseBytes, receivedBytes, { request });
+        }
+      }
     };
     await Promise.race([consume(), aborted]);
     return retained;
@@ -318,7 +361,10 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
           source = intercepted.source;
         } else {
           source = config.transport.name;
-          response = await config.transport.send(request, { requestId, attempt, signal: attemptSignal.signal });
+          response = await withCancellation(
+            () => config.transport.send(request!, { requestId, attempt, signal: attemptSignal.signal }),
+            attemptSignal.signal,
+          );
           if (!(response instanceof Response)) {
             throw new HttpTransportError(`Transport "${config.transport.name}" returned a non-Response value.`, { request });
           }
@@ -353,7 +399,12 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
           continue;
         }
 
-        const retained = await bufferResponse(response, attemptSignal.signal);
+        const retained = await bufferResponse(
+          response,
+          attemptSignal.signal,
+          config.maxResponseBytes,
+          request,
+        );
         finalResponse = retained;
         finalSource = source;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);

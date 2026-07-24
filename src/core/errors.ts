@@ -157,3 +157,18 @@ export class HttpNonReplayableBodyError extends HttpError {
     );
   }
 }
+
+export class HttpResponseTooLargeError extends HttpError {
+  readonly limitBytes: number;
+  readonly receivedBytes: number;
+
+  constructor(limitBytes: number, receivedBytes: number, options: HttpErrorOptions = {}) {
+    super(
+      `The HTTP response exceeded the configured ${limitBytes}-byte buffer limit.`,
+      "ERR_HTTP_RESPONSE_TOO_LARGE",
+      options,
+    );
+    this.limitBytes = limitBytes;
+    this.receivedBytes = receivedBytes;
+  }
+}

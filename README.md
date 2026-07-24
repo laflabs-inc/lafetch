@@ -124,7 +124,7 @@ response.headers;
 response.meta.attempts;
 ```
 
-Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다.
+Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. v0.2.1의 `asRaw()`도 안전한 다중 소비를 위해 제한된 크기로 버퍼링되며, 진짜 Streaming은 v0.3의 `asStream()`이 담당합니다.
 
 ## 응답 형식 지정하기
 
@@ -138,6 +138,8 @@ const file = await api.get("/files/1").asBlob();
 
 응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `asJson()`은 별도 타입 인자를 받지 않고 Builder의 데이터 타입을 그대로 반환하므로 서로 다른 타입을 중복 선언할 수 없습니다.
 
+`validate(schema)`가 값을 변환하면 이후 소비 메서드의 반환 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
+
 `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`가 같은 종결 문법을 사용합니다. Streaming은 v0.3에서 `asStream()`으로 추가합니다.
 
 ## 주요 기능
@@ -149,6 +151,7 @@ const file = await api.get("/files/1").asBlob();
 | JSON Body | `.json(value)` | JSON 직렬화와 Content-Type 설정 |
 | Timeout | `.timeout("3s")` | 전체 요청 제한 시간 |
 | Attempt Timeout | `.attemptTimeout("1s")` | 개별 시도 제한 시간 |
+| Response Limit | `.maxResponseBytes(1_000_000)` | 버퍼링할 실제 응답 바이트 상한 |
 | Retry & Backoff | `.retry(2)` | 안전한 재시도와 지연 |
 | Abort | `.signal(signal)` | 표준 `AbortSignal` 취소 |
 | Cache | `.cache("30s")` | 완료된 안전한 응답 재사용 |
@@ -166,6 +169,7 @@ const file = await api.get("/files/1").asBlob();
 - 기본 성공 범위는 HTTP `200–299`입니다.
 - 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다.
 - 기본 메모리 Cache는 500개 항목으로 제한됩니다.
+- Buffered 응답은 기본 16 MiB로 제한되며 요청별로 명시적인 상한을 지정할 수 있습니다.
 - 인증 헤더, 토큰 형태의 쿼리, `Set-Cookie`, 제한적인 `Cache-Control`, `Vary`는 기본 Cache를 우회합니다.
 - 요청 본문은 Telemetry에 포함하지 않습니다.
 - 진단 데이터에서 인증 헤더와 토큰 형태의 쿼리를 제거합니다.
@@ -185,6 +189,7 @@ const file = await api.get("/files/1").asBlob();
 - `HttpFeatureConflictError`
 - `HttpFeatureError`
 - `HttpNonReplayableBodyError`
+- `HttpResponseTooLargeError`
 
 하나의 `.mapError()`가 요청 실행과 응답 소비의 최종 실패를 모두 처리합니다. 재시도 판단이 끝난 뒤 오류를 변환하므로 도메인 오류 매핑이 재시도 안전성을 바꾸지 않습니다.
 
@@ -232,4 +237,4 @@ pnpm check
 
 ## 현재 상태
 
-현재 버전은 `0.2.1-alpha.0`입니다. 공개 배포 전 Streaming 계약, 라이선스와 배포 자동화를 완료할 예정입니다. 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다.
+현재 버전은 `0.2.1-alpha.0`입니다. Buffered 응답 상한은 적용됐으며, 공개 배포 전 Streaming 계약, 라이선스와 배포 자동화를 완료할 예정입니다. 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다.

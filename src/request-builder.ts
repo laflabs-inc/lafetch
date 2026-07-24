@@ -8,6 +8,7 @@ import {
   withHeader,
   withHeaders,
   withJson,
+  withMaxResponseBytes,
   withoutHeader,
   withQuery,
   withRetry,
@@ -26,6 +27,7 @@ import { createCacheFeature, type CacheOptions } from "./features/cache.js";
 import { createDedupeFeature, type DedupeOptions } from "./features/dedupe.js";
 import { idempotency as createIdempotencyFeature, type IdempotencyOptions } from "./features/idempotency.js";
 import { applySchema, type InferSchema, type ResponseSchema } from "./consumption/schema.js";
+import { HttpConfigurationError } from "./core/errors.js";
 import { mapRequestError, type RequestErrorMapper } from "./consumption/error-mapping.js";
 import type {
   BodyFactory,
@@ -38,8 +40,22 @@ import type {
   StatusMatcher,
 } from "./core/types.js";
 
-type RequestBodyMode = "allowed" | "forbidden";
+type RequestBodyMode = "allowed" | "configured" | "forbidden";
 type ResponseConsumptionMode = "open" | "buffered";
+type ResponseValidationMode = "none" | "schema";
+type ConsumedData<TData, TFallback, TValidationMode extends ResponseValidationMode> =
+  TValidationMode extends "schema" ? TData : TFallback;
+
+function requireCallerOwnedKey(
+  policy: "cache" | "dedupe",
+  method: string,
+  key: unknown,
+): void {
+  if (method === "GET" || method === "HEAD" || key !== undefined) return;
+  throw new HttpConfigurationError(
+    `${policy}() on ${method} requires a caller-owned key. The built-in key does not inspect request bodies.`,
+  );
+}
 
 interface AwaitableRequest<TData> extends PromiseLike<TData> {
   readonly [Symbol.toStringTag]: "LafetchRequest";
@@ -57,83 +73,98 @@ interface CommonRequestOperations<
   TData,
   TBodyMode extends RequestBodyMode,
   TConsumptionMode extends ResponseConsumptionMode,
+  TValidationMode extends ResponseValidationMode,
 > {
-  query(params: QueryParams): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  header(name: string, value: string): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  headers(values: HeadersInit): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  removeHeader(name: string): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  signal(signal: AbortSignal): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  timeout(timeout: Duration): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  attemptTimeout(timeout: Duration): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
+  query(params: QueryParams): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  header(name: string, value: string): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  headers(values: HeadersInit): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  removeHeader(name: string): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  signal(signal: AbortSignal): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  timeout(timeout: Duration): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  attemptTimeout(timeout: Duration): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  maxResponseBytes(bytes: number): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   retry(
     retries: number,
     options?: RetryOptions,
-  ): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  acceptStatus(matcher: StatusMatcher): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
+  ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  acceptStatus(matcher: StatusMatcher): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   credentials(
     credentials: RequestCredentials,
-  ): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
+  ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   cache(
     ttl: Duration,
     options?: CacheOptions,
-  ): RequestBuilder<TData, TBodyMode, "buffered">;
-  dedupe(options?: DedupeOptions): RequestBuilder<TData, TBodyMode, "buffered">;
+  ): RequestBuilderState<TData, TBodyMode, "buffered", TValidationMode>;
+  dedupe(options?: DedupeOptions): RequestBuilderState<TData, TBodyMode, "buffered", TValidationMode>;
   idempotency(
     options?: IdempotencyOptions,
-  ): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  validate<TSchema extends ResponseSchema<unknown>>(
-    schema: TSchema,
-  ): RequestBuilder<InferSchema<TSchema>, TBodyMode, "buffered">;
+  ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   mapError(
     mapper: RequestErrorMapper,
-  ): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
+  ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   telemetry(
     handler: TelemetryHandler,
     options?: TelemetryOptions,
-  ): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
-  use(feature: RequestFeature): RequestBuilder<TData, TBodyMode, TConsumptionMode>;
+  ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  use(feature: RequestFeature): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   /** Consume the response as JSON using the Builder data type and end configuration. */
   asJson(): Promise<TData>;
   /** Consume the response as text and end Builder configuration. */
-  asText(): Promise<string>;
+  asText(): Promise<ConsumedData<TData, string, TValidationMode>>;
   /** Consume the response as an ArrayBuffer and end Builder configuration. */
-  asArrayBuffer(): Promise<ArrayBuffer>;
+  asArrayBuffer(): Promise<ConsumedData<TData, ArrayBuffer, TValidationMode>>;
   /** Consume the response as a Blob and end Builder configuration. */
-  asBlob(): Promise<Blob>;
+  asBlob(): Promise<ConsumedData<TData, Blob, TValidationMode>>;
   /** Consume the response as FormData and end Builder configuration. */
-  asFormData(): Promise<FormData>;
+  asFormData(): Promise<ConsumedData<TData, FormData, TValidationMode>>;
   /** Consume automatically decoded data with HTTP and execution metadata. */
   asResponse(): Promise<LafetchResponse<TData>>;
   /** Consume a buffered Fetch Response without decoding or schema validation. */
   asRaw(): Promise<Response>;
 }
 
+interface ValidationRequestOperation<TBodyMode extends RequestBodyMode> {
+  validate<TSchema extends ResponseSchema<unknown>>(
+    schema: TSchema,
+  ): RequestBuilderState<InferSchema<TSchema>, TBodyMode, "buffered", "schema">;
+}
+
 interface RequestBodyOperations<
   TData,
   TConsumptionMode extends ResponseConsumptionMode,
+  TValidationMode extends ResponseValidationMode,
 > {
   /** Configure a JSON request body. Available only when Fetch permits a body for the method. */
-  json(value: unknown): RequestBuilder<TData, "allowed", TConsumptionMode>;
+  json(value: unknown): RequestBuilderState<TData, "configured", TConsumptionMode, TValidationMode>;
   /** Configure a raw Fetch request body. */
-  body(value: BodyInit | null): RequestBuilder<TData, "allowed", TConsumptionMode>;
+  body(value: BodyInit | null): RequestBuilderState<TData, "configured", TConsumptionMode, TValidationMode>;
   /** Create a fresh request body for each retry attempt. */
-  bodyFactory(create: BodyFactory): RequestBuilder<TData, "allowed", TConsumptionMode>;
+  bodyFactory(create: BodyFactory): RequestBuilderState<TData, "configured", TConsumptionMode, TValidationMode>;
 }
 
 /**
- * An immutable, lazy request plan. The extra type parameters are internal
- * state used to keep impossible Fetch and response-consumption combinations
- * out of IDE completion while preserving the single fluent grammar.
+ * An immutable, lazy request plan. Method-specific state is inferred from the
+ * client entry point and intentionally hidden from this public type.
  */
-export type RequestBuilder<
+export type RequestBuilder<TData = unknown> = RequestBuilderState<
+  TData,
+  RequestBodyMode,
+  ResponseConsumptionMode,
+  "none"
+>;
+
+/** Internal state carrier used by client method return types; not re-exported from the package root. */
+export type RequestBuilderState<
   TData = unknown,
   TBodyMode extends RequestBodyMode = RequestBodyMode,
   TConsumptionMode extends ResponseConsumptionMode = ResponseConsumptionMode,
+  TValidationMode extends ResponseValidationMode = "none",
 > = AwaitableRequest<TData>
-  & CommonRequestOperations<TData, TBodyMode, TConsumptionMode>
+  & CommonRequestOperations<TData, TBodyMode, TConsumptionMode, TValidationMode>
   & (TBodyMode extends "allowed"
-    ? RequestBodyOperations<TData, TConsumptionMode>
-    : unknown);
+    ? RequestBodyOperations<TData, TConsumptionMode, TValidationMode>
+    : unknown)
+  & (TValidationMode extends "none" ? ValidationRequestOperation<TBodyMode> : unknown);
 
 class RequestBuilderImplementation<TData = unknown> {
   readonly [Symbol.toStringTag] = "LafetchRequest";
@@ -238,6 +269,10 @@ class RequestBuilderImplementation<TData = unknown> {
     return this.#next(withAttemptTimeout(this.configuration, timeout));
   }
 
+  maxResponseBytes(bytes: number): RequestBuilderImplementation<TData> {
+    return this.#next(withMaxResponseBytes(this.configuration, bytes));
+  }
+
   retry(retries: number, options: RetryOptions = {}): RequestBuilderImplementation<TData> {
     return this.#next(withRetry(this.configuration, retries, options));
   }
@@ -251,17 +286,18 @@ class RequestBuilderImplementation<TData = unknown> {
   }
 
   cache(ttl: Duration, options: CacheOptions = {}): RequestBuilderImplementation<TData> {
-    return this.#next(withFeature(this.configuration, createCacheFeature(ttl, options, {
+    requireCallerOwnedKey("cache", this.configuration.method, options.key);
+    const feature = createCacheFeature(ttl, options, {
       store: this.configuration.scope.getCacheStore(),
       now: this.configuration.runtime.now,
-    })));
+    });
+    return this.#next(withFeature(this.configuration, feature));
   }
 
   dedupe(options?: DedupeOptions): RequestBuilderImplementation<TData> {
-    return this.#next(withFeature(
-      this.configuration,
-      createDedupeFeature(options, this.configuration.scope.getDedupeExecutions()),
-    ));
+    requireCallerOwnedKey("dedupe", this.configuration.method, options?.key);
+    const feature = createDedupeFeature(options, this.configuration.scope.getDedupeExecutions());
+    return this.#next(withFeature(this.configuration, feature));
   }
 
   idempotency(options?: IdempotencyOptions): RequestBuilderImplementation<TData> {
@@ -271,6 +307,9 @@ class RequestBuilderImplementation<TData = unknown> {
   validate<TSchema extends ResponseSchema<unknown>>(
     schema: TSchema,
   ): RequestBuilderImplementation<InferSchema<TSchema>> {
+    if (this.responseSchema !== undefined) {
+      throw new HttpConfigurationError("validate() cannot replace an existing response Schema.");
+    }
     return this.#nextConsumption<InferSchema<TSchema>>(schema, this.errorMappers);
   }
 
@@ -349,6 +388,6 @@ class RequestBuilderImplementation<TData = unknown> {
 export function createRequestBuilder<
   TData = unknown,
   TBodyMode extends RequestBodyMode = "allowed",
->(configuration: RequestConfiguration): RequestBuilder<TData, TBodyMode, "open"> {
-  return new RequestBuilderImplementation<TData>(configuration) as RequestBuilder<TData, TBodyMode, "open">;
+>(configuration: RequestConfiguration): RequestBuilderState<TData, TBodyMode, "open", "none"> {
+  return new RequestBuilderImplementation<TData>(configuration) as RequestBuilderState<TData, TBodyMode, "open", "none">;
 }

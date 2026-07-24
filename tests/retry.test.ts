@@ -168,4 +168,41 @@ describe("retry", () => {
     await expect(request).rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
     expect(transport.calls).toHaveLength(0);
   });
+
+  it("applies timeout cancellation while awaiting an async bodyFactory", async () => {
+    const transport = mockTransport(() => success());
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+    const never = new Promise<BodyInit | null>(() => undefined);
+
+    await expect(api
+      .post("/resource")
+      .bodyFactory(() => never)
+      .timeout("10ms"))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "total" });
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("enforces an attempt timeout when a custom Transport ignores its signal", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Promise<Response>(() => undefined)),
+    });
+
+    await expect(api.get("/resource").attemptTimeout("10ms"))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "attempt" });
+  });
+
+  it("does not let platform timer overflow turn a long timeout into an immediate timeout", async () => {
+    const controller = new AbortController();
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((_request, context) => new Promise((_resolve, reject) => {
+        context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+      })),
+    });
+    const request = api.get("/long-timeout").signal(controller.signal).timeout(3_000_000_000);
+    setTimeout(() => controller.abort("caller cancelled"), 10);
+
+    await expect(request).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
+  });
 });

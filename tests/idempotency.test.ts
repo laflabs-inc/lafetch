@@ -32,4 +32,13 @@ describe("idempotency", () => {
     });
     await api.post("/jobs").header("Idempotency-Key", "caller-key").idempotency({ key: "generated" });
   });
+
+  it("rejects an invalid generated key before Transport execution", async () => {
+    const transport = mockTransport(() => Response.json({ ok: true }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.post("/jobs").idempotency({ key: () => "" }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+    expect(transport.calls).toHaveLength(0);
+  });
 });

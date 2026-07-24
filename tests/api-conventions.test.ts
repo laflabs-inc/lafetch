@@ -102,6 +102,13 @@ describe("public API conventions", () => {
           return value as { id: string };
         },
       }).asJson()).toEqualTypeOf<Promise<{ id: string }>>();
+      expectTypeOf(api.get("/users/1").validate({
+        parse(value: unknown): { id: string } {
+          return value as { id: string };
+        },
+      }).asText()).toEqualTypeOf<Promise<{ id: string }>>();
+      // @ts-expect-error A request has exactly one response Schema.
+      api.get("/users").validate((value) => value).validate((value) => value);
       // @ts-expect-error Response data types are declared once on the HTTP method.
       api.get("/users").asJson<{ id: string }>();
       expectTypeOf(api.get("/binary").asArrayBuffer()).toEqualTypeOf<Promise<ArrayBuffer>>();
@@ -110,12 +117,17 @@ describe("public API conventions", () => {
       expectTypeOf(api.get<{ id: string }>("/users/1").asResponse())
         .toEqualTypeOf<Promise<LafetchResponse<{ id: string }>>>();
       expectTypeOf(api.get("/users").asRaw()).toEqualTypeOf<Promise<Response>>();
+      expectTypeOf(api.get("/users").maxResponseBytes(1_000_000)).toEqualTypeOf(api.get("/users"));
       // @ts-expect-error Explicit response terminals return Promise and end Builder configuration.
       api.get("/users").asJson().timeout("1s");
       // @ts-expect-error Streaming remains outside the v0.2.1 buffered-consumption contract.
       api.get("/users").asStream();
 
       api.delete("/users/1").json({ reason: "duplicate" });
+      // @ts-expect-error A request has exactly one body source.
+      api.post("/users").json({ name: "Dohyun" }).body("replacement");
+      // @ts-expect-error A request has exactly one body source.
+      api.post("/users").body("payload").bodyFactory(() => "replacement");
       api.request("QUERY", "/search").json({ filter: "active" });
     }
 
@@ -126,11 +138,6 @@ describe("public API conventions", () => {
     expect(publicApi).not.toHaveProperty("telemetry");
     expect(typeof api.get).toBe("function");
     expect(api).not.toHaveProperty("extend");
-
-    expectTypeOf(api.get("/users")).toEqualTypeOf<RequestBuilder<unknown, "forbidden", "open">>();
-    expectTypeOf(api.post("/users")).toEqualTypeOf<RequestBuilder<unknown, "allowed", "open">>();
-    expectTypeOf(api.get("/users").cache("30s"))
-      .toEqualTypeOf<RequestBuilder<unknown, "forbidden", "buffered">>();
 
     const generalGet: RequestBuilder<unknown> = api.get("/users");
     const generalPost: RequestBuilder<unknown> = api.post("/users");
