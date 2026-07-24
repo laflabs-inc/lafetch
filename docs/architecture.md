@@ -60,7 +60,7 @@ Attempt scope runs for every retry:
 3. run `beforeAttempt` hooks;
 4. create a fresh `Request`;
 5. emit `attempt:start`;
-6. run `intercept` hooks until one returns a Response, otherwise call the Transport;
+6. run `intercept` hooks until one returns a Response, otherwise call the Transport under the attempt deadline;
 7. run `afterResponse` hooks, passing replacements to later Features;
 8. emit the response event and keep the attempt deadline active through final body retention;
 9. emit an attempt error when needed, decide whether to retry, and expose the selected backoff delay;
@@ -78,7 +78,7 @@ Calling another fluent method creates a new immutable builder with a separate ex
 
 Builder inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
 
-The kernel currently buffers the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. True streaming will require a separate explicit execution path rather than weakening this invariant silently.
+The kernel currently buffers the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. Buffered responses have a default 16 MiB actual-byte limit and may use an explicit request-specific `maxResponseBytes()` value. `Content-Length` is not trusted as the enforcement boundary. True streaming will require a separate explicit execution path rather than weakening this invariant silently.
 
 ## Retry invariant
 
@@ -140,6 +140,8 @@ request:success | request:error
 
 An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response events record their source as the Transport name or `feature:<name>` for an intercepted response. Request snapshots reuse the diagnostic redaction policy for credential headers and token-like query parameters.
 
+Official Telemetry starts event delivery in lifecycle order but does not serialize or await collector completion on the HTTP critical path. Handler rejection and latency cannot replace or indefinitely delay the request result; collectors that require ordered or durable delivery own their own queue and flush lifecycle.
+
 ## Security defaults
 
 - status outside `200–299` is an error unless explicitly accepted;
@@ -151,11 +153,15 @@ An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response
 - credentialed and sensitive requests bypass built-in cache and deduplication;
 - default cache and deduplication state never crosses client boundaries;
 - cache and deduplication keys include all normalized request headers;
+- cache and deduplication identity is calculated from the final Request after `beforeAttempt` hooks;
+- unsafe methods require a caller-owned cache or deduplication key;
+- cache entries are committed only after successful response retention and finalization;
+- buffered responses have a finite actual-byte limit;
 - transport and Feature conflicts fail before network dispatch.
 
 ## Consumption scope
 
-Execution produces one retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. Explicit `asJson()`, `asText()`, `asBlob()` and related terminals select one decoder and return a real Promise. `asResponse()` wraps automatically decoded data with status, headers, and metadata, while `asRaw()` remains outside decoding and validation. A unified builder `mapError()` handles final execution and consumption failures.
+Execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. Explicit `asJson()`, `asText()`, `asBlob()` and related terminals select one decoder and return a real Promise. When a Schema transforms data, its output drives both runtime values and terminal return types. `asResponse()` wraps automatically decoded data with status, headers, and metadata, while buffered `asRaw()` remains outside decoding and validation. A unified builder `mapError()` handles final execution and consumption failures.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 

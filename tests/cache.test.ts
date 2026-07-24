@@ -87,6 +87,89 @@ describe("cache", () => {
     expect(calls).toBe(2);
   });
 
+  it("keys from the final Request after beforeAttempt mutations", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((request) => {
+        calls += 1;
+        return Response.json({ tenant: request.headers.get("x-tenant") });
+      }),
+    });
+    const tenant = (value: string) => ({
+      name: `tenant-${value}`,
+      hooks: {
+        beforeAttempt({ draft }: { draft: { headers: Headers } }) {
+          draft.headers.set("X-Tenant", value);
+        },
+      },
+    });
+
+    const first = await api.get<{ tenant: string }>("/cache/final-request")
+      .cache("30s")
+      .use(tenant("first"));
+    const second = await api.get<{ tenant: string }>("/cache/final-request")
+      .cache("30s")
+      .use(tenant("second"));
+
+    expect(first.tenant).toBe("first");
+    expect(second.tenant).toBe("second");
+    expect(calls).toBe(2);
+  });
+
+  it("bypasses credentials added during beforeAttempt", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+    const authentication = {
+      name: "authentication",
+      hooks: {
+        beforeAttempt({ draft }: { draft: { headers: Headers } }) {
+          draft.headers.set("Authorization", "Bearer secret");
+        },
+      },
+    };
+
+    await api.get("/cache/late-credentials").cache("30s").use(authentication);
+    await api.get("/cache/late-credentials").cache("30s").use(authentication);
+
+    expect(calls).toBe(2);
+  });
+
+  it("rejects unsafe methods without a caller-owned key even when methods opts in", () => {
+    const transport = mockTransport(() => Response.json({ unused: true }));
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+    });
+
+    expect(() => api.post("/cache/unsafe").body("first").cache("30s", { methods: ["POST"] }))
+      .toThrow(expect.objectContaining({ code: "ERR_HTTP_CONFIGURATION" }));
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("allows an unsafe method with an explicit caller-owned key", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async (request) => Response.json({ call: ++calls, body: await request.text() })),
+    });
+
+    const first = await api.post<{ call: number; body: string }>("/cache/keyed-write")
+      .body("same")
+      .cache("30s", { key: async (request) => `keyed-write:${await request.text()}` });
+    const second = await api.post<{ call: number; body: string }>("/cache/keyed-write")
+      .body("same")
+      .cache("30s", { key: async (request) => `keyed-write:${await request.text()}` });
+
+    expect(first.call).toBe(1);
+    expect(second.call).toBe(1);
+    expect(first.body).toBe("same");
+    expect(calls).toBe(1);
+  });
+
   it("does not cache a response with max-age=0", async () => {
     let calls = 0;
     const api = lafetch.create({
@@ -99,5 +182,82 @@ describe("cache", () => {
 
     expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).call).toBe(1);
     expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).call).toBe(2);
+  });
+
+  it("does not store a response that fails the buffer limit", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        calls += 1;
+        if (calls === 1) return new Response("oversized");
+        return new Response("ok", { headers: { "content-type": "text/plain" } });
+      }),
+    });
+
+    await expect(api.get("/cache/oversized").cache("1m").maxResponseBytes(2))
+      .rejects.toMatchObject({ code: "ERR_HTTP_RESPONSE_TOO_LARGE" });
+    await expect(api.get<string>("/cache/oversized").cache("1m").maxResponseBytes(2))
+      .resolves.toBe("ok");
+    expect(calls).toBe(2);
+  });
+
+  it("stores a configured status only when the request accepts it", async () => {
+    let rejectedCalls = 0;
+    let acceptedCalls = 0;
+    const rejected = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        rejectedCalls += 1;
+        return Response.json({ cached: false }, { status: 404 });
+      }),
+    });
+    const accepted = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        acceptedCalls += 1;
+        return Response.json({ cached: true }, { status: 404 });
+      }),
+    });
+
+    await expect(rejected.get("/cache/rejected").cache("1m", { statuses: [404] }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_STATUS" });
+    await expect(rejected.get("/cache/rejected").cache("1m", { statuses: [404] }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_STATUS" });
+
+    await accepted.get("/cache/accepted").cache("1m", { statuses: [404] }).acceptStatus([404]);
+    await accepted.get("/cache/accepted").cache("1m", { statuses: [404] }).acceptStatus([404]);
+
+    expect(rejectedCalls).toBe(2);
+    expect(acceptedCalls).toBe(1);
+  });
+
+  it("rejects a deduplicated group consistently when Cache finalization fails", async () => {
+    let calls = 0;
+    const store = {
+      get() { return undefined; },
+      set() { throw new Error("cache unavailable"); },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ ok: true });
+      }),
+    });
+
+    const results = await Promise.allSettled([
+      api.get("/cache/finalize-failure").cache("1m", { store }).dedupe(),
+      api.get("/cache/finalize-failure").cache("1m", { store }).dedupe(),
+    ]);
+
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toMatchObject({ code: "ERR_HTTP_FEATURE", feature: "cache", hook: "finalize" });
+      }
+    }
+    expect(calls).toBe(1);
   });
 });

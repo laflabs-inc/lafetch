@@ -1,5 +1,6 @@
 import { HttpAbortError, HttpTimeoutError } from "./errors.js";
 import type { TimeoutScope } from "./types.js";
+import { scheduleTimer } from "./timer.js";
 
 export interface TimeoutReason {
   readonly type: "lafetch.timeout";
@@ -21,12 +22,12 @@ export function createDeadlineSignal(scope: TimeoutScope, timeoutMs?: number): D
     controller.abort(reason);
     return { signal: controller.signal, cleanup() {} };
   }
-  const timer = setTimeout(() => controller.abort(reason), timeoutMs);
+  const timer = scheduleTimer(() => controller.abort(reason), timeoutMs);
 
   return {
     signal: controller.signal,
     cleanup() {
-      clearTimeout(timer);
+      timer.cancel();
     },
   };
 }

@@ -21,6 +21,20 @@ describe("response schema", () => {
     expectTypeOf(result).toEqualTypeOf<User>();
   });
 
+  it("returns the schema output type after an explicit decoder", async () => {
+    const lengthSchema = {
+      parse(value: unknown): number {
+        if (typeof value !== "string") throw new Error("expected text");
+        return value.length;
+      },
+    };
+    const api = lafetch.create({ transport: mockTransport(() => new Response("hello")) });
+    const resultPromise = api.get("https://api.example.com/text").validate(lengthSchema).asText();
+
+    expectTypeOf(resultPromise).toEqualTypeOf<Promise<number>>();
+    await expect(resultPromise).resolves.toBe(5);
+  });
+
   it("maps response validation failures through the unified error mapper", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ nope: true })) });
     const error = await api

@@ -168,12 +168,13 @@ export class FeatureRuntime {
     for (const feature of [...this.features].reverse()) {
       if (!feature.hooks?.finalize) continue;
       try {
+        const effectiveError = firstError ?? input.error;
         await this.#run(feature, "finalize", () =>
           feature.hooks!.finalize!({
             ...this.#context(feature),
             ...(input.request !== undefined ? { request: input.request } : {}),
             ...(input.response !== undefined ? { response: input.response.clone() } : {}),
-            ...(input.error !== undefined ? { error: input.error } : {}),
+            ...(effectiveError !== undefined ? { error: effectiveError } : {}),
             attempts: input.attempts,
             ...(input.source !== undefined ? { source: input.source } : {}),
           }),

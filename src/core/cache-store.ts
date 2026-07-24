@@ -1,3 +1,5 @@
+import { HttpConfigurationError } from "./errors.js";
+
 export interface CacheEntry {
   readonly response: Response;
   readonly expiresAt: number;
@@ -16,8 +18,8 @@ export class MemoryCacheStore implements CacheStore {
     readonly maxEntries = 500,
     private readonly now: () => number = Date.now,
   ) {
-    if (!Number.isInteger(maxEntries) || maxEntries < 1) {
-      throw new TypeError("MemoryCacheStore maxEntries must be a positive integer.");
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
+      throw new HttpConfigurationError("MemoryCacheStore maxEntries must be a positive safe integer.");
     }
   }
 

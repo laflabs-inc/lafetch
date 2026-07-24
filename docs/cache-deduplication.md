@@ -5,17 +5,17 @@ Cache and deduplication solve different timing problems and are separate Feature
 - Cache reuses a completed response until its TTL expires.
 - Deduplication shares only an in-flight execution.
 
-They can be composed on one request. Cache is ordered before deduplication when both official Features are installed.
+They can be composed on one request. Deduplication intercepts before Cache; finalizers run in reverse so a Cache commit succeeds before deduplicated followers are settled.
 
 ## Safe defaults
 
 Both policies default to GET and HEAD. They bypass requests whose credentials mode is not `omit`, whose URL contains user information or token-like query values, or whose headers contain credentials, tokens, secrets, sessions, or API keys.
 
-The built-in key includes the method, complete URL, and every normalized request header. This partitions tenant headers, locale, content negotiation, and other representation inputs without requiring an application-specific allowlist.
+The built-in key is calculated from the final `Request` after every `beforeAttempt` hook. It includes the method, complete URL, and every normalized request header. This partitions late-bound tenant headers, locale, content negotiation, and other representation inputs without requiring an application-specific allowlist.
 
 The built-in cache stores status 200 by default and refuses responses containing `Set-Cookie`, restrictive `Cache-Control`, or `Vary`. A response `max-age` and `Age` can shorten the caller's TTL but never extend it. Refusing arbitrary `Vary` is conservative: a future variant-aware store can opt into a richer key contract without risking a cross-variant response today.
 
-Unsafe methods require a caller-owned key. A key is a trust boundary; callers must include every value that changes response identity.
+Unsafe methods require a caller-owned key. Adding an unsafe method to `methods` does not replace that key requirement because the built-in key intentionally does not inspect request bodies. A key callback receives an independently consumable Request clone, so it may read a body without consuming the Transport request. Static and callback keys must resolve to a non-empty string. A key is a trust boundary; callers must include every value that changes response identity.
 
 ## Store contract
 
@@ -25,10 +25,12 @@ The implicit memory store and in-flight registry are created lazily and belong t
 
 Runtime-specific stores should be tested for clone isolation, expiry, concurrent reads and writes, bounded storage or external eviction, and safe failure behavior.
 
+The built-in cache commits an entry only during successful finalization, after status handling and buffered response-size enforcement have completed. Retryable, rejected, aborted, timed-out, and oversized responses are never committed.
+
 The `@laflabs/lafetch/testing` export provides `runCacheStoreConformance()`. It is independent of any test framework and currently checks round-trip behavior, independently consumable response clones, and optional deletion. Adapter projects can translate its result objects into their own assertions.
 
 ## Deduplication ownership
 
 The first matching request is the leader. Followers await its retained response but keep their own abort and timeout signals. Aborting a follower never cancels the leader. If a leader ends through abort or timeout, an active follower may fall back to its own Transport execution.
 
-Deduplication covers the leader's whole retry sequence rather than one individual attempt.
+Deduplication covers the leader's whole retry sequence rather than one individual attempt. Later retries continue as the existing leader and never wait on their own unresolved shared execution. The key is recalculated from every final attempt Request; changing identity during one leader sequence is rejected as configuration instead of sharing a response across identities.

@@ -30,6 +30,7 @@ export {
   HttpFeatureConflictError,
   HttpFeatureError,
   HttpNonReplayableBodyError,
+  HttpResponseTooLargeError,
   HttpSchemaError,
   HttpStatusError,
   HttpTimeoutError,

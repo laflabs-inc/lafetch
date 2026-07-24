@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   HttpAbortError,
   HttpDecodeError,
+  HttpConfigurationError,
+  HttpResponseTooLargeError,
   HttpStatusError,
   HttpTimeoutError,
   lafetch,
@@ -123,6 +125,81 @@ describe("RequestBuilder", () => {
     expect([...new Uint8Array(await api.get("/bytes").asArrayBuffer())]).toEqual([1, 2, 3]);
     expect(await (await api.get("/blob").asBlob()).text()).toBe("blob body");
     expect((await api.get("/form").asFormData()).get("name")).toBe("Lafetch");
+  });
+
+  it("keeps fixed terminal return types for empty responses", async () => {
+    const responses = [
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 }),
+    ];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => responses.shift()!),
+    });
+
+    expect(await api.get("/empty-text").asText()).toBe("");
+    expect((await api.get("/empty-bytes").asArrayBuffer()).byteLength).toBe(0);
+    expect((await api.get("/empty-blob").asBlob()).size).toBe(0);
+    expect([...((await api.get("/empty-form").asFormData()).entries())]).toEqual([]);
+  });
+
+  it("does not discard a body because of an incorrect Content-Length header", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response("present", {
+        headers: { "content-type": "text/plain", "content-length": "0" },
+      })),
+    });
+
+    await expect(api.get("/incorrect-length").asText()).resolves.toBe("present");
+  });
+
+  it("limits buffered responses using actual received bytes", async () => {
+    const transport = mockTransport(() => new Response(new Uint8Array([1, 2, 3, 4, 5]), {
+      headers: { "content-length": "1" },
+    }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    const error = await api.get("/large")
+      .maxResponseBytes(4)
+      .asArrayBuffer()
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HttpResponseTooLargeError);
+    expect(error).toMatchObject({
+      code: "ERR_HTTP_RESPONSE_TOO_LARGE",
+      limitBytes: 4,
+      receivedBytes: 5,
+    });
+    await expect(api.get("/exact").maxResponseBytes(5).asArrayBuffer())
+      .resolves.toHaveProperty("byteLength", 5);
+  });
+
+  it("rejects a custom Transport response that violates the byte-stream contract", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue("not bytes" as unknown as Uint8Array);
+        controller.close();
+      },
+    });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(body)),
+    });
+
+    await expect(api.get("/invalid-stream"))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TRANSPORT" });
+  });
+
+  it("rejects invalid response limits at declaration time", () => {
+    const transport = mockTransport(() => new Response("unused"));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    expect(() => api.get("/invalid-limit").maxResponseBytes(-1)).toThrow(HttpConfigurationError);
+    expect(() => api.get("/invalid-limit").maxResponseBytes(1.5)).toThrow(HttpConfigurationError);
+    expect(transport.calls).toHaveLength(0);
   });
 
   it("supports custom methods without an option-object request path", async () => {

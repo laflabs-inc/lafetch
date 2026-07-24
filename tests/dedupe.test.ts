@@ -110,4 +110,141 @@ describe("deduplication", () => {
     expect(calls).toBe(2);
   });
 
+  it("keys from the final Request after beforeAttempt mutations", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async (request) => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ tenant: request.headers.get("x-tenant") });
+      }),
+    });
+    const tenant = (value: string) => ({
+      name: `tenant-${value}`,
+      hooks: {
+        beforeAttempt({ draft }: { draft: { headers: Headers } }) {
+          draft.headers.set("X-Tenant", value);
+        },
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      api.get<{ tenant: string }>("/dedupe/final-request").dedupe().use(tenant("first")),
+      api.get<{ tenant: string }>("/dedupe/final-request").dedupe().use(tenant("second")),
+    ]);
+
+    expect(first.tenant).toBe("first");
+    expect(second.tenant).toBe("second");
+    expect(calls).toBe(2);
+  });
+
+  it("bypasses credentials added during beforeAttempt", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ call: calls });
+      }),
+    });
+    const authentication = {
+      name: "authentication",
+      hooks: {
+        beforeAttempt({ draft }: { draft: { headers: Headers } }) {
+          draft.headers.set("Authorization", "Bearer secret");
+        },
+      },
+    };
+
+    await Promise.all([
+      api.get("/dedupe/late-credentials").dedupe().use(authentication),
+      api.get("/dedupe/late-credentials").dedupe().use(authentication),
+    ]);
+
+    expect(calls).toBe(2);
+  });
+
+  it("rejects unsafe methods without a caller-owned key even when methods opts in", () => {
+    const transport = mockTransport(() => Response.json({ unused: true }));
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+    });
+
+    expect(() => api.post("/dedupe/unsafe").body("first").dedupe({ methods: ["POST"] }))
+      .toThrow(expect.objectContaining({ code: "ERR_HTTP_CONFIGURATION" }));
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("allows an unsafe method with an explicit caller-owned key", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async (request) => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ body: await request.text() });
+      }),
+    });
+
+    const results = await Promise.all([
+      api.post<{ body: string }>("/dedupe/keyed-write").body("same")
+        .dedupe({ key: async (request) => `keyed-write:${await request.text()}` }),
+      api.post<{ body: string }>("/dedupe/keyed-write").body("same")
+        .dedupe({ key: async (request) => `keyed-write:${await request.text()}` }),
+    ]);
+
+    expect(results.map((result) => result.body)).toEqual(["same", "same"]);
+    expect(calls).toBe(1);
+  });
+
+  it("keeps the leader entry across retries without waiting on itself", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        calls += 1;
+        if (calls === 1) return new Response(null, { status: 503 });
+        return Response.json({ ok: true });
+      }),
+    });
+
+    const result = await api.get<{ ok: boolean }>("/dedupe/retry")
+      .dedupe()
+      .retry(1, { backoff: { base: 0, max: 0, jitter: "none" } });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("rejects a changed request identity across leader retries", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        calls += 1;
+        return calls === 1
+          ? new Response(null, { status: 503 })
+          : Response.json({ ok: true });
+      }),
+    });
+    const rotatingIdentity = {
+      name: "rotating-identity",
+      hooks: {
+        beforeAttempt({ draft, attempt }: { draft: { headers: Headers }; attempt: number }) {
+          draft.headers.set("X-Tenant", String(attempt));
+        },
+      },
+    };
+
+    await expect(api.get("/dedupe/retry-identity")
+      .dedupe()
+      .use(rotatingIdentity)
+      .retry(1, { backoff: { base: 0, max: 0, jitter: "none" } }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+    expect(calls).toBe(1);
+  });
+
 });

@@ -51,7 +51,7 @@ try {
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], consumerDirectory);
 
   writeFileSync(join(consumerDirectory, "runtime.mjs"), `
-import { HttpConfigurationError, lafetch } from "@laflabs/lafetch";
+import { HttpConfigurationError, HttpResponseTooLargeError, lafetch } from "@laflabs/lafetch";
 import { defineFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 
@@ -66,6 +66,9 @@ const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 const result = await api.get("/probe").use(feature).asJson();
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
+}
+if (typeof HttpResponseTooLargeError !== "function") {
+  throw new Error("Packed response-size error export is missing.");
 }
 
 const invalidConfigurations = [
@@ -83,6 +86,9 @@ const invalidConfigurations = [
   () => api.get("/probe").retry(1, { backoff: { type: null } }),
   () => api.get("/probe").retry(1, { backoff: { jitter: "equal" } }),
   () => api.get("/probe").retry(1, { backoff: { jitter: null } }),
+  () => api.get("/probe").maxResponseBytes(-1),
+  () => api.post("/probe").body("one").body("two"),
+  () => api.post("/probe").cache("1m"),
 ];
 for (const configure of invalidConfigurations) {
   try {
@@ -115,6 +121,10 @@ const methodResults: Promise<User>[] = [
 ];
 const headResult: Promise<void> = api.head<void>("https://api.example.com/users").asJson();
 const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").asResponse();
+const validatedText: Promise<number> = api.get("https://api.example.com/text").validate({
+  parse(value: unknown): number { return String(value).length; },
+}).asText();
+const limited: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
 if (false) {
   // @ts-expect-error Response data types are declared on the HTTP method, not asJson().
   api.get("/users").asJson<User>();
@@ -130,6 +140,8 @@ if (false) {
   api.head("/users").body("payload");
   // @ts-expect-error Custom GET requests preserve the Fetch body restriction.
   api.request("GET", "/users").bodyFactory(() => "payload");
+  // @ts-expect-error A request has exactly one body source.
+  api.post("/users").json({ name: "Dohyun" }).body("replacement");
   // @ts-expect-error Request credentials use the Fetch standard values.
   api.get("/users").credentials("cross-origin");
   // @ts-expect-error Client credentials use the Fetch standard values.
@@ -144,6 +156,8 @@ void explicit;
 void methodResults;
 void headResult;
 void response;
+void validatedText;
+void limited;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
     compilerOptions: {

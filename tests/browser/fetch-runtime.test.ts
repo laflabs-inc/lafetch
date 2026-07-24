@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { HttpAbortError, lafetch } from "../../src/index.js";
+import {
+  HttpAbortError,
+  HttpConfigurationError,
+  HttpResponseTooLargeError,
+  lafetch,
+} from "../../src/index.js";
 
 describe("browser Fetch runtime", () => {
   it("executes a real same-origin request", async () => {
@@ -28,5 +33,26 @@ describe("browser Fetch runtime", () => {
     const request = lafetch.create().get("/__lafetch_fixture__/slow").signal(controller.signal);
     setTimeout(() => controller.abort("browser cancelled"), 10);
     await expect(request).rejects.toBeInstanceOf(HttpAbortError);
+  });
+
+  it("keeps explicit terminal contracts in browser Fetch", async () => {
+    const api = lafetch.create();
+
+    await expect(api.get("/__lafetch_fixture__/text").asText()).resolves.toBe("browser text");
+    await expect(api.get("/__lafetch_fixture__/empty").asText()).resolves.toBe("");
+  });
+
+  it("enforces actual buffered bytes in browser Fetch", async () => {
+    await expect(lafetch
+      .create()
+      .get("/__lafetch_fixture__/large")
+      .maxResponseBytes(4))
+      .rejects.toBeInstanceOf(HttpResponseTooLargeError);
+  });
+
+  it("rejects guarded configuration before Fetch", () => {
+    const api = lafetch.create();
+    expect(() => api.get("/__lafetch_fixture__/echo").maxResponseBytes(-1))
+      .toThrow(HttpConfigurationError);
   });
 });
