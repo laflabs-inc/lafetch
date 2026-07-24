@@ -50,9 +50,9 @@ describe("browser Fetch runtime", () => {
       .rejects.toBeInstanceOf(HttpResponseTooLargeError);
   });
 
-  it("rejects JavaScript-style invalid configuration before Fetch", () => {
+  it("rejects guarded configuration before Fetch", () => {
     const api = lafetch.create();
-    expect(() => api.get("/__lafetch_fixture__/echo").retry(1, { methods: null as never }))
+    expect(() => api.get("/__lafetch_fixture__/echo").maxResponseBytes(-1))
       .toThrow(HttpConfigurationError);
   });
 });
