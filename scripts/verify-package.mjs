@@ -51,7 +51,7 @@ try {
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], consumerDirectory);
 
   writeFileSync(join(consumerDirectory, "runtime.mjs"), `
-import { HttpConfigurationError, lafetch } from "@laflabs/lafetch";
+import { HttpConfigurationError, HttpResponseTooLargeError, lafetch } from "@laflabs/lafetch";
 import { defineFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 
@@ -63,16 +63,26 @@ const transport = mockTransport((request) => Response.json({
   packageProbe: request.headers.get("x-package-probe"),
 }));
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
-const result = await api.get("/probe").use(feature);
+const result = await api.get("/probe").use(feature).asJson();
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
+const streamed = await api.get("/stream").asStream();
+if ((await streamed.json()).packageProbe !== null || transport.calls.length !== 2) {
+  throw new Error("Packed Streaming terminal did not execute correctly.");
+}
+if (typeof HttpResponseTooLargeError !== "function") {
+  throw new Error("Packed response-size error export is missing.");
+}
 
 const invalidConfigurations = [
-  () => api.get("/probe").as("yaml"),
-  () => api.get("/probe").as(null),
   () => api.get("/probe").credentials("cross-origin"),
   () => api.get("/probe").credentials(null),
+  () => api.get("/probe").json({ invalid: true }),
+  () => api.get("/probe").body("invalid"),
+  () => api.get("/probe").bodyFactory(() => "invalid"),
+  () => api.head("/probe").json({ invalid: true }),
+  () => api.request("GET", "/probe").body("invalid"),
   () => lafetch.create({ credentials: "cross-origin" }),
   () => lafetch.create({ credentials: null }),
   () => api.get("/probe").retry(1, { backoff: "fixed" }),
@@ -80,6 +90,9 @@ const invalidConfigurations = [
   () => api.get("/probe").retry(1, { backoff: { type: null } }),
   () => api.get("/probe").retry(1, { backoff: { jitter: "equal" } }),
   () => api.get("/probe").retry(1, { backoff: { jitter: null } }),
+  () => api.get("/probe").maxResponseBytes(-1),
+  () => api.post("/probe").body("one").body("two"),
+  () => api.post("/probe").cache("1m"),
 ];
 for (const configure of invalidConfigurations) {
   try {
@@ -89,7 +102,7 @@ for (const configure of invalidConfigurations) {
     if (!(error instanceof HttpConfigurationError)) throw error;
   }
 }
-if (transport.calls.length !== 1) throw new Error("Invalid configuration reached the packed Transport.");
+if (transport.calls.length !== 2) throw new Error("Invalid configuration reached the packed Transport.");
 `);
   run(process.execPath, ["runtime.mjs"], consumerDirectory);
 
@@ -102,10 +115,38 @@ interface User { id: string }
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const request: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").use(feature);
-const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").response();
+const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").asJson();
+const methodResults: Promise<User>[] = [
+  api.post<User>("https://api.example.com/users").asJson(),
+  api.put<User>("https://api.example.com/users/1").asJson(),
+  api.patch<User>("https://api.example.com/users/1").asJson(),
+  api.delete<User>("https://api.example.com/users/1").asJson(),
+  api.request<User>("QUERY", "https://api.example.com/users").asJson(),
+];
+const headResult: Promise<void> = api.head<void>("https://api.example.com/users").asJson();
+const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").asResponse();
+const validatedText: Promise<number> = api.get("https://api.example.com/text").validate({
+  parse(value: unknown): number { return String(value).length; },
+}).asText();
+const limited: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
+const streaming: Promise<Response> = api.get("https://api.example.com/events").asStream();
 if (false) {
-  // @ts-expect-error Response types are a closed public contract.
-  api.get("/users").as("yaml");
+  // @ts-expect-error Response data types are declared on the HTTP method, not asJson().
+  api.get("/users").asJson<User>();
+  // @ts-expect-error Response consumption uses explicit as* terminal methods.
+  api.get("/users").as("json");
+  // @ts-expect-error The old response() terminal is not part of the public grammar.
+  api.get("/users").response();
+  // @ts-expect-error The old raw() terminal is not part of the public grammar.
+  api.get("/users").raw();
+  // @ts-expect-error Fetch does not allow request bodies on GET.
+  api.get("/users").json({ filter: "active" });
+  // @ts-expect-error Fetch does not allow request bodies on HEAD.
+  api.head("/users").body("payload");
+  // @ts-expect-error Custom GET requests preserve the Fetch body restriction.
+  api.request("GET", "/users").bodyFactory(() => "payload");
+  // @ts-expect-error A request has exactly one body source.
+  api.post("/users").json({ name: "Dohyun" }).body("replacement");
   // @ts-expect-error Request credentials use the Fetch standard values.
   api.get("/users").credentials("cross-origin");
   // @ts-expect-error Client credentials use the Fetch standard values.
@@ -114,9 +155,21 @@ if (false) {
   api.get("/users").retry(1, { backoff: { type: "linear" } });
   // @ts-expect-error Jitter types are a closed public contract.
   api.get("/users").retry(1, { backoff: { jitter: "equal" } });
+  // @ts-expect-error Response Schema validation requires buffered consumption.
+  api.get("/events").validate((value) => value).asStream();
+  // @ts-expect-error Cache requires buffered consumption.
+  api.get("/events").cache("1m").asStream();
+  // @ts-expect-error Deduplication requires buffered consumption.
+  api.get("/events").dedupe().asStream();
 }
 void request;
+void explicit;
+void methodResults;
+void headResult;
 void response;
+void validatedText;
+void limited;
+void streaming;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
     compilerOptions: {
@@ -138,7 +191,7 @@ void response;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.2.0-alpha.0") {
+  if (installedPackage.version !== "0.3.0-alpha.0") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {

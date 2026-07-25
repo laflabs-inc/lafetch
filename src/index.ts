@@ -1,7 +1,7 @@
 export type { LafetchClient } from "./client.js";
 export { lafetch } from "./lafetch.js";
 export type { Lafetch } from "./lafetch.js";
-export type { RequestBuilder, ResponseType } from "./request-builder.js";
+export type { RequestBuilder } from "./request-builder.js";
 
 export { fetchTransport } from "./transports/fetch.js";
 export { MemoryCacheStore } from "./core/cache-store.js";
@@ -30,6 +30,7 @@ export {
   HttpFeatureConflictError,
   HttpFeatureError,
   HttpNonReplayableBodyError,
+  HttpResponseTooLargeError,
   HttpSchemaError,
   HttpStatusError,
   HttpTimeoutError,

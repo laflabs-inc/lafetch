@@ -2,8 +2,11 @@ import { durationToMs } from "./duration.js";
 import {
   HttpAbortError,
   HttpConfigurationError,
+  HttpConsumptionError,
   HttpError,
+  HttpFeatureConflictError,
   HttpNonReplayableBodyError,
+  HttpResponseTooLargeError,
   HttpStatusError,
   HttpTimeoutError,
   HttpTransportError,
@@ -21,6 +24,7 @@ import type {
   RequestEventErrorSnapshot,
   RequestEventResponseSnapshot,
   RequestMeta,
+  RequestFeature,
   RetryOptions,
 } from "./types.js";
 
@@ -38,6 +42,15 @@ interface NormalizedRetry {
 
 const DEFAULT_RETRY_METHODS = ["GET", "HEAD", "OPTIONS"];
 const DEFAULT_RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
+const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const INVALID_BODY_CHUNK = "The HTTP response body produced a non-byte chunk.";
+const MISSING_EXECUTION = "The HTTP request completed without an execution result.";
+
+type StreamingBodyErrorMapper = (
+  error: Error,
+  request: Request,
+  response: Response,
+) => Promise<never>;
 
 function normalizeTimeout(config: RequestConfiguration): { totalMs?: number; attemptMs?: number } {
   return {
@@ -55,10 +68,6 @@ function normalizeRetry(
 ): NormalizedRetry {
   const retries = input?.retries ?? 0;
   const options: RetryOptions = input?.options ?? {};
-  if (!Number.isInteger(retries) || retries < 0) {
-    throw new HttpConfigurationError("retry() requires a non-negative integer retry count.");
-  }
-
   const backoff = options.backoff ?? {};
   const hasIdempotency = features.some((feature) =>
     feature.capabilities?.provides?.some((capability) => capability.name === "idempotency"),
@@ -85,7 +94,11 @@ function isAcceptedStatus(status: number, matcher: RequestConfiguration["acceptS
   if (!matcher) return status >= 200 && status <= 299;
   if (typeof matcher === "function") {
     try {
-      return matcher(status);
+      const accepted = matcher(status);
+      if (typeof accepted !== "boolean") {
+        throw new HttpConfigurationError("acceptStatus() predicate must return a boolean.");
+      }
+      return accepted;
     } catch (cause) {
       throw new HttpConfigurationError("acceptStatus() failed while evaluating the response status.", { cause });
     }
@@ -120,17 +133,42 @@ function retryDelay(
   return retry.jitter === "full" ? boundedRandom * capped : capped;
 }
 
-async function bodyForAttempt(source: BodySource): Promise<BodyInit | null | undefined> {
+function withCancellation<T>(
+  operation: () => T | PromiseLike<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) return Promise.reject(cancellationError(signal));
+  const promise = Promise.resolve().then(operation);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(cancellationError(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function bodyForAttempt(source: BodySource, signal: AbortSignal): Promise<BodyInit | null | undefined> {
   if (source.kind === "none") return undefined;
-  if (source.kind === "factory") return await source.create();
+  if (source.kind === "factory") {
+    return await withCancellation(() => source.create(), signal);
+  }
   return source.value;
 }
 
 async function buildRequest(draft: MutableRequestDraft, signal: AbortSignal): Promise<Request> {
   let body: BodyInit | null | undefined;
   try {
-    body = await bodyForAttempt(draft.body);
+    body = await bodyForAttempt(draft.body, signal);
   } catch (cause) {
+    if (signal.aborted) throw cancellationError(signal, cause);
     throw new HttpConfigurationError("bodyFactory() failed to create a request body.", { cause });
   }
   const init: RequestInit & { duplex?: "half" } = {
@@ -163,7 +201,12 @@ function canRetry(retry: NormalizedRetry, method: string, attempt: number): bool
   return attempt < retry.attempts && retry.methods.has(method);
 }
 
-async function bufferResponse(response: Response, signal: AbortSignal): Promise<Response> {
+async function bufferResponse(
+  response: Response,
+  signal: AbortSignal,
+  maxResponseBytes: number,
+  request: Request,
+): Promise<Response> {
   const retained = response.clone();
   const reader = response.body?.getReader();
   if (signal.aborted) {
@@ -178,7 +221,19 @@ async function bufferResponse(response: Response, signal: AbortSignal): Promise<
   try {
     const consume = async () => {
       if (!reader) return;
-      while (!(await reader.read()).done) { /* drain the body into the retained clone */ }
+      let receivedBytes = 0;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) return;
+        const chunkBytes = chunk.value?.byteLength;
+        if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 0) {
+          throw new HttpTransportError(INVALID_BODY_CHUNK, { request });
+        }
+        receivedBytes += chunkBytes;
+        if (receivedBytes > maxResponseBytes) {
+          throw new HttpResponseTooLargeError(maxResponseBytes, receivedBytes, { request });
+        }
+      }
     };
     await Promise.race([consume(), aborted]);
     return retained;
@@ -249,11 +304,242 @@ async function reportAttemptError(
   }));
 }
 
-export async function executeRequest(config: RequestConfiguration): Promise<RawExecution> {
+function assertStreamingCompatible(features: readonly RequestFeature[]): void {
+  const incompatible = features.find((feature) =>
+    feature.capabilities?.provides?.some(({ name }) => name === "cache" || name === "dedupe"),
+  );
+  if (!incompatible) return;
+  throw new HttpFeatureConflictError(
+    `Feature "${incompatible.name}" is not compatible with asStream().`,
+  );
+}
+
+function responseWithBody(source: Response, body: BodyInit | null): Response {
+  const response = new Response(body, source);
+  for (const key of ["url", "redirected", "type"] as const) {
+    Object.defineProperty(response, key, { value: source[key] });
+  }
+  Object.defineProperty(response, "clone", {
+    value: () => responseWithBody(source, Response.prototype.clone.call(response).body),
+  });
+  return response;
+}
+
+async function completeLifecycle(
+  config: RequestConfiguration,
+  runtime: FeatureRuntime,
+  requestId: string,
+  startedAt: number,
+  endedAt: number,
+  attempts: number,
+  cleanup: () => void,
+  request?: Request,
+  response?: Response,
+  source?: string,
+  error?: Error,
+  replaceAbort = false,
+): Promise<void> {
+  let finalError = error;
+
+  if (finalError) {
+    try {
+      finalError = await runtime.mapError(finalError, attempts, request);
+    } catch (mappingError) {
+      finalError = ensureError(mappingError, request);
+    }
+  } else if (!request || !response || !source) {
+    finalError = new HttpTransportError(MISSING_EXECUTION);
+  }
+
+  try {
+    await runtime.finalize({
+      ...(request !== undefined ? { request } : {}),
+      ...(response !== undefined ? { response } : {}),
+      ...(finalError !== undefined ? { error: finalError } : {}),
+      attempts,
+      ...(source !== undefined ? { source } : {}),
+    });
+  } catch (error) {
+    const finalizeError = ensureError(error, request);
+    if (!finalError || (replaceAbort && finalError instanceof HttpAbortError)) finalError = finalizeError;
+  } finally {
+    cleanup();
+  }
+
+  const durationMs = Math.max(0, endedAt - startedAt);
+  if (finalError) {
+    try {
+      await runtime.emit(Object.freeze({
+        type: "request:error",
+        requestId,
+        timestamp: config.runtime.now(),
+        attempts,
+        durationMs,
+        ...(request !== undefined ? { request: snapshotRequest(request) } : {}),
+        error: snapshotError(finalError),
+      }));
+    } catch { /* terminal observers cannot replace an already settled HTTP failure */ }
+    throw finalError;
+  }
+
+  try {
+    await runtime.emit(Object.freeze({
+      type: "request:success",
+      requestId,
+      timestamp: config.runtime.now(),
+      attempts,
+      durationMs,
+      request: snapshotRequest(request!),
+      response: snapshotResponse(response!),
+      source: source!,
+    }));
+  } catch { /* terminal observers cannot replace an already settled HTTP success */ }
+}
+
+function createStreamingResponse(
+  response: Response,
+  signal: AbortSignal,
+  maxResponseBytes: number | undefined,
+  request: Request,
+  settle: (error?: Error) => Promise<void>,
+  mapBodyError?: StreamingBodyErrorMapper,
+): Response {
+  const body = response.body;
+  if (!body) return responseWithBody(response, null);
+  if (response.bodyUsed || body.locked) {
+    throw new HttpConsumptionError(
+      "The Streaming response body was already consumed or locked by a Feature.",
+      { request },
+    );
+  }
+
+  const reader = body.getReader();
+  const responseSnapshot = responseWithBody(response, null);
+  let receivedBytes = 0;
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let terminal: Promise<void> | undefined;
+  let onAbort: (() => void) | undefined;
+
+  const exposeError = async (error: Error): Promise<Error> => {
+    if (!mapBodyError) return error;
+    try {
+      await mapBodyError(error, request, responseSnapshot.clone());
+      return error;
+    } catch (mapped) {
+      return ensureError(mapped, request);
+    }
+  };
+
+  const removeAbortListener = () => {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+    onAbort = undefined;
+  };
+
+  const fail = (caught: unknown): Promise<void> => {
+    if (terminal) return terminal;
+    terminal = (async () => {
+      removeAbortListener();
+      const error = normalizeFailure(caught, signal, request);
+      void reader.cancel(error).catch(() => undefined);
+      let failure: Error = error;
+      try {
+        await settle(error);
+      } catch (settled) {
+        failure = ensureError(settled, request);
+      }
+      const exposed = await exposeError(failure);
+      try {
+        controller.error(exposed);
+      } catch { /* the consumer may have cancelled while failure settlement was running */ }
+    })();
+    return terminal;
+  };
+
+  const succeed = (): Promise<void> => {
+    if (terminal) return terminal;
+    terminal = (async () => {
+      removeAbortListener();
+      try {
+        await settle();
+      } catch (settled) {
+        const exposed = await exposeError(ensureError(settled, request));
+        try {
+          controller.error(exposed);
+        } catch { /* the consumer may have cancelled while finalization was running */ }
+        return;
+      }
+      try {
+        controller.close();
+      } catch { /* the consumer may have cancelled while finalization was running */ }
+    })();
+    return terminal;
+  };
+
+  const wrapped = new ReadableStream<Uint8Array>({
+    start(streamController) {
+      controller = streamController;
+      onAbort = () => { void fail(cancellationError(signal)); };
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) void fail(cancellationError(signal));
+    },
+    async pull() {
+      if (terminal) return await terminal;
+      try {
+        const chunk = await withCancellation(() => reader.read(), signal);
+        if (terminal) return await terminal;
+        if (chunk.done) return await succeed();
+
+        const chunkBytes = chunk.value?.byteLength;
+        if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 0) {
+          throw new HttpTransportError(INVALID_BODY_CHUNK, { request });
+        }
+        const nextBytes = receivedBytes + chunkBytes;
+        if (maxResponseBytes !== undefined && nextBytes > maxResponseBytes) {
+          throw new HttpResponseTooLargeError(maxResponseBytes, nextBytes, { request });
+        }
+        receivedBytes = nextBytes;
+        controller.enqueue(chunk.value);
+      } catch (error) {
+        await fail(error);
+      }
+    },
+    async cancel(reason) {
+      if (terminal) return await terminal;
+      removeAbortListener();
+      terminal = (async () => {
+        let sourceError: Error | undefined;
+        try {
+          await reader.cancel(reason);
+        } catch (error) {
+          sourceError = normalizeFailure(error, signal, request);
+        }
+        const cancellation = sourceError ?? new HttpAbortError(reason, { request });
+        try {
+          await settle(cancellation);
+        } catch (settled) {
+          const failure = ensureError(settled, request);
+          if (sourceError || !(failure instanceof HttpAbortError)) {
+            throw await exposeError(failure);
+          }
+        }
+      })();
+      return await terminal;
+    },
+  });
+
+  return responseWithBody(response, wrapped);
+}
+
+async function execute(
+  config: RequestConfiguration,
+  streaming: boolean,
+  mapBodyError?: StreamingBodyErrorMapper,
+): Promise<RawExecution | Response> {
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
   const timeout = normalizeTimeout(config);
   const resolvedFeatures = resolveFeatures(config.features);
+  if (streaming) assertStreamingCompatible(resolvedFeatures);
   const retry = normalizeRetry(config.retry, config.method, resolvedFeatures);
   const featureRuntime = new FeatureRuntime(resolvedFeatures, requestId);
   const totalDeadline = createDeadlineSignal("total", timeout.totalMs);
@@ -265,6 +551,34 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
   let finalError: Error | undefined;
   let execution: RawExecution | undefined;
   let endedAt: number | undefined;
+  let finalAttemptCleanup: (() => void) | undefined;
+  let completion: Promise<void> | undefined;
+  let streamingExposed = false;
+
+  const cleanup = () => {
+    finalAttemptCleanup?.();
+    finalAttemptCleanup = undefined;
+    requestSignal.cleanup();
+    totalDeadline.cleanup();
+  };
+
+  const settle = (error?: Error): Promise<void> => {
+    completion ??= completeLifecycle(
+      config,
+      featureRuntime,
+      requestId,
+      startedAt,
+      endedAt ?? config.runtime.now(),
+      attempts,
+      cleanup,
+      finalRequest,
+      finalResponse,
+      finalSource,
+      error,
+      streamingExposed,
+    );
+    return completion;
+  };
 
   const baseDraft: MutableRequestDraft = {
     url: applyQuery(resolveUrl(config.input, config.baseUrl), config.query),
@@ -294,6 +608,8 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
       const attemptSignal = composeSignals([requestSignal.signal, attemptDeadline.signal]);
       const attemptDraft = cloneDraft(baseDraft);
       let request: Request | undefined;
+      let streamingOwnsAttempt = false;
+      let streamingLifecycleCompleted = false;
 
       try {
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
@@ -318,7 +634,10 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
           source = intercepted.source;
         } else {
           source = config.transport.name;
-          response = await config.transport.send(request, { requestId, attempt, signal: attemptSignal.signal });
+          response = await withCancellation(
+            () => config.transport.send(request!, { requestId, attempt, signal: attemptSignal.signal }),
+            attemptSignal.signal,
+          );
           if (!(response instanceof Response)) {
             throw new HttpTransportError(`Transport "${config.transport.name}" returned a non-Response value.`, { request });
           }
@@ -353,7 +672,60 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
           continue;
         }
 
-        const retained = await bufferResponse(response, attemptSignal.signal);
+        if (streaming) {
+          finalResponse = responseWithBody(response, null);
+          finalSource = source;
+          if (!accepted) {
+            await response.body?.cancel().catch(() => undefined);
+            throw new HttpStatusError(finalResponse, { request });
+          }
+          if (!response.body) {
+            endedAt = config.runtime.now();
+            streamingLifecycleCompleted = true;
+            await settle();
+            return responseWithBody(response, null);
+          }
+
+          const settleStream = async (error?: Error) => {
+            let completionError = error;
+            if (completionError) {
+              try {
+                await reportAttemptError(featureRuntime, config, {
+                  request: request!,
+                  error: completionError,
+                  attempt,
+                  willRetry: false,
+                });
+              } catch (reportError) {
+                completionError = ensureError(reportError, request);
+              }
+            }
+            endedAt = config.runtime.now();
+            return await settle(completionError);
+          };
+          const streamed = createStreamingResponse(
+            response,
+            attemptSignal.signal,
+            config.maxResponseBytes,
+            request,
+            settleStream,
+            mapBodyError,
+          );
+          streamingExposed = true;
+          streamingOwnsAttempt = true;
+          finalAttemptCleanup = () => {
+            attemptSignal.cleanup();
+            attemptDeadline.cleanup();
+          };
+          return streamed;
+        }
+
+        const retained = await bufferResponse(
+          response,
+          attemptSignal.signal,
+          config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+          request,
+        );
         finalResponse = retained;
         finalSource = source;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
@@ -371,6 +743,7 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
         execution = { request, response: retained, meta };
         break;
       } catch (caught) {
+        if (streamingLifecycleCompleted) throw caught;
         const error = normalizeFailure(caught, attemptSignal.signal, request);
         const retryableFailure =
           (error instanceof HttpTransportError && retry.networkErrors) ||
@@ -391,73 +764,33 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
         }
         await config.runtime.sleep(delay!, requestSignal.signal);
       } finally {
-        attemptSignal.cleanup();
-        attemptDeadline.cleanup();
+        if (!streamingOwnsAttempt) {
+          attemptSignal.cleanup();
+          attemptDeadline.cleanup();
+        }
       }
     }
 
     if (!execution) throw new HttpTransportError("The HTTP request exhausted its attempts without a result.");
   } catch (caught) {
-    const error = requestSignal.signal.aborted
+    finalError = requestSignal.signal.aborted
       ? cancellationError(requestSignal.signal, caught)
       : ensureError(caught, finalRequest);
-    try {
-      finalError = await featureRuntime.mapError(error, attempts, finalRequest);
-    } catch (mappingError) {
-      finalError = ensureError(mappingError, finalRequest);
-    }
     endedAt ??= config.runtime.now();
   }
 
-  try {
-    await featureRuntime.finalize({
-      ...(finalRequest !== undefined ? { request: finalRequest } : {}),
-      ...(finalResponse !== undefined ? { response: finalResponse } : {}),
-      ...(finalError !== undefined ? { error: finalError } : {}),
-      attempts,
-      ...(finalSource !== undefined ? { source: finalSource } : {}),
-    });
-  } catch (finalizeError) {
-    finalError ??= ensureError(finalizeError, finalRequest);
-    endedAt ??= config.runtime.now();
-  } finally {
-    requestSignal.cleanup();
-    totalDeadline.cleanup();
-  }
-
-  const completedAt = endedAt ?? config.runtime.now();
-  const durationMs = Math.max(0, completedAt - startedAt);
-
-  if (finalError) {
-    try {
-      await featureRuntime.emit(Object.freeze({
-        type: "request:error",
-        requestId,
-        timestamp: config.runtime.now(),
-        attempts,
-        durationMs,
-        ...(finalRequest !== undefined ? { request: snapshotRequest(finalRequest) } : {}),
-        error: snapshotError(finalError),
-      }));
-    } catch { /* terminal observers cannot replace an already settled HTTP failure */ }
-    throw finalError;
-  }
-
-  if (!execution || !finalRequest || !finalResponse || !finalSource) {
-    throw new HttpTransportError("The HTTP request completed without an execution result.");
-  }
-
-  try {
-    await featureRuntime.emit(Object.freeze({
-      type: "request:success",
-      requestId,
-      timestamp: config.runtime.now(),
-      attempts,
-      durationMs,
-      request: snapshotRequest(finalRequest),
-      response: snapshotResponse(finalResponse),
-      source: finalSource,
-    }));
-  } catch { /* terminal observers cannot replace an already settled HTTP success */ }
+  await settle(finalError);
+  if (!execution) throw new HttpTransportError(MISSING_EXECUTION);
   return execution;
+}
+
+export async function executeRequest(config: RequestConfiguration): Promise<RawExecution> {
+  return await execute(config, false) as RawExecution;
+}
+
+export async function executeStreamingRequest(
+  config: RequestConfiguration,
+  mapBodyError?: StreamingBodyErrorMapper,
+): Promise<Response> {
+  return await execute(config, true, mapBodyError) as Response;
 }

@@ -14,27 +14,32 @@
 - React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
 - 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
 
-## 현재 수준: v0.3 RFC
+## 현재 기준: v0.3 구현 완료, 통합 검증 대기
 
-v0.2 공개 API와 구성 안정화 조건을 완료하고, Streaming과 Buffered 본문 안전성의 공개 계약을 설계하고 있습니다. 기능 범위는 넓지만 Streaming, 대용량 응답, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
+현재 소스 후보는 `0.3.0-alpha.0`이며 **Buffered와 Streaming 응답 계약까지 구현**했습니다. 로컬 검증을 마쳤고 Node.js 버전 매트릭스와 Chromium 통합 검증이 남아 있습니다. 이 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다. 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
-| 공개 API 방향 | v0.2 계약 완료 |
+| v0.2.1 공개 API | 구현과 hardening 완료 |
+| v0.3 Streaming | 단일 소비, Body lifecycle, 정책 충돌 구현; 통합 CI 대기 |
+| 다음 개발 단계 | v0.3 통합 검증 후 v0.4 Cache와 Deduplication 강화 |
 | 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
+| 제한된 Type-State와 `as*()` terminal | v0.2.1 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
-| Cache와 Deduplication | 기본 정책과 클라이언트 격리 구현 |
+| Cache와 Deduplication | 최종 Request 키, unsafe method, 클라이언트 격리 계약 테스트 |
 | Idempotency, Validation, Error Mapping | 구현 완료 |
 | Feature Runtime | 생명주기, 순서, Capability 충돌 구현 |
-| Telemetry | 요청 단위 관찰 기능 구현 |
+| Telemetry | 요청 단위 비차단 관찰 기능 구현 |
 | Transport 교체 | 구현 완료 |
 | Browser, Node.js, Next.js, Workers/Edge | 자동 검증 구성 |
 | npm 패키지 소비 | tarball 설치와 공개 export 검증 |
-| Streaming과 메모리 상한 | 미구현 |
+| Streaming과 메모리 상한 | Buffered 기본 16 MiB, Streaming 선택 상한 구현 |
 | React와 Next.js 선택 모듈 | 미구현 |
 | 라이선스와 공개 배포 자동화 | 미완성 |
 
 ## v0.2 — 공개 API 재설계
+
+상태: 완료
 
 ### 목표
 
@@ -50,8 +55,8 @@ const user = await api
 ### 구현된 범위
 
 - 직접 `await`하면 디코딩된 데이터 `T` 반환
-- 전체 응답은 `response()`, Fetch 응답은 `raw()`로 명시
-- JSON 본문은 `json(value)`, 응답 형식 지정은 `as(type)`로 분리
+- 전체 응답과 Fetch 응답은 v0.2.1의 `asResponse()`, `asRaw()`로 명시
+- JSON 본문은 `json(value)`, 명시적 응답 소비는 `asJson()` 같은 `as*()` terminal로 분리
 - 응답 검증은 `validate(schema)`로 통일
 - 전체 Timeout과 시도 Timeout을 `timeout()`과 `attemptTimeout()`으로 분리
 - Retry의 숫자를 최초 시도 이후의 추가 재시도 횟수로 정의
@@ -64,24 +69,80 @@ const user = await api
 - 실제 tarball 설치와 루트, `./feature`, `./testing` export 소비 검증
 - 한국어 README, 상세 가이드, 마이그레이션 RFC 작성
 
-### 완료된 안정화
+### v0.2.0 이후 확인된 보강점
 
-- `as()`, Credentials, Backoff, Jitter, Capability mode의 런타임 검증
-- 잘못된 닫힌 값을 Transport 실행 전에 `HttpConfigurationError`로 거부
-- TypeScript와 실제 JavaScript 및 tarball 소비 계약 테스트
-- 외부 사용자 관점의 기본 예제 검토
-- v0.1에서 v0.2로의 마이그레이션 가이드
+- 문자열 기반 응답 형식과 소비 메서드의 역할이 시각적으로 분리되지 않았습니다.
+- 모든 요청이 같은 Builder 표면을 사용해 GET과 HEAD에서도 요청 본문 메서드가 IDE에 나타났습니다.
+- HTTP와 Feature의 모든 조합을 Type-State로 표현하면 공개 타입과 오류가 과도하게 복잡해질 위험이 확인되었습니다.
+
+이 항목은 v0.2.1에서 기능을 제거하지 않는 제한형 Type-State와 명시적인 `as*()` terminal로 보강합니다.
 
 ### 완료 조건
 
 - 하나의 기능을 표현하는 공식 문법이 하나뿐이어야 합니다.
-- 잘못된 구성은 Transport 실행 전에 구조화된 오류로 실패해야 합니다.
+- Lafetch가 계약으로 정의한 요청 본문 충돌, 닫힌 설정 값, Feature graph 오류는 Transport 실행 전에 구조화된 오류로 실패해야 합니다.
 - Node.js 전체 매트릭스, Chromium, Next.js, Workers/Edge CI가 통과해야 합니다.
 - 독립 소비자가 공개 export와 선언 파일을 소스 경로 없이 사용할 수 있어야 합니다.
 
+## v0.2.1 — Progressive Builder와 소비 문법
+
+상태: 구현 완료, 통합 CI 검증 대기 (`2026-07-25`)
+
+### 목표
+
+기능 개수를 줄이지 않고, 평범한 요청이 부담하는 개념과 잘못된 IDE 선택지만 줄입니다.
+
+```ts
+const user = await api.get<User>("/users/123");
+
+const created = await api
+  .post<User>("/users")
+  .json(input)
+  .timeout("5s")
+  .retry(2)
+  .asJson();
+```
+
+### 작업 범위
+
+- GET과 HEAD Builder에서 `json()`, `body()`, `bodyFactory()` 제거
+- 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
+- Request body 허용 여부, buffered 여부, Schema 출력만 내부에서 추적하는 제한형 Type-State
+- `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal
+- 응답 타입을 모든 HTTP 진입 메서드에서 한 번만 선언하고 `asJson<T>()` 중복 문법 제거
+- 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
+- 기존 `as(type)`, `response()`, `raw()` 제거
+- 직접 `await`와 Promise 호환성 유지
+- TypeScript, JavaScript, 실제 tarball 소비 계약 테스트
+- 공개 `RequestBuilder<TData>`에서 내부 Type-State 제네릭 숨김
+- Schema 변환 이후 terminal 반환 타입 일치
+- Cache와 Deduplication 키를 `beforeAttempt` 이후 최종 Request에서 계산
+- unsafe method Cache와 Deduplication에 caller-owned key 강제
+- Buffered 응답 기본 16 MiB 상한과 `maxResponseBytes()` 추가
+- 느리거나 실패한 Telemetry handler와 HTTP 결과 격리
+
+### 완료 조건
+
+- 일반 요청이 Feature 또는 Type-State 개념을 알지 않고 동작해야 합니다.
+- 명시적 `as*()` terminal은 실제 Promise를 반환해야 합니다.
+- 확실히 잘못된 조합만 타입에서 제거하고, 상황 의존 정책은 런타임 검증이 담당해야 합니다.
+- 공식 Timeout, Retry, Cache, Deduplication, Idempotency, Validation, Error Mapping, Telemetry 기능을 유지해야 합니다.
+- 전체 브라우저 공개 API가 기존 `12 KiB` gzip 예산을 지켜야 합니다.
+- Cache, Deduplication, 빈 응답, Schema 변환의 타입·런타임 회귀 테스트가 통과해야 합니다.
+
+### 현재 검증 근거
+
+- [PR #18](https://github.com/laflabs-inc/lafetch/pull/18) 병합
+- Node.js 20, 22, 24에서 15개 test file, 98개 test 통과
+- Chromium, Workers/Edge, Next.js App Router, npm tarball 소비 검증 통과
+- 전체 브라우저 공개 API `33,713 bytes` minified, `10,606 bytes` gzip
+- 기존 예산 `36 KiB` minified, `12 KiB` gzip 유지
+
 ## v0.3 — Streaming과 본문 안전성
 
-설계 제안: [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md)
+상태: 완료 (`2026-07-25`)
+
+확정 계약: [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md)
 
 ### 목표
 
@@ -90,20 +151,42 @@ const user = await api
 ### 작업 범위
 
 - Streaming 응답 공개 API RFC
-- `raw()`와 별도 Streaming 종결 방식의 책임 결정
-- Streaming 응답의 단일 소비와 Builder 재사용 규칙
-- Buffered 응답의 최대 크기와 메모리 상한
-- `Content-Length`가 없거나 잘못된 응답의 크기 추적
+- 기존 buffered `asRaw()`와 새로운 streaming 실행 경로의 책임 분리
+- Streaming terminal 이름과 반환 타입 확정
+- Streaming 응답의 단일 소비와 Request 재사용 규칙
+- v0.2.1의 `maxResponseBytes()`와 Streaming 상한 계약 분리
+- `Content-Length`가 없거나 잘못된 Streaming 응답의 크기 추적
 - 본문 소비 중 전체 Timeout, 시도 Timeout, Abort 처리
 - Streaming 실패와 Retry의 경계
 - 대용량 다운로드와 Streaming 업로드 테스트
 - Cache, Deduplication, Feature finalizer와 Streaming의 충돌 규칙
+
+### 범위 제외
+
+- v0.2.1 공개 API 전체 재작성 또는 두 번째 공식 DSL
+- Protocol/Contract layer, Server adapter, OpenAPI 생성, Mock framework
+- 알파 내부 코드에 대한 호환 alias와 Migration 작업
 
 ### 완료 조건
 
 - Streaming 경로가 전체 응답을 메모리에 보관하지 않아야 합니다.
 - Buffered 경로는 설정된 메모리 상한을 초과할 수 없어야 합니다.
 - Timeout과 Abort가 응답 헤더뿐 아니라 본문 소비 종료까지 일관되게 적용되어야 합니다.
+- Cache, Deduplication, Retry처럼 Streaming과 호환되지 않거나 의미가 달라지는 정책이 타입 또는 실행 전 오류로 명확히 구분되어야 합니다.
+- 전체 브라우저 공개 API가 기존 `36 KiB / 12 KiB gzip` 예산을 유지해야 합니다.
+
+### 완료 근거
+
+- `asStream(): Promise<Response>`와 Builder 단일 소비 소유권 구현
+- accepted Body 노출 전 Status Retry, 노출 후 Body 오류 Retry 금지
+- 전체 Timeout, 시도 Timeout, Abort, finalizer를 Body 종료까지 유지
+- 실제 전달 chunk 기준 선택적 `maxResponseBytes()` 적용
+- Schema, Cache, Deduplication 충돌을 TypeScript와 Runtime에서 거부
+- 16개 test file, 115개 core test와 Node.js 24 로컬 검증
+- Workers/Edge, Next.js App Router, npm tarball 소비 로컬 검증
+- Node.js 20/22와 Chromium은 PR CI 검증 대기
+- 전체 브라우저 공개 API `36,709 bytes` minified, `11,649 bytes` gzip
+- 기존 예산 `36 KiB` minified, `12 KiB` gzip 유지
 
 ## v0.4 — Cache와 Deduplication 프로덕션 강화
 

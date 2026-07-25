@@ -15,5 +15,5 @@
     "noEmit": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src", "tests", "vitest.config.ts", "vitest.browser.config.ts"]
+  "include": ["src", "tests", "examples", "vitest.config.ts", "vitest.browser.config.ts"]
 }

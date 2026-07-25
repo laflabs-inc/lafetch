@@ -1,9 +1,10 @@
+import { HttpConfigurationError } from "../core/errors.js";
 import type { RequestFeature } from "../core/types.js";
 import { cancellationError } from "../core/signals.js";
-import { hasSensitiveRequest, requestKey } from "./request-key.js";
+import { hasSensitiveRequest, resolveRequestKey, type RequestKey } from "./request-key.js";
 
 export interface DedupeOptions {
-  readonly key?: string | ((request: Request) => string | Promise<string>);
+  readonly key?: RequestKey;
   readonly methods?: readonly string[];
 }
 
@@ -16,7 +17,6 @@ interface SharedExecution {
 const keyState = Symbol("dedupe.key");
 const entryState = Symbol("dedupe.entry");
 const leaderState = Symbol("dedupe.leader");
-const responseState = Symbol("dedupe.response");
 
 function deferred(): SharedExecution {
   let resolve!: (response: Response) => void;
@@ -50,14 +50,24 @@ export function createDedupeFeature(
     name: "dedupe",
     capabilities: { provides: [{ name: "dedupe", mode: "exclusive" }] },
     hooks: {
-      prepare({ draft, state }) {
-        if ((!methods.has(draft.method) && configuredKey === undefined) || hasSensitiveRequest(draft)) return;
-        if (typeof configuredKey !== "function") state.set(keyState, configuredKey ?? requestKey(draft));
-      },
       async intercept({ request, signal, state }) {
-        let key = state.get(keyState);
-        if (key === undefined && typeof configuredKey === "function") key = await configuredKey(request);
-        if (typeof key !== "string") return;
+        const isLeader = state.get(leaderState) === true;
+        if ((configuredKey === undefined && !methods.has(request.method)) || hasSensitiveRequest(request)) {
+          if (isLeader) {
+            throw new HttpConfigurationError("dedupe() request identity changed between retry attempts.");
+          }
+          return;
+        }
+
+        const key = await resolveRequestKey(configuredKey, request);
+        // One entry owns the complete retry sequence. Recompute the final
+        // Request key on retries, but never wait on the leader's own entry.
+        if (isLeader) {
+          if (state.get(keyState) !== key) {
+            throw new HttpConfigurationError("dedupe() request identity changed between retry attempts.");
+          }
+          return;
+        }
         state.set(keyState, key);
         const existing = executions.get(key);
         if (existing) {
@@ -82,16 +92,12 @@ export function createDedupeFeature(
         state.set(leaderState, true);
         return;
       },
-      afterResponse({ response, state }) {
-        if (state.get(leaderState)) state.set(responseState, response.clone());
-      },
-      finalize({ error, state }) {
+      finalize({ response, error, state }) {
         if (!state.get(leaderState)) return;
         const key = state.get(keyState);
         const entry = state.get(entryState) as SharedExecution | undefined;
         if (typeof key === "string" && executions.get(key) === entry) executions.delete(key);
         if (!entry) return;
-        const response = state.get(responseState);
         if (response instanceof Response && error === undefined) entry.resolve(response.clone());
         else entry.reject(error ?? new Error("Deduplicated request completed without a response."));
       },

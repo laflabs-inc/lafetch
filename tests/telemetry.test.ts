@@ -89,7 +89,7 @@ describe("telemetry", () => {
         eventTypes.push(event.type);
         throw new Error("telemetry backend is unavailable");
       })
-      .response();
+      .asResponse();
 
     expect(result.status).toBe(204);
     expect(eventTypes).toEqual([
@@ -127,6 +127,23 @@ describe("telemetry", () => {
         status: 404,
       },
     });
+  });
+
+  it("does not let a pending observer block the HTTP result", async () => {
+    const pending = new Promise<void>(() => undefined);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ ok: true })),
+    });
+
+    const result = await Promise.race([
+      api.get<{ ok: boolean }>("/health").telemetry(() => pending),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error("telemetry blocked the request")), 100);
+      }),
+    ]);
+
+    expect(result.ok).toBe(true);
   });
 
 });

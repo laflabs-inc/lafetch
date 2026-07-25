@@ -126,6 +126,7 @@ export interface RequestConfiguration {
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
+  readonly maxResponseBytes?: number;
   readonly scope: ClientPolicyScope;
 }
 
@@ -139,6 +140,22 @@ function encodeJson(value: unknown): string {
   } catch (cause) {
     if (cause instanceof HttpConfigurationError) throw cause;
     throw new HttpConfigurationError("json() could not serialize the provided value.", { cause });
+  }
+}
+
+function assertRequestBodyAllowed(config: RequestConfiguration, operation: string): void {
+  if (config.method === "GET" || config.method === "HEAD") {
+    throw new HttpConfigurationError(
+      `${operation} cannot configure a request body for ${config.method}. Fetch does not allow GET or HEAD bodies.`,
+    );
+  }
+}
+
+function assertRequestBodyUnset(config: RequestConfiguration, operation: string): void {
+  if (config.body.kind !== "none") {
+    throw new HttpConfigurationError(
+      `${operation} cannot replace an existing request body. Configure exactly one of json(), body(), or bodyFactory().`,
+    );
   }
 }
 
@@ -186,16 +203,25 @@ export function withoutHeader(config: RequestConfiguration, name: string): Reque
 }
 
 export function withJson(config: RequestConfiguration, value: unknown): RequestConfiguration {
+  assertRequestBodyAllowed(config, "json()");
+  assertRequestBodyUnset(config, "json()");
   const headers = new Headers(config.headers);
   if (!headers.has("content-type")) headers.set("content-type", "application/json");
   return { ...config, headers, body: { kind: "value", value: encodeJson(value) } };
 }
 
 export function withBody(config: RequestConfiguration, value: BodyInit | null): RequestConfiguration {
+  assertRequestBodyAllowed(config, "body()");
+  assertRequestBodyUnset(config, "body()");
   return { ...config, body: { kind: "value", value } };
 }
 
 export function withBodyFactory(config: RequestConfiguration, create: BodyFactory): RequestConfiguration {
+  assertRequestBodyAllowed(config, "bodyFactory()");
+  assertRequestBodyUnset(config, "bodyFactory()");
+  if (typeof create !== "function") {
+    throw new HttpConfigurationError("bodyFactory() requires a function.");
+  }
   return { ...config, body: { kind: "factory", create } };
 }
 
@@ -211,11 +237,21 @@ export function withAttemptTimeout(config: RequestConfiguration, attemptTimeout:
   return { ...config, attemptTimeout };
 }
 
+export function withMaxResponseBytes(config: RequestConfiguration, maxResponseBytes: number): RequestConfiguration {
+  if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 0) {
+    throw new HttpConfigurationError("maxResponseBytes() requires a non-negative safe integer.");
+  }
+  return { ...config, maxResponseBytes };
+}
+
 export function withRetry(
   config: RequestConfiguration,
   retries: number,
   options: RetryOptions = {},
 ): RequestConfiguration {
+  if (!Number.isSafeInteger(retries) || retries < 0) {
+    throw new HttpConfigurationError("retry() requires a non-negative safe integer retry count.");
+  }
   return { ...config, retry: Object.freeze({ retries, options: snapshotRetryOptions(options) }) };
 }
 

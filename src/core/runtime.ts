@@ -1,4 +1,5 @@
 import type { RuntimeAdapter } from "./types.js";
+import { scheduleTimer } from "./timer.js";
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve();
@@ -9,13 +10,13 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       return;
     }
 
-    const timer = setTimeout(() => {
+    const timer = scheduleTimer(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
 
     const onAbort = () => {
-      clearTimeout(timer);
+      timer.cancel();
       reject(signal?.reason);
     };
 
@@ -38,4 +39,3 @@ export const defaultRuntime: RuntimeAdapter = Object.freeze({
 export function createRuntime(overrides: Partial<RuntimeAdapter> = {}): RuntimeAdapter {
   return Object.freeze({ ...defaultRuntime, ...overrides });
 }
-

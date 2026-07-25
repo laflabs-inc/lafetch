@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   HttpAbortError,
   HttpDecodeError,
+  HttpConfigurationError,
+  HttpResponseTooLargeError,
   HttpStatusError,
   HttpTimeoutError,
   lafetch,
@@ -88,7 +90,7 @@ describe("RequestBuilder", () => {
     expect(await api.get<void>("/empty")).toBeUndefined();
   });
 
-  it("declares an explicit response decoder with as()", async () => {
+  it("uses explicit asJson() terminal consumption", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response('{"id":"1","name":"Dohyun"}', {
@@ -96,10 +98,108 @@ describe("RequestBuilder", () => {
       })),
     });
 
-    const user = await api.get<User>("/users/1").as("json");
+    const user = await api.get<User>("/users/1").asJson();
 
     expect(user.name).toBe("Dohyun");
     expectTypeOf(user).toEqualTypeOf<User>();
+  });
+
+  it("exposes explicit as* terminals as real Promises", async () => {
+    const responses = [
+      new Response("hello", { headers: { "content-type": "text/plain" } }),
+      new Response(new Uint8Array([1, 2, 3])),
+      new Response("blob body"),
+      new Response("name=Lafetch", {
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      }),
+    ];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => responses.shift()!),
+    });
+
+    const text = api.get("/text").asText();
+    expect(text).toBeInstanceOf(Promise);
+    expect(await text).toBe("hello");
+
+    expect([...new Uint8Array(await api.get("/bytes").asArrayBuffer())]).toEqual([1, 2, 3]);
+    expect(await (await api.get("/blob").asBlob()).text()).toBe("blob body");
+    expect((await api.get("/form").asFormData()).get("name")).toBe("Lafetch");
+  });
+
+  it("keeps fixed terminal return types for empty responses", async () => {
+    const responses = [
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 }),
+    ];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => responses.shift()!),
+    });
+
+    expect(await api.get("/empty-text").asText()).toBe("");
+    expect((await api.get("/empty-bytes").asArrayBuffer()).byteLength).toBe(0);
+    expect((await api.get("/empty-blob").asBlob()).size).toBe(0);
+    expect([...((await api.get("/empty-form").asFormData()).entries())]).toEqual([]);
+  });
+
+  it("does not discard a body because of an incorrect Content-Length header", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response("present", {
+        headers: { "content-type": "text/plain", "content-length": "0" },
+      })),
+    });
+
+    await expect(api.get("/incorrect-length").asText()).resolves.toBe("present");
+  });
+
+  it("limits buffered responses using actual received bytes", async () => {
+    const transport = mockTransport(() => new Response(new Uint8Array([1, 2, 3, 4, 5]), {
+      headers: { "content-length": "1" },
+    }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    const error = await api.get("/large")
+      .maxResponseBytes(4)
+      .asArrayBuffer()
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(HttpResponseTooLargeError);
+    expect(error).toMatchObject({
+      code: "ERR_HTTP_RESPONSE_TOO_LARGE",
+      limitBytes: 4,
+      receivedBytes: 5,
+    });
+    await expect(api.get("/exact").maxResponseBytes(5).asArrayBuffer())
+      .resolves.toHaveProperty("byteLength", 5);
+  });
+
+  it("rejects a custom Transport response that violates the byte-stream contract", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue("not bytes" as unknown as Uint8Array);
+        controller.close();
+      },
+    });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(body)),
+    });
+
+    await expect(api.get("/invalid-stream"))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TRANSPORT" });
+  });
+
+  it("rejects invalid response limits at declaration time", () => {
+    const transport = mockTransport(() => new Response("unused"));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    expect(() => api.get("/invalid-limit").maxResponseBytes(-1)).toThrow(HttpConfigurationError);
+    expect(() => api.get("/invalid-limit").maxResponseBytes(1.5)).toThrow(HttpConfigurationError);
+    expect(transport.calls).toHaveLength(0);
   });
 
   it("supports custom methods without an option-object request path", async () => {
@@ -112,6 +212,23 @@ describe("RequestBuilder", () => {
     });
 
     await api.request<void>("PURGE", "/cache/entries");
+  });
+
+  it("keeps request bodies available for body-capable custom methods", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async (request) => {
+        expect(request.method).toBe("QUERY");
+        expect(await request.json()).toEqual({ filter: "active" });
+        return json({ matches: 1 });
+      }),
+    });
+
+    const result = await api
+      .request<{ matches: number }>("QUERY", "/search")
+      .json({ filter: "active" });
+
+    expect(result.matches).toBe(1);
   });
 
   it("builds query, headers, and JSON bodies", async () => {
@@ -187,7 +304,7 @@ describe("RequestBuilder", () => {
     const result = await api
       .get<{ code: string }>("/missing")
       .acceptStatus([404])
-      .response();
+      .asResponse();
     expect(result.status).toBe(404);
     expect(result.data.code).toBe("NOT_FOUND");
     expectTypeOf(result).toEqualTypeOf<LafetchResponse<{ code: string }>>();
@@ -209,7 +326,7 @@ describe("RequestBuilder", () => {
     });
     const request = api.get("/raw");
 
-    const [first, second] = await Promise.all([request.raw(), request.raw()]);
+    const [first, second] = await Promise.all([request.asRaw(), request.asRaw()]);
 
     expect(await first.text()).toBe("raw body");
     expect(await second.text()).toBe("raw body");
@@ -228,6 +345,34 @@ describe("cancellation", () => {
       ),
     });
     const request = api.get("/slow").signal(controller.signal);
+
+    const promise = request.then((value) => value);
+    controller.abort("user cancelled");
+
+    await expect(promise).rejects.toBeInstanceOf(HttpAbortError);
+  });
+
+  it("preserves a buffered Abort error when finalization also fails", async () => {
+    const controller = new AbortController();
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((_request, context) =>
+        new Promise((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+        }),
+      ),
+    });
+    const request = api
+      .get("/slow")
+      .signal(controller.signal)
+      .use({
+        name: "broken-finalizer",
+        hooks: {
+          finalize() {
+            throw new Error("finalizer failed");
+          },
+        },
+      });
 
     const promise = request.then((value) => value);
     controller.abort("user cancelled");

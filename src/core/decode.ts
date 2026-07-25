@@ -3,7 +3,15 @@ import { HttpDecodeError } from "./errors.js";
 export type ResponseMode = "auto" | "json" | "text" | "arrayBuffer" | "blob" | "formData";
 
 function hasNoBody(response: Response, method?: string): boolean {
-  return method === "HEAD" || response.status === 204 || response.status === 205 || response.headers.get("content-length") === "0";
+  return method === "HEAD" || response.status === 204 || response.status === 205;
+}
+
+function emptyValue(mode: ResponseMode): unknown {
+  if (mode === "text") return "";
+  if (mode === "arrayBuffer") return new ArrayBuffer(0);
+  if (mode === "blob") return new Blob();
+  if (mode === "formData") return new FormData();
+  return undefined;
 }
 
 async function parseJson(response: Response): Promise<unknown> {
@@ -13,7 +21,7 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 export async function decodeResponse(response: Response, mode: ResponseMode, method?: string): Promise<unknown> {
-  if (hasNoBody(response, method)) return undefined;
+  if (hasNoBody(response, method)) return emptyValue(mode);
 
   try {
     if (mode === "json") return await parseJson(response);
@@ -36,4 +44,3 @@ export async function decodeResponse(response: Response, mode: ResponseMode, met
     throw new HttpDecodeError(mode, { cause });
   }
 }
-

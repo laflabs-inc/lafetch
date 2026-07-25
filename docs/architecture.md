@@ -22,7 +22,7 @@ Application requests have one public grammar:
 client.method(url).configure().policy() -> await data
 ```
 
-Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns decoded data directly. `response()` opts into the decoded response envelope and `raw()` opts into the Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns automatically decoded data directly. Explicit `asJson()`, `asText()` and related methods terminate configuration and return a real Promise. `asResponse()` opts into the decoded response envelope, `asRaw()` returns a retained Fetch Response, and `asStream()` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
 
 ## State isolation
 
@@ -60,25 +60,28 @@ Attempt scope runs for every retry:
 3. run `beforeAttempt` hooks;
 4. create a fresh `Request`;
 5. emit `attempt:start`;
-6. run `intercept` hooks until one returns a Response, otherwise call the Transport;
+6. run `intercept` hooks until one returns a Response, otherwise call the Transport under the attempt deadline;
 7. run `afterResponse` hooks, passing replacements to later Features;
-8. emit the response event and keep the attempt deadline active through final body retention;
+8. emit the response event and keep the attempt deadline active through Buffered retention or Streaming Body termination;
 9. emit an attempt error when needed, decide whether to retry, and expose the selected backoff delay;
 10. wait for backoff before the next attempt.
 
 ## Promise-like invariant
 
-Every builder owns one memoized raw execution Promise. All consumers decode clones of the retained response. This provides the following invariant:
+Every Builder selects one response ownership model.
 
 ```text
-one builder instance = at most one Transport execution sequence
+Buffered  = one memoized execution, multiple retained-response consumers
+Streaming = one live execution, one Body owner
 ```
 
-Calling another fluent method creates a new immutable builder with a separate execution identity.
+Buffered consumers decode clones of the retained response. The first `asStream()` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable Builder with a separate execution identity.
 
 Builder inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
 
-The kernel currently buffers the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. True streaming will require a separate explicit execution path rather than weakening this invariant silently.
+Buffered execution reads the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. Buffered responses have a default 16 MiB actual-byte limit and may use an explicit request-specific `maxResponseBytes()` value. `Content-Length` is not trusted as the enforcement boundary.
+
+Streaming execution settles `asStream()` after Header acceptance and transfers a wrapped Web Stream without retaining the complete Body. Timeout, Abort, attempt ownership, finalizers, and final lifecycle events remain open until Body completion or cancellation. Streaming is unbounded by default; an explicit `maxResponseBytes()` applies to actual delivered chunks.
 
 ## Retry invariant
 
@@ -106,7 +109,7 @@ Capabilities use one of three modes:
 
 The resolver validates required and conflicting capabilities, constructs a graph from ordering relationships, and applies a stable topological sort. Strict `before` and `after` references must resolve and cannot target the same Feature. `optionalBefore` and `optionalAfter` express soft integration edges. Finalizers run in reverse resolved order and each receives an isolated Response clone.
 
-Feature names are unique within a request. Registering the same official policy twice or shadowing it with a custom Feature is rejected before dispatch instead of applying an order-dependent last-write rule.
+Feature names are unique within a request. Registering the same official policy twice or shadowing it with a custom Feature is rejected before dispatch instead of applying an order-dependent last-write rule. Cache and Deduplication capabilities are rejected for Streaming because they require complete retained responses.
 
 ## Feature Runtime controls
 
@@ -125,6 +128,8 @@ Control hooks have explicit semantics:
 
 A Feature hook failure is wrapped in `HttpFeatureError` unless it is already an `HttpError`. Feature failures are never reclassified as Transport failures.
 
+Buffered finalizers receive independent retained Response clones. Streaming finalizers run after Body termination and receive a body-less Response snapshot so finalization cannot silently create an unbounded second consumer.
+
 ## Lifecycle events
 
 `onEvent` observers receive immutable, body-free snapshots:
@@ -140,6 +145,8 @@ request:success | request:error
 
 An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response events record their source as the Transport name or `feature:<name>` for an intercepted response. Request snapshots reuse the diagnostic redaction policy for credential headers and token-like query parameters.
 
+Official Telemetry starts event delivery in lifecycle order but does not serialize or await collector completion on the HTTP critical path. Handler rejection and latency cannot replace or indefinitely delay the request result; collectors that require ordered or durable delivery own their own queue and flush lifecycle.
+
 ## Security defaults
 
 - status outside `200–299` is an error unless explicitly accepted;
@@ -151,11 +158,19 @@ An `attempt:error` records `willRetry` and the selected `retryDelayMs`. Response
 - credentialed and sensitive requests bypass built-in cache and deduplication;
 - default cache and deduplication state never crosses client boundaries;
 - cache and deduplication keys include all normalized request headers;
+- cache and deduplication identity is calculated from the final Request after `beforeAttempt` hooks;
+- unsafe methods require a caller-owned cache or deduplication key;
+- cache entries are committed only after successful response retention and finalization;
+- buffered responses have a finite actual-byte limit;
+- Streaming does not retain the complete Body and applies a finite limit when `maxResponseBytes()` is explicit;
+- accepted Streaming Body errors never trigger a replacement Retry;
 - transport and Feature conflicts fail before network dispatch.
 
 ## Consumption scope
 
-Execution produces one retained raw Response. Each data consumer works on a clone, decodes it according to the builder's `as()` mode, and optionally validates or transforms it through `validate()`. Direct `await` returns the resulting data. `response()` wraps the same data with status, headers, and metadata. A unified builder `mapError()` handles final execution and consumption failures, while `.raw()` remains outside decoding and validation.
+Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. Explicit `asJson()`, `asText()`, `asBlob()` and related terminals select one decoder and return a real Promise. When a Schema transforms data, its output drives both runtime values and terminal return types. `asResponse()` wraps automatically decoded data with status, headers, and metadata, while buffered `asRaw()` remains outside decoding and validation.
+
+`asStream()` selects a separate live execution path before dispatch. It returns a standard Response, does not run whole-body decoding or Schema validation, and maps Body read failures in the response phase. A unified Builder `mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 
@@ -165,5 +180,4 @@ This separation prevents an invalid payload from being retried as a network fail
 - supported Node.js LTS matrix at the first public release;
 - external schema ecosystem compatibility beyond the current `parse`/`validate` contract;
 - cache ownership and revalidation contracts for Next.js;
-- true streaming builder semantics;
 - external user testing of the data-first thenable contract.

@@ -6,7 +6,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 `0.2.0-alpha` 공개 준비 중입니다. 첫 npm pre-release부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.3.0-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -67,7 +67,7 @@ const users = await api
 - Cache와 진행 중 요청 Deduplication은 클라이언트별로 격리됩니다.
 - 인증 정보가 포함된 요청은 기본 Cache와 Deduplication을 우회합니다.
 - Transport, HTTP 상태, 디코딩, 스키마 오류를 구조적으로 구분합니다.
-- 잘못된 응답 형식, Credentials, Backoff, Jitter 설정은 요청 전에 `HttpConfigurationError`로 거부합니다.
+- 잘못된 Credentials, Backoff, Jitter 설정은 요청 전에 `HttpConfigurationError`로 거부합니다.
 - Browser, Node.js, Next.js, Workers/Edge에서 같은 계약을 검증합니다.
 
 ## 하나의 사용 규칙
@@ -86,14 +86,37 @@ lafetch.create() → api.method(url) → body/config/policy → await
 
 같은 동작을 여러 방식으로 표현하지 않아 팀마다 사용법이 달라지는 문제를 줄입니다.
 
+## 필요한 만큼만 드러나는 Builder
+
+Lafetch는 기능을 줄이는 대신, 확실히 사용할 수 없는 메서드를 현재 요청의 IDE 자동완성에서 제외합니다. Fetch가 요청 본문을 허용하지 않는 GET과 HEAD에서는 `json()`, `body()`, `bodyFactory()`가 나타나지 않습니다.
+
+```ts
+const users = await api
+  .get<User[]>("/users")
+  .query({ active: true })
+  .cache("30s");
+```
+
+JSON 요청 본문이 필요한 메서드에서는 같은 기능을 그대로 사용합니다.
+
+```ts
+const user = await api
+  .post<User>("/users")
+  .json({ name: "Dohyun" })
+  .idempotency({ key: requestId })
+  .retry(2);
+```
+
+TypeScript에서 차단한 조합은 JavaScript에서도 요청 선언 시 `HttpConfigurationError`로 실패하며 Transport에 도달하지 않습니다. 세부 정책 충돌은 Feature Runtime이 실행 전에 검증하므로 고급 기능을 타입 상태로 과도하게 누적하지 않습니다.
+
 ## 전체 응답이 필요할 때
 
-상태 코드, 헤더, 요청 메타데이터가 필요하면 `response()`를 명시합니다.
+상태 코드, 헤더, 요청 메타데이터가 필요하면 `asResponse()`를 명시합니다.
 
 ```ts
 const response = await api
   .get<User>("/users/123")
-  .response();
+  .asResponse();
 
 response.data;
 response.status;
@@ -101,16 +124,36 @@ response.headers;
 response.meta.attempts;
 ```
 
-Fetch `Response`가 직접 필요하면 `raw()`를 사용합니다.
+Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. `asRaw()`도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
+
+실시간 Body가 필요하면 `asStream()`을 사용합니다.
+
+```ts
+const response = await api
+  .get("/events")
+  .timeout("2m")
+  .asStream();
+
+const text = response.body?.pipeThrough(new TextDecoderStream());
+```
+
+`asStream()`은 Header가 확정되면 표준 `Response`를 반환하며 전체 Body를 보관하지 않습니다. 같은 Builder에서는 한 번만 사용할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
 
 ## 응답 형식 지정하기
 
-기본적으로 `Content-Type`에 따라 JSON, 문자열, `ArrayBuffer`를 자동 선택합니다. 형식을 강제해야 할 때만 `as()`를 사용합니다.
+기본적으로 `Content-Type`에 따라 JSON, 문자열, `ArrayBuffer`를 자동 선택합니다. 형식을 강제해야 할 때만 명시적인 `as*()` 종결 메서드를 사용합니다. 이 메서드들은 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실이 분명합니다.
 
 ```ts
-const health = await api.get<string>("/health").as("text");
-const file = await api.get<Blob>("/files/1").as("blob");
+const user = await api.get<User>("/users/123").asJson();
+const health = await api.get("/health").asText();
+const file = await api.get("/files/1").asBlob();
 ```
+
+응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `asJson()`은 별도 타입 인자를 받지 않고 Builder의 데이터 타입을 그대로 반환하므로 서로 다른 타입을 중복 선언할 수 없습니다.
+
+`validate(schema)`가 값을 변환하면 이후 소비 메서드의 반환 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
+
+`asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`, `asStream()`이 같은 종결 문법을 사용합니다.
 
 ## 주요 기능
 
@@ -121,6 +164,8 @@ const file = await api.get<Blob>("/files/1").as("blob");
 | JSON Body | `.json(value)` | JSON 직렬화와 Content-Type 설정 |
 | Timeout | `.timeout("3s")` | 전체 요청 제한 시간 |
 | Attempt Timeout | `.attemptTimeout("1s")` | 개별 시도 제한 시간 |
+| Response Limit | `.maxResponseBytes(1_000_000)` | Buffered 또는 명시적 Streaming 실제 바이트 상한 |
+| Streaming | `.asStream()` | Header 우선 단일 소비 `Response` |
 | Retry & Backoff | `.retry(2)` | 안전한 재시도와 지연 |
 | Abort | `.signal(signal)` | 표준 `AbortSignal` 취소 |
 | Cache | `.cache("30s")` | 완료된 안전한 응답 재사용 |
@@ -138,6 +183,8 @@ const file = await api.get<Blob>("/files/1").as("blob");
 - 기본 성공 범위는 HTTP `200–299`입니다.
 - 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다.
 - 기본 메모리 Cache는 500개 항목으로 제한됩니다.
+- Buffered 응답은 기본 16 MiB로 제한되며 요청별로 명시적인 상한을 지정할 수 있습니다.
+- Streaming은 기본 총량 제한 없이 backpressure를 따르며, `maxResponseBytes()`를 명시한 요청만 누적 전달량을 제한합니다.
 - 인증 헤더, 토큰 형태의 쿼리, `Set-Cookie`, 제한적인 `Cache-Control`, `Vary`는 기본 Cache를 우회합니다.
 - 요청 본문은 Telemetry에 포함하지 않습니다.
 - 진단 데이터에서 인증 헤더와 토큰 형태의 쿼리를 제거합니다.
@@ -157,6 +204,7 @@ const file = await api.get<Blob>("/files/1").as("blob");
 - `HttpFeatureConflictError`
 - `HttpFeatureError`
 - `HttpNonReplayableBodyError`
+- `HttpResponseTooLargeError`
 
 하나의 `.mapError()`가 요청 실행과 응답 소비의 최종 실패를 모두 처리합니다. 재시도 판단이 끝난 뒤 오류를 변환하므로 도메인 오류 매핑이 재시도 안전성을 바꾸지 않습니다.
 
@@ -184,7 +232,9 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 ## 문서
 
 - [v0.2 공개 API RFC](docs/rfcs/v0.2-public-api.md)
-- [v0.1에서 v0.2로 마이그레이션](docs/migration-v0.2.md)
+- [v0.2.1 Progressive Builder RFC](docs/rfcs/v0.2.1-progressive-builder.md)
+- [v0.3 Streaming과 본문 안전성 RFC](docs/rfcs/v0.3-streaming-body-safety.md)
+- [v0.1에서 v0.2.1로 마이그레이션](docs/migration-v0.2.md)
 - [상세 사용 가이드](docs/advanced-usage.md)
 - [커널 아키텍처](docs/architecture.md)
 - [Cache와 Deduplication 설계](docs/cache-deduplication.md)
@@ -197,10 +247,13 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 ```bash
 pnpm install
 pnpm check
+pnpm check:runtimes
 ```
 
-`pnpm check`는 엄격한 TypeScript 검사, 동작 테스트, ESM 선언 빌드, 실제 tarball 설치와 공개 export 소비 검증을 실행합니다.
+`pnpm check`는 엄격한 TypeScript 검사, 동작 테스트, ESM 선언 빌드, 실제 tarball 설치와 공개 export 소비 검증을 실행합니다. `pnpm check:runtimes`는 Playwright Chromium이 설치된 환경에서 Chromium, Workers/Edge, Next.js 소비 환경을 추가로 검증합니다.
 
 ## 현재 상태
 
-현재 버전은 `0.2.0-alpha.0`입니다. 공개 배포 전 Streaming 계약, 라이선스와 배포 자동화를 완료할 예정입니다. 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다.
+현재 소스 후보는 `0.3.0-alpha.0`입니다. Buffered 계약을 유지하면서 `asStream()`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 버전 매트릭스와 Chromium 통합 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다.
+
+Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

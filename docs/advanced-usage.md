@@ -1,6 +1,6 @@
 # Lafetch 상세 사용 가이드
 
-이 문서는 Lafetch v0.2의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
+이 문서는 Lafetch v0.3의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
 
 ## 데이터, 전체 응답, 원본 응답
 
@@ -14,12 +14,12 @@ const user = await api.get<User>("/users/123");
 
 ### 전체 응답
 
-`response()`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
+`asResponse()`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
 
 ```ts
 const result = await api
   .get<User>("/users/123")
-  .response();
+  .asResponse();
 
 result.data;
 result.status;
@@ -33,30 +33,60 @@ result.meta.attempts;
 ### 원본 Response
 
 ```ts
-const response = await api.get("/download").raw();
+const response = await api.get("/download").asRaw();
 ```
 
-`raw()`는 응답 디코딩과 `validate()`를 적용하지 않습니다.
+`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않지만 여전히 Buffered 소비입니다. 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
+
+### Streaming Response
+
+```ts
+const response = await api
+  .get("/events")
+  .timeout("2m")
+  .asStream();
+
+const reader = response.body
+  ?.pipeThrough(new TextDecoderStream())
+  .getReader();
+```
+
+`asStream()`은 Status와 Header가 확정되면 표준 Fetch `Response`를 반환합니다. Lafetch는 전체 Body를 보관하지 않으며, Body는 한 소비자만 소유합니다. 같은 Builder에서 `asStream()`을 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
+
+Streaming은 기본 총량 제한이 없습니다. 제한이 필요한 요청만 `maxResponseBytes()`를 명시합니다.
+
+```ts
+const response = await api
+  .get("/downloads/report.csv")
+  .maxResponseBytes(1024 * 1024 * 1024)
+  .asStream();
+```
+
+`validate()`, `cache()`, `dedupe()` 뒤에는 `asStream()`이 TypeScript 자동완성에서 제거되며 JavaScript 우회도 Transport 실행 전에 실패합니다. accepted Body를 노출한 뒤 발생한 오류와 Timeout은 Stream을 실패시키지만 새 시도로 교체하지 않습니다. Body를 끝까지 읽지 않을 때는 `response.body?.cancel()`로 lifecycle을 종료해야 합니다.
 
 ## 응답 형식
 
-기본 `auto` 모드는 JSON 계열 Content-Type을 객체로, text·XML·form-urlencoded를 문자열로, 그 외 응답을 `ArrayBuffer`로 디코딩합니다. 빈 응답과 `HEAD`, `204`, `205`는 `undefined`를 반환합니다.
+기본 `auto` 모드는 JSON 계열 Content-Type을 객체로, text·XML·form-urlencoded를 문자열로, 그 외 응답을 `ArrayBuffer`로 디코딩합니다. 빈 JSON과 자동 소비, `HEAD`, `204`, `205`의 데이터는 `undefined`가 될 수 있습니다. 명시적 `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`는 각각 빈 문자열, 빈 ArrayBuffer, 빈 Blob, 빈 FormData를 반환해 선언된 타입을 유지합니다.
 
-서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 `as()`를 사용합니다.
+서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 명시적인 `as*()` 종결 메서드를 사용합니다.
 
 ```ts
-const json = await api.get<User>("/user").as("json");
-const text = await api.get<string>("/health").as("text");
-const bytes = await api.get<ArrayBuffer>("/binary").as("arrayBuffer");
-const blob = await api.get<Blob>("/file").as("blob");
-const form = await api.get<FormData>("/form").as("formData");
+const json = await api.get<User>("/user").asJson();
+const text = await api.get("/health").asText();
+const bytes = await api.get("/binary").asArrayBuffer();
+const blob = await api.get("/file").asBlob();
+const form = await api.get("/form").asFormData();
 ```
 
-허용되는 값은 `"auto"`, `"json"`, `"text"`, `"arrayBuffer"`, `"blob"`, `"formData"`입니다. TypeScript는 다른 값을 컴파일 단계에서 거부하고, JavaScript에서도 요청 전에 `HttpConfigurationError`가 발생합니다.
+응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `asJson<T>()`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
+
+`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `asText()` 같은 명시적 decoder를 사용하더라도 최종 반환 타입과 값은 Schema 출력입니다.
+
+각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. `asStream()`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
 
 ## Promise 호환성과 실행 불변식
 
-`RequestBuilder<T>`는 지연 실행되는 `PromiseLike<T>`입니다.
+`RequestBuilder<T>`는 지연 실행되는 `PromiseLike<T>`입니다. 공개 타입에는 데이터 타입 하나만 보이며, 요청 본문 허용 여부, 향후 Streaming 선택, Schema 출력 보존에 필요한 상태는 내부에서만 추적합니다.
 
 ```ts
 api
@@ -66,7 +96,7 @@ api
   .finally(stopLoading);
 ```
 
-하나의 Builder를 여러 소비자가 사용해도 Transport 실행은 한 번만 일어납니다. 각 소비자는 보관된 응답의 독립적인 복제본을 디코딩합니다.
+Buffered Builder를 여러 소비자가 사용해도 Transport 실행은 한 번만 일어납니다. 각 소비자는 보관된 응답의 독립적인 복제본을 디코딩합니다. Streaming Builder는 한 번만 소비할 수 있으며 반환된 Promise 자체를 공유해야 합니다.
 
 ```ts
 const request = api.get<User>("/users/123");
@@ -97,6 +127,25 @@ await api
   .body(formData);
 ```
 
+하나의 요청에는 `json()`, `body()`, `bodyFactory()` 중 하나만 설정할 수 있습니다. 이미 설정한 본문을 다른 메서드로 조용히 덮어쓰지 않고 선언 시점에 `HttpConfigurationError`를 발생시킵니다.
+
+`query()`는 모든 HTTP 메서드에서 사용할 수 있습니다. 반면 Fetch는 GET과 HEAD 요청 본문을 허용하지 않으므로 해당 Builder에서는 `json()`, `body()`, `bodyFactory()`가 노출되지 않습니다. JavaScript에서 같은 메서드를 호출하면 Transport 실행 전에 `HttpConfigurationError`가 발생합니다.
+
+```ts
+await api
+  .get<User[]>("/users")
+  .query({ active: true });
+```
+
+본문을 사용하는 안전하고 멱등적인 조회 API가 필요하고 서버가 지원한다면 사용자 정의 `QUERY` 메서드를 사용할 수 있습니다.
+
+```ts
+await api
+  .request<SearchResult>("QUERY", "/search")
+  .json({ filters })
+  .asJson();
+```
+
 자격 증명의 기본값은 `"omit"`입니다. 클라이언트 또는 요청에서 명시적으로 활성화할 수 있습니다.
 
 ```ts
@@ -119,6 +168,16 @@ await api
 ```
 
 사용자 취소는 `HttpAbortError`, 제한 시간 초과는 `HttpTimeoutError`를 발생시킵니다. Timeout 오류의 `scope`는 `"total"` 또는 `"attempt"`입니다.
+
+Buffered 응답은 실제 수신 바이트를 기준으로 기본 16 MiB까지 보관합니다. 요청 특성에 맞는 다른 상한은 명시적으로 설정할 수 있습니다. 서버의 `Content-Length` 값만 신뢰하지 않고 실제 body chunk를 계산하며, 초과하면 `HttpResponseTooLargeError`가 발생합니다.
+
+```ts
+await api
+  .get<Report>("/reports/1")
+  .maxResponseBytes(2 * 1024 * 1024);
+```
+
+Streaming은 설정이 없으면 총량을 제한하지 않지만, `maxResponseBytes()`를 명시하면 실제 전달 chunk를 누적해 같은 오류를 발생시킵니다. 전체 Timeout, 시도 Timeout, 사용자 Abort는 Streaming Body가 종료될 때까지 유지됩니다.
 
 ## Retry와 Backoff
 
@@ -180,7 +239,14 @@ const users = await api
   .dedupe();
 ```
 
-기본 Cache와 진행 중 요청 Registry는 `lafetch.create()`로 만든 클라이언트마다 격리됩니다. 인증 정보, 토큰 형태의 쿼리, `Set-Cookie`, 제한적인 Cache-Control, `Vary`는 기본 Cache를 우회합니다. 안전하지 않은 메서드는 호출자가 책임지는 명시적인 키가 필요합니다.
+기본 Cache와 진행 중 요청 Registry는 `lafetch.create()`로 만든 클라이언트마다 격리됩니다. 키와 민감 요청 여부는 모든 `beforeAttempt` Feature가 헤더와 자격 증명을 적용한 최종 `Request`에서 계산합니다. 인증 정보, 토큰 형태의 쿼리, `Set-Cookie`, 제한적인 Cache-Control, `Vary`는 기본 Cache를 우회합니다. 안전하지 않은 메서드는 호출자가 책임지는 명시적인 키가 필요하며 `methods: ["POST"]`만으로 이 규칙을 우회할 수 없습니다.
+
+```ts
+await api
+  .post<SearchResult>("/search")
+  .json(filters)
+  .cache("30s", { key: `search:${stableHash(filters)}` });
+```
 
 호출자가 같은 Store를 전달한 경우에만 여러 클라이언트가 Cache를 공유합니다.
 
@@ -213,6 +279,8 @@ await api
 ## 응답 검증
 
 `validate()`는 함수 또는 `parse()`나 `validate()` 메서드가 있는 객체를 받습니다. 검증과 반환 타입 변환을 함께 지원합니다.
+
+요청에는 하나의 최종 Response Schema만 선언할 수 있습니다. 여러 검증 단계를 사용하려면 하나의 Schema 안에서 조합하며, 뒤의 `validate()`가 앞의 Schema를 조용히 덮어쓰지 않습니다.
 
 ```ts
 const userSchema = {
@@ -262,7 +330,7 @@ await api
   });
 ```
 
-이벤트는 `request:start`, 각 시도의 시작·응답·오류, 최종 `request:success` 또는 `request:error` 순서로 발생합니다. 요청 본문은 포함하지 않고 민감한 헤더와 쿼리를 제거합니다. 공식 Telemetry는 관찰 전용이므로 Handler 실패가 HTTP 요청의 결과를 바꾸지 않습니다.
+이벤트 전달은 `request:start`, 각 시도의 시작·응답·오류, 최종 `request:success` 또는 `request:error` 순서로 시작되지만 비동기 Handler의 완료 순서를 직렬화하지는 않습니다. 요청 본문은 포함하지 않고 민감한 헤더와 쿼리를 제거합니다. 공식 Telemetry는 관찰 전용 비동기 전달이므로 느리거나 실패한 Handler가 HTTP 결과를 막지 않습니다. 애플리케이션 종료 전에 순서 보장이나 전송 완료가 필요하면 수집기 구현이 자체 queue와 flush 수명주기를 제공해야 합니다.
 
 여러 수집기를 설치할 때만 고유한 이름을 지정합니다.
 
@@ -287,6 +355,8 @@ const transport: Transport = {
 
 const api = lafetch.create({ transport });
 ```
+
+커널은 `send()` 대기를 시도 Timeout·전체 Timeout과 경쟁시켜, Transport가 실수로 Signal을 무시해도 요청 Promise는 제한 시간 안에 종료합니다. 다만 이미 시작된 I/O 자원을 실제로 정리하려면 Transport 구현도 반드시 `context.signal`을 하위 런타임에 전달해야 합니다.
 
 ## 사용자 정의 Feature
 
