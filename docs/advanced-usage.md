@@ -36,7 +36,7 @@ result.meta.attempts;
 const response = await api.get("/download").asRaw();
 ```
 
-`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않지만 v0.2.1에서는 여전히 Buffered 소비입니다. 전체 본문이 기본 16 MiB 상한 안에 들어와야 하며, Streaming은 v0.3의 `asStream()`으로 분리합니다.
+`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않지만 v0.2.1에서는 여전히 Buffered 소비입니다. 전체 본문이 기본 16 MiB 상한 안에 들어와야 하며, Streaming은 v0.3의 별도 명시적 실행 경로로 분리합니다. 공개 terminal 이름은 v0.3 RFC에서 확정합니다.
 
 ## 응답 형식
 
@@ -56,7 +56,7 @@ const form = await api.get("/form").asFormData();
 
 `validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `asText()` 같은 명시적 decoder를 사용하더라도 최종 반환 타입과 값은 Schema 출력입니다.
 
-각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. Streaming은 v0.3에서 `asStream()`으로 같은 규칙에 추가합니다.
+각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. v0.3 Streaming도 실행 전에 소비 전략을 명시한다는 원칙은 유지하지만, 구체적인 terminal 문법은 아직 고정하지 않습니다.
 
 ## Promise 호환성과 실행 불변식
 

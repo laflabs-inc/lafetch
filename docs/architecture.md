@@ -171,5 +171,5 @@ This separation prevents an invalid payload from being retried as a network fail
 - supported Node.js LTS matrix at the first public release;
 - external schema ecosystem compatibility beyond the current `parse`/`validate` contract;
 - cache ownership and revalidation contracts for Next.js;
-- true streaming builder semantics;
+- v0.3 public streaming terminal, single-consumer ownership, and policy compatibility;
 - external user testing of the data-first thenable contract.

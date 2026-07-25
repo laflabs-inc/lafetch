@@ -15,6 +15,8 @@ In addition to the runtime matrix, `pnpm check` packs the publishable files into
 
 The Next fixture intentionally uses TypeScript 5.9 while the library is developed with TypeScript 7. This catches declaration output that compiles internally but is unusable in a stable consumer toolchain.
 
+The complete browser-facing root export has a hard regression budget of `36 KiB` minified and `12 KiB` gzip. The merged v0.2.1 hardening baseline is `33,713 bytes` minified and `10,606 bytes` gzip.
+
 ## Support boundary
 
 Lafetch requires standard `fetch`, `Request`, `Response`, `Headers`, `AbortController`, `ReadableStream`, `Blob`, and `FormData` implementations. A custom Transport can replace global Fetch, but response consumption still depends on the corresponding Web Platform response types.
@@ -27,4 +29,5 @@ Runtime-specific caching is not silently delegated to Next.js or a platform cach
 - The browser job installs a pinned Playwright dependency and its matching Chromium build.
 - The Next job builds Lafetch first, then consumes only its public package exports from the fixture.
 - The Node check installs the packed tarball into an isolated consumer and verifies runtime and TypeScript imports for `.`, `./feature`, and `./testing`.
+- The core suite fails when the complete browser-facing root export exceeds either bundle budget.
 - Native dependency build scripts are limited to the explicitly approved `esbuild`, `workerd`, and `sharp` packages.

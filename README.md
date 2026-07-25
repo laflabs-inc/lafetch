@@ -6,7 +6,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 `0.2.1-alpha` 공개 준비 중입니다. 첫 npm pre-release부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.2.1-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -124,7 +124,7 @@ response.headers;
 response.meta.attempts;
 ```
 
-Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. v0.2.1의 `asRaw()`도 안전한 다중 소비를 위해 제한된 크기로 버퍼링되며, 진짜 Streaming은 v0.3의 `asStream()`이 담당합니다.
+Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. v0.2.1의 `asRaw()`도 안전한 다중 소비를 위해 제한된 크기로 버퍼링됩니다. 진짜 Streaming의 공개 terminal과 생명주기 계약은 v0.3 RFC에서 확정합니다.
 
 ## 응답 형식 지정하기
 
@@ -140,7 +140,7 @@ const file = await api.get("/files/1").asBlob();
 
 `validate(schema)`가 값을 변환하면 이후 소비 메서드의 반환 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
 
-`asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`가 같은 종결 문법을 사용합니다. Streaming은 v0.3에서 `asStream()`으로 추가합니다.
+`asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`가 같은 종결 문법을 사용합니다. Streaming은 v0.3에서 별도의 명시적 실행 경로로 추가하되, terminal 이름은 관련 RFC가 확정하기 전까지 공개 계약으로 간주하지 않습니다.
 
 ## 주요 기능
 
@@ -231,10 +231,13 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 ```bash
 pnpm install
 pnpm check
+pnpm check:runtimes
 ```
 
-`pnpm check`는 엄격한 TypeScript 검사, 동작 테스트, ESM 선언 빌드, 실제 tarball 설치와 공개 export 소비 검증을 실행합니다.
+`pnpm check`는 엄격한 TypeScript 검사, 동작 테스트, ESM 선언 빌드, 실제 tarball 설치와 공개 export 소비 검증을 실행합니다. `pnpm check:runtimes`는 Playwright Chromium이 설치된 환경에서 Chromium, Workers/Edge, Next.js 소비 환경을 추가로 검증합니다.
 
 ## 현재 상태
 
-현재 버전은 `0.2.1-alpha.0`입니다. Buffered 응답 상한은 적용됐으며, 공개 배포 전 Streaming 계약, 라이선스와 배포 자동화를 완료할 예정입니다. 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다.
+현재 기준선은 `0.2.1-alpha.0`입니다. Progressive Builder와 request lifecycle hardening은 완료됐고, 다음 개발 단계는 v0.3 Streaming과 본문 생명주기 계약입니다. v0.3 구현 전 공개 terminal, Timeout·Retry 경계, Cache·Deduplication 호환성을 RFC로 먼저 확정합니다.
+
+Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

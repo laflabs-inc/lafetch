@@ -14,13 +14,14 @@
 - React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
 - 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
 
-## 현재 수준: v0.2.1-alpha
+## 현재 기준: v0.2.1 완료, v0.3 설계 대기
 
-현재 단계는 단순 프로토타입을 넘어선 **Progressive Builder 안정화 알파**입니다. Buffered 응답 상한과 핵심 격리 보강은 완료했지만 Streaming, 외부 Feature 호환성, 공개 배포 정책이 남아 있으므로 프로덕션 안정 버전으로 간주하지 않습니다.
+현재 소스 기준선은 `0.2.1-alpha.0`이며 **Progressive Builder와 request lifecycle hardening까지 완료**했습니다. 다음 작업은 v0.3 Streaming 공개 계약 RFC입니다. Streaming, 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
-| 공개 API 방향 | 안정화 후보 |
+| v0.2.1 공개 API | 구현과 hardening 완료 |
+| 다음 개발 단계 | v0.3 Streaming RFC |
 | 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
 | 제한된 Type-State와 `as*()` terminal | v0.2.1 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
@@ -36,6 +37,8 @@
 | 라이선스와 공개 배포 자동화 | 미완성 |
 
 ## v0.2 — 공개 API 재설계
+
+상태: 완료
 
 ### 목표
 
@@ -76,11 +79,13 @@ const user = await api
 ### 완료 조건
 
 - 하나의 기능을 표현하는 공식 문법이 하나뿐이어야 합니다.
-- 잘못된 구성은 Transport 실행 전에 구조화된 오류로 실패해야 합니다.
+- Lafetch가 계약으로 정의한 요청 본문 충돌, 닫힌 설정 값, Feature graph 오류는 Transport 실행 전에 구조화된 오류로 실패해야 합니다.
 - Node.js 전체 매트릭스, Chromium, Next.js, Workers/Edge CI가 통과해야 합니다.
 - 독립 소비자가 공개 export와 선언 파일을 소스 경로 없이 사용할 수 있어야 합니다.
 
 ## v0.2.1 — Progressive Builder와 소비 문법
+
+상태: 완료 (`2026-07-25`)
 
 ### 목표
 
@@ -124,7 +129,17 @@ const created = await api
 - 전체 브라우저 공개 API가 기존 `12 KiB` gzip 예산을 지켜야 합니다.
 - Cache, Deduplication, 빈 응답, Schema 변환의 타입·런타임 회귀 테스트가 통과해야 합니다.
 
+### 완료 근거
+
+- [PR #18](https://github.com/laflabs-inc/lafetch/pull/18) 병합
+- Node.js 20, 22, 24에서 15개 test file, 98개 test 통과
+- Chromium, Workers/Edge, Next.js App Router, npm tarball 소비 검증 통과
+- 전체 브라우저 공개 API `33,713 bytes` minified, `10,606 bytes` gzip
+- 기존 예산 `36 KiB` minified, `12 KiB` gzip 유지
+
 ## v0.3 — Streaming과 본문 안전성
+
+상태: 다음 단계 — RFC 승인 전 구현하지 않음
 
 ### 목표
 
@@ -133,7 +148,8 @@ const created = await api
 ### 작업 범위
 
 - Streaming 응답 공개 API RFC
-- buffered `asRaw()`와 streaming `asStream()`의 책임 분리
+- 기존 buffered `asRaw()`와 새로운 streaming 실행 경로의 책임 분리
+- Streaming terminal 이름과 반환 타입 확정
 - Streaming 응답의 단일 소비와 Request 재사용 규칙
 - v0.2.1의 `maxResponseBytes()`와 Streaming 상한 계약 분리
 - `Content-Length`가 없거나 잘못된 Streaming 응답의 크기 추적
@@ -142,11 +158,20 @@ const created = await api
 - 대용량 다운로드와 Streaming 업로드 테스트
 - Cache, Deduplication, Feature finalizer와 Streaming의 충돌 규칙
 
+### 범위 제외
+
+- v0.2.1 공개 API 전체 재작성 또는 두 번째 공식 DSL
+- Protocol/Contract layer, Server adapter, OpenAPI 생성, Mock framework
+- RFC 승인 전 특정 Streaming terminal 이름 확정
+- 알파 내부 코드에 대한 호환 alias와 Migration 작업
+
 ### 완료 조건
 
 - Streaming 경로가 전체 응답을 메모리에 보관하지 않아야 합니다.
 - Buffered 경로는 설정된 메모리 상한을 초과할 수 없어야 합니다.
 - Timeout과 Abort가 응답 헤더뿐 아니라 본문 소비 종료까지 일관되게 적용되어야 합니다.
+- Cache, Deduplication, Retry처럼 Streaming과 호환되지 않거나 의미가 달라지는 정책이 타입 또는 실행 전 오류로 명확히 구분되어야 합니다.
+- 전체 브라우저 공개 API가 기존 `36 KiB / 12 KiB gzip` 예산을 유지해야 합니다.
 
 ## v0.4 — Cache와 Deduplication 프로덕션 강화
 
