@@ -50,6 +50,20 @@ describe("browser Fetch runtime", () => {
       .rejects.toBeInstanceOf(HttpResponseTooLargeError);
   });
 
+  it("streams a real browser Fetch response without waiting for completion", async () => {
+    const response = await lafetch
+      .create()
+      .get("/__lafetch_fixture__/stream")
+      .asStream();
+    const reader = response.body!
+      .pipeThrough(new TextDecoderStream())
+      .getReader();
+
+    expect(await reader.read()).toEqual({ done: false, value: "first" });
+    expect(await reader.read()).toEqual({ done: false, value: "second" });
+    expect(await reader.read()).toEqual({ done: true, value: undefined });
+  });
+
   it("rejects guarded configuration before Fetch", () => {
     const api = lafetch.create();
     expect(() => api.get("/__lafetch_fixture__/echo").maxResponseBytes(-1))

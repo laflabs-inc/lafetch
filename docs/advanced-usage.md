@@ -1,6 +1,6 @@
 # Lafetch 상세 사용 가이드
 
-이 문서는 Lafetch v0.2.1의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
+이 문서는 Lafetch v0.3의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
 
 ## 데이터, 전체 응답, 원본 응답
 
@@ -36,7 +36,33 @@ result.meta.attempts;
 const response = await api.get("/download").asRaw();
 ```
 
-`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않지만 v0.2.1에서는 여전히 Buffered 소비입니다. 전체 본문이 기본 16 MiB 상한 안에 들어와야 하며, Streaming은 v0.3의 별도 명시적 실행 경로로 분리합니다. 공개 terminal 이름은 v0.3 RFC에서 확정합니다.
+`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않지만 여전히 Buffered 소비입니다. 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
+
+### Streaming Response
+
+```ts
+const response = await api
+  .get("/events")
+  .timeout("2m")
+  .asStream();
+
+const reader = response.body
+  ?.pipeThrough(new TextDecoderStream())
+  .getReader();
+```
+
+`asStream()`은 Status와 Header가 확정되면 표준 Fetch `Response`를 반환합니다. Lafetch는 전체 Body를 보관하지 않으며, Body는 한 소비자만 소유합니다. 같은 Builder에서 `asStream()`을 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
+
+Streaming은 기본 총량 제한이 없습니다. 제한이 필요한 요청만 `maxResponseBytes()`를 명시합니다.
+
+```ts
+const response = await api
+  .get("/downloads/report.csv")
+  .maxResponseBytes(1024 * 1024 * 1024)
+  .asStream();
+```
+
+`validate()`, `cache()`, `dedupe()` 뒤에는 `asStream()`이 TypeScript 자동완성에서 제거되며 JavaScript 우회도 Transport 실행 전에 실패합니다. accepted Body를 노출한 뒤 발생한 오류와 Timeout은 Stream을 실패시키지만 새 시도로 교체하지 않습니다. Body를 끝까지 읽지 않을 때는 `response.body?.cancel()`로 lifecycle을 종료해야 합니다.
 
 ## 응답 형식
 
@@ -56,7 +82,7 @@ const form = await api.get("/form").asFormData();
 
 `validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `asText()` 같은 명시적 decoder를 사용하더라도 최종 반환 타입과 값은 Schema 출력입니다.
 
-각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. v0.3 Streaming도 실행 전에 소비 전략을 명시한다는 원칙은 유지하지만, 구체적인 terminal 문법은 아직 고정하지 않습니다.
+각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. `asStream()`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
 
 ## Promise 호환성과 실행 불변식
 
@@ -70,7 +96,7 @@ api
   .finally(stopLoading);
 ```
 
-하나의 Builder를 여러 소비자가 사용해도 Transport 실행은 한 번만 일어납니다. 각 소비자는 보관된 응답의 독립적인 복제본을 디코딩합니다.
+Buffered Builder를 여러 소비자가 사용해도 Transport 실행은 한 번만 일어납니다. 각 소비자는 보관된 응답의 독립적인 복제본을 디코딩합니다. Streaming Builder는 한 번만 소비할 수 있으며 반환된 Promise 자체를 공유해야 합니다.
 
 ```ts
 const request = api.get<User>("/users/123");
@@ -150,6 +176,8 @@ await api
   .get<Report>("/reports/1")
   .maxResponseBytes(2 * 1024 * 1024);
 ```
+
+Streaming은 설정이 없으면 총량을 제한하지 않지만, `maxResponseBytes()`를 명시하면 실제 전달 chunk를 누적해 같은 오류를 발생시킵니다. 전체 Timeout, 시도 Timeout, 사용자 Abort는 Streaming Body가 종료될 때까지 유지됩니다.
 
 ## Retry와 Backoff
 

@@ -6,7 +6,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 소스 버전은 `0.2.1-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.3.0-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -124,7 +124,20 @@ response.headers;
 response.meta.attempts;
 ```
 
-Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. v0.2.1의 `asRaw()`도 안전한 다중 소비를 위해 제한된 크기로 버퍼링됩니다. 진짜 Streaming의 공개 terminal과 생명주기 계약은 v0.3 RFC에서 확정합니다.
+Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. `asRaw()`도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
+
+실시간 Body가 필요하면 `asStream()`을 사용합니다.
+
+```ts
+const response = await api
+  .get("/events")
+  .timeout("2m")
+  .asStream();
+
+const text = response.body?.pipeThrough(new TextDecoderStream());
+```
+
+`asStream()`은 Header가 확정되면 표준 `Response`를 반환하며 전체 Body를 보관하지 않습니다. 같은 Builder에서는 한 번만 사용할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
 
 ## 응답 형식 지정하기
 
@@ -140,7 +153,7 @@ const file = await api.get("/files/1").asBlob();
 
 `validate(schema)`가 값을 변환하면 이후 소비 메서드의 반환 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
 
-`asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`가 같은 종결 문법을 사용합니다. Streaming은 v0.3에서 별도의 명시적 실행 경로로 추가하되, terminal 이름은 관련 RFC가 확정하기 전까지 공개 계약으로 간주하지 않습니다.
+`asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`, `asStream()`이 같은 종결 문법을 사용합니다.
 
 ## 주요 기능
 
@@ -151,7 +164,8 @@ const file = await api.get("/files/1").asBlob();
 | JSON Body | `.json(value)` | JSON 직렬화와 Content-Type 설정 |
 | Timeout | `.timeout("3s")` | 전체 요청 제한 시간 |
 | Attempt Timeout | `.attemptTimeout("1s")` | 개별 시도 제한 시간 |
-| Response Limit | `.maxResponseBytes(1_000_000)` | 버퍼링할 실제 응답 바이트 상한 |
+| Response Limit | `.maxResponseBytes(1_000_000)` | Buffered 또는 명시적 Streaming 실제 바이트 상한 |
+| Streaming | `.asStream()` | Header 우선 단일 소비 `Response` |
 | Retry & Backoff | `.retry(2)` | 안전한 재시도와 지연 |
 | Abort | `.signal(signal)` | 표준 `AbortSignal` 취소 |
 | Cache | `.cache("30s")` | 완료된 안전한 응답 재사용 |
@@ -170,6 +184,7 @@ const file = await api.get("/files/1").asBlob();
 - 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다.
 - 기본 메모리 Cache는 500개 항목으로 제한됩니다.
 - Buffered 응답은 기본 16 MiB로 제한되며 요청별로 명시적인 상한을 지정할 수 있습니다.
+- Streaming은 기본 총량 제한 없이 backpressure를 따르며, `maxResponseBytes()`를 명시한 요청만 누적 전달량을 제한합니다.
 - 인증 헤더, 토큰 형태의 쿼리, `Set-Cookie`, 제한적인 `Cache-Control`, `Vary`는 기본 Cache를 우회합니다.
 - 요청 본문은 Telemetry에 포함하지 않습니다.
 - 진단 데이터에서 인증 헤더와 토큰 형태의 쿼리를 제거합니다.
@@ -218,6 +233,7 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 
 - [v0.2 공개 API RFC](docs/rfcs/v0.2-public-api.md)
 - [v0.2.1 Progressive Builder RFC](docs/rfcs/v0.2.1-progressive-builder.md)
+- [v0.3 Streaming과 본문 안전성 RFC](docs/rfcs/v0.3-streaming-body-safety.md)
 - [v0.1에서 v0.2.1로 마이그레이션](docs/migration-v0.2.md)
 - [상세 사용 가이드](docs/advanced-usage.md)
 - [커널 아키텍처](docs/architecture.md)
@@ -238,6 +254,6 @@ pnpm check:runtimes
 
 ## 현재 상태
 
-현재 기준선은 `0.2.1-alpha.0`입니다. Progressive Builder와 request lifecycle hardening은 완료됐고, 다음 개발 단계는 v0.3 Streaming과 본문 생명주기 계약입니다. v0.3 구현 전 공개 terminal, Timeout·Retry 경계, Cache·Deduplication 호환성을 RFC로 먼저 확정합니다.
+현재 소스 후보는 `0.3.0-alpha.0`입니다. Buffered 계약을 유지하면서 `asStream()`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 버전 매트릭스와 Chromium 통합 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

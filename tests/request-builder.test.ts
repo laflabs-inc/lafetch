@@ -352,6 +352,34 @@ describe("cancellation", () => {
     await expect(promise).rejects.toBeInstanceOf(HttpAbortError);
   });
 
+  it("preserves a buffered Abort error when finalization also fails", async () => {
+    const controller = new AbortController();
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((_request, context) =>
+        new Promise((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+        }),
+      ),
+    });
+    const request = api
+      .get("/slow")
+      .signal(controller.signal)
+      .use({
+        name: "broken-finalizer",
+        hooks: {
+          finalize() {
+            throw new Error("finalizer failed");
+          },
+        },
+      });
+
+    const promise = request.then((value) => value);
+    controller.abort("user cancelled");
+
+    await expect(promise).rejects.toBeInstanceOf(HttpAbortError);
+  });
+
   it("distinguishes total timeout from user abort", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",

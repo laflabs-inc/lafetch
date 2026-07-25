@@ -17,7 +17,7 @@ import {
   type RequestConfiguration,
 } from "./core/config.js";
 import { decodeResponse, type ResponseMode } from "./core/decode.js";
-import { executeRequest } from "./core/executor.js";
+import { executeRequest, executeStreamingRequest } from "./core/executor.js";
 import {
   telemetry as createTelemetryFeature,
   type TelemetryHandler,
@@ -27,7 +27,7 @@ import { createCacheFeature, type CacheOptions } from "./features/cache.js";
 import { createDedupeFeature, type DedupeOptions } from "./features/dedupe.js";
 import { idempotency as createIdempotencyFeature, type IdempotencyOptions } from "./features/idempotency.js";
 import { applySchema, type InferSchema, type ResponseSchema } from "./consumption/schema.js";
-import { HttpConfigurationError } from "./core/errors.js";
+import { HttpConfigurationError, HttpConsumptionError } from "./core/errors.js";
 import { mapRequestError, type RequestErrorMapper } from "./consumption/error-mapping.js";
 import type {
   BodyFactory,
@@ -123,6 +123,11 @@ interface CommonRequestOperations<
   asRaw(): Promise<Response>;
 }
 
+interface StreamingRequestOperation {
+  /** Consume a live, single-owner Fetch Response and end configuration. */
+  asStream(): Promise<Response>;
+}
+
 interface ValidationRequestOperation<TBodyMode extends RequestBodyMode> {
   validate<TSchema extends ResponseSchema<unknown>>(
     schema: TSchema,
@@ -164,11 +169,13 @@ export type RequestBuilderState<
   & (TBodyMode extends "allowed"
     ? RequestBodyOperations<TData, TConsumptionMode, TValidationMode>
     : unknown)
-  & (TValidationMode extends "none" ? ValidationRequestOperation<TBodyMode> : unknown);
+  & (TValidationMode extends "none" ? ValidationRequestOperation<TBodyMode> : unknown)
+  & ("open" extends TConsumptionMode ? StreamingRequestOperation : unknown);
 
 class RequestBuilderImplementation<TData = unknown> {
   readonly [Symbol.toStringTag] = "LafetchRequest";
   #execution?: Promise<RawExecution>;
+  #consumptionMode: "open" | "buffered" | "streaming" = "open";
 
   constructor(
     private readonly configuration: RequestConfiguration,
@@ -200,6 +207,24 @@ class RequestBuilderImplementation<TData = unknown> {
     return this.#execution;
   }
 
+  #claimBuffered(): void {
+    if (this.#consumptionMode === "streaming") {
+      throw new HttpConsumptionError(
+        "RequestBuilder is already owned by asStream().",
+      );
+    }
+    this.#consumptionMode = "buffered";
+  }
+
+  #claimStreaming(): void {
+    if (this.#consumptionMode !== "open") {
+      throw new HttpConsumptionError(
+        "asStream() requires an unconsumed RequestBuilder.",
+      );
+    }
+    this.#consumptionMode = "streaming";
+  }
+
   async #execute(): Promise<RawExecution> {
     try {
       return await this.#executeOnce();
@@ -209,6 +234,7 @@ class RequestBuilderImplementation<TData = unknown> {
   }
 
   async #consume<TResult>(responseMode: ResponseMode = "auto"): Promise<{ data: TResult; execution: RawExecution }> {
+    this.#claimBuffered();
     const execution = await this.#execute();
     try {
       const decoded = await decodeResponse(
@@ -362,8 +388,29 @@ class RequestBuilderImplementation<TData = unknown> {
   }
 
   async asRaw(): Promise<Response> {
+    this.#claimBuffered();
     const execution = await this.#execute();
     return execution.response.clone();
+  }
+
+  async asStream(): Promise<Response> {
+    if (this.responseSchema !== undefined) {
+      throw new HttpConfigurationError(
+        "asStream() cannot be combined with validate().",
+      );
+    }
+    this.#claimStreaming();
+    try {
+      return await executeStreamingRequest(this.configuration, async (error, request, response) =>
+        await mapRequestError(this.errorMappers, error, {
+          phase: "response",
+          request,
+          response,
+        })
+      );
+    } catch (error) {
+      return await mapRequestError(this.errorMappers, error, { phase: "request" });
+    }
   }
 
   then<TResult1 = TData, TResult2 = never>(

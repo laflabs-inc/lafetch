@@ -117,11 +117,16 @@ describe("public API conventions", () => {
       expectTypeOf(api.get<{ id: string }>("/users/1").asResponse())
         .toEqualTypeOf<Promise<LafetchResponse<{ id: string }>>>();
       expectTypeOf(api.get("/users").asRaw()).toEqualTypeOf<Promise<Response>>();
+      expectTypeOf(api.get("/events").asStream()).toEqualTypeOf<Promise<Response>>();
       expectTypeOf(api.get("/users").maxResponseBytes(1_000_000)).toEqualTypeOf(api.get("/users"));
       // @ts-expect-error Explicit response terminals return Promise and end Builder configuration.
       api.get("/users").asJson().timeout("1s");
-      // @ts-expect-error Streaming remains outside the v0.2.1 buffered-consumption contract.
-      api.get("/users").asStream();
+      // @ts-expect-error Response Schema validation requires buffered consumption.
+      api.get("/events").validate((value) => value).asStream();
+      // @ts-expect-error Cache requires buffered consumption.
+      api.get("/events").cache("1m").asStream();
+      // @ts-expect-error Deduplication requires buffered consumption.
+      api.get("/events").dedupe().asStream();
 
       api.delete("/users/1").json({ reason: "duplicate" });
       // @ts-expect-error A request has exactly one body source.

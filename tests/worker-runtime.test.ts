@@ -30,6 +30,10 @@ describe("Workers/Edge runtime", () => {
     const response = await runtime.dispatchFetch("https://worker.test/");
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ calls: 2, processGlobal: false });
+    expect(await response.json()).toEqual({
+      calls: 2,
+      processGlobal: false,
+      streamed: "worker stream",
+    });
   });
 });

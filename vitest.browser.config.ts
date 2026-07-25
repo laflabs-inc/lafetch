@@ -42,6 +42,12 @@ function httpFixture(): Plugin {
           response.end("oversized");
           return;
         }
+        if (route === "/stream") {
+          response.setHeader("content-type", "text/plain");
+          response.write("first");
+          setTimeout(() => response.end("second"), 20);
+          return;
+        }
         response.setHeader("content-type", "application/json");
         response.end(JSON.stringify({
           method: request.method,

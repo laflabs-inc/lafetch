@@ -126,11 +126,9 @@ export interface RequestConfiguration {
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
-  readonly maxResponseBytes: number;
+  readonly maxResponseBytes?: number;
   readonly scope: ClientPolicyScope;
 }
-
-const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 function encodeJson(value: unknown): string {
   try {
@@ -178,7 +176,6 @@ export function createRequestConfiguration(
     transport: client.transport,
     runtime: client.runtime,
     credentials: client.credentials,
-    maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
     scope: client.scope,
   };
 }

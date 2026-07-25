@@ -6,8 +6,16 @@ export default {
     const api = lafetch.create({
       transport: {
         name: "worker-fixture",
-        async send(_request, context) {
+        async send(request, context) {
           calls += 1;
+          if (request.url.endsWith("/stream")) {
+            return new Response(new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("worker stream"));
+                controller.close();
+              },
+            }));
+          }
           return context.attempt === 1
             ? new Response("retry", { status: 503 })
             : Response.json({ calls, processGlobal: "process" in globalThis });
@@ -23,6 +31,9 @@ export default {
           return value as { calls: number; processGlobal: boolean };
         },
       });
-    return Response.json(result);
+    const streamed = await (await api
+      .get("https://fixture.invalid/stream")
+      .asStream()).text();
+    return Response.json({ ...result, streamed });
   },
 };

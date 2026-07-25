@@ -67,6 +67,10 @@ const result = await api.get("/probe").use(feature).asJson();
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
+const streamed = await api.get("/stream").asStream();
+if ((await streamed.json()).packageProbe !== null || transport.calls.length !== 2) {
+  throw new Error("Packed Streaming terminal did not execute correctly.");
+}
 if (typeof HttpResponseTooLargeError !== "function") {
   throw new Error("Packed response-size error export is missing.");
 }
@@ -98,7 +102,7 @@ for (const configure of invalidConfigurations) {
     if (!(error instanceof HttpConfigurationError)) throw error;
   }
 }
-if (transport.calls.length !== 1) throw new Error("Invalid configuration reached the packed Transport.");
+if (transport.calls.length !== 2) throw new Error("Invalid configuration reached the packed Transport.");
 `);
   run(process.execPath, ["runtime.mjs"], consumerDirectory);
 
@@ -125,6 +129,7 @@ const validatedText: Promise<number> = api.get("https://api.example.com/text").v
   parse(value: unknown): number { return String(value).length; },
 }).asText();
 const limited: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
+const streaming: Promise<Response> = api.get("https://api.example.com/events").asStream();
 if (false) {
   // @ts-expect-error Response data types are declared on the HTTP method, not asJson().
   api.get("/users").asJson<User>();
@@ -150,6 +155,12 @@ if (false) {
   api.get("/users").retry(1, { backoff: { type: "linear" } });
   // @ts-expect-error Jitter types are a closed public contract.
   api.get("/users").retry(1, { backoff: { jitter: "equal" } });
+  // @ts-expect-error Response Schema validation requires buffered consumption.
+  api.get("/events").validate((value) => value).asStream();
+  // @ts-expect-error Cache requires buffered consumption.
+  api.get("/events").cache("1m").asStream();
+  // @ts-expect-error Deduplication requires buffered consumption.
+  api.get("/events").dedupe().asStream();
 }
 void request;
 void explicit;
@@ -158,6 +169,7 @@ void headResult;
 void response;
 void validatedText;
 void limited;
+void streaming;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
     compilerOptions: {
@@ -179,7 +191,7 @@ void limited;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.2.1-alpha.0") {
+  if (installedPackage.version !== "0.3.0-alpha.0") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {
