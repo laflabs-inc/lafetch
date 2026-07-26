@@ -135,11 +135,15 @@ Streaming 실행은 Header를 수락한 뒤 `LStreamResponse`를 반환합니다
 - status: `408`, `429`, `500`, `502`, `503`, `504`
 - network failure: 활성화
 - `Retry-After`: 준수
+- `Retry-After` 상한: 일반 Backoff와 분리된 1분
+- 상한을 넘는 `Retry-After`: 서버 지시보다 일찍 재시도하지 않고 최종 실패
 - Backoff: exponential, full jitter
 - 허용된 method의 attempt Timeout: 재시도 가능
 - total Timeout과 사용자 Abort: 최종 실패
 
 기존 `ReadableStream` Body는 재생할 수 없으므로 Retry 가능성이 있으면 전송 전에 거부합니다. 시도마다 새 Body를 만들 수 있을 때만 `bodyFactory()`를 사용합니다.
+
+`Retry-After`는 [RFC 9110 §10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)의 delay-seconds와 HTTP-date만 해석합니다. 잘못된 값은 일반 Backoff로 돌아가며, active Internet-Draft인 RateLimit Header와 비표준 `X-RateLimit-*` Header는 자동 Retry 신호로 사용하지 않습니다.
 
 ## Feature 해석
 

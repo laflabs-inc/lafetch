@@ -212,6 +212,7 @@ const file: Blob = await api.get("/files/1").as("blob");
 - 자격 증명은 기본적으로 전송하지 않습니다.
 - 기본 성공 범위는 HTTP `200–299`입니다.
 - 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다.
+- `Retry-After`는 일반 Backoff와 분리해 최대 1분까지만 따르며, 그보다 길면 더 일찍 재시도하지 않습니다.
 - 기본 메모리 Cache는 500개 항목으로 제한됩니다.
 - Buffered 응답은 기본 16 MiB로 제한되며 요청별로 명시적인 상한을 지정할 수 있습니다.
 - Streaming은 기본 총량 제한 없이 backpressure를 따르며, `maxResponseBytes()`를 명시한 요청만 누적 전달량을 제한합니다.

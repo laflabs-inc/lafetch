@@ -21,15 +21,15 @@
 | 공개 요청 문법 | 구현 완료 |
 | `LResponse`와 data mode 반환 계약 | 구현 완료 |
 | Streaming Body lifecycle | 구현 완료 |
-| Timeout, Retry, Abort | 구현 및 경쟁 상태 테스트 완료 |
+| Timeout, Retry, Abort | 기본 구현 완료, adaptive Retry 강화 진행 중 |
 | Cache, Deduplication, Idempotency | 기본 구현과 격리 테스트 완료 |
 | Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.4 Reliability policy 강화 |
+| 다음 단계 | v0.4 Reliability policy 강화 진행 중 |
 | 라이선스와 npm 배포 자동화 | 미완료 |
 
-현재 complete root bundle 기준선은 `44,961 / 13,875 bytes gzip`, 대표 JSON 요청은 `44,104 / 13,641 bytes gzip`입니다. Hard ceiling은 각각 `48/16 KiB`, `44/14 KiB`입니다.
+현재 complete root bundle 기준선은 `45,433 / 14,022 bytes gzip`, 대표 JSON 요청은 `44,428 / 13,742 bytes gzip`입니다. Hard ceiling은 각각 `48/16 KiB`, `44/14 KiB`입니다.
 
 ## 완료된 기반
 
@@ -46,6 +46,10 @@
 
 목표: 외부 Store와 높은 동시성에서도 Cache, Deduplication과 Retry를 예측 가능하게 만듭니다.
 
+현재 `Retry-After` 상한을 일반 Backoff에서 분리하고, 상한 초과 시 서버 지시보다 일찍 재시도하지 않는 계약까지 구현했습니다. RateLimit과 비표준 Header는 자동 해석하지 않습니다. 상세 결정은 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)를 기준으로 합니다.
+
+대표 JSON 요청은 minified 상한까지 628 bytes만 남았습니다. Custom Retry predicate를 더 넣기 전에 단순 요청에 포함되는 optional policy module 비용을 줄이는 작업을 v0.8에서 이 단계로 앞당깁니다.
+
 ### 범위
 
 - CacheStore 적합성 테스트와 Store 실패 정책 확대
@@ -53,8 +57,9 @@
 - TTL, `Cache-Control`, `Age` 상호작용 검증
 - leader/follower Abort·Timeout 경쟁 상태와 누수 테스트
 - 사용자 key의 tenant·인증 경계 문서화
-- server-directed Retry delay 별도 상한
-- `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙
+- server-directed Retry delay 별도 상한 — 구현 완료
+- `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙 — 구현 완료
+- 대표 요청 module graph 분석과 optional policy 비용 분리
 - custom Retry predicate와 forced Retry의 method·idempotency gate
 
 ### 완료 조건
@@ -63,6 +68,7 @@
 - leader 실패나 follower 취소가 다른 요청을 잘못 취소하지 않아야 합니다.
 - 외부 Store가 공통 conformance suite를 통과할 수 있어야 합니다.
 - server delay와 custom predicate가 total Timeout이나 safe method 경계를 우회하지 않아야 합니다.
+- v0.4 기능 추가 후에도 대표 요청의 `44 KiB / 14 KiB gzip` 상한을 유지해야 합니다.
 
 ## v0.5 — Feature와 Transport SDK
 

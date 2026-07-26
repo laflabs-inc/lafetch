@@ -64,19 +64,21 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 - Node.js `zlib.gzipSync`로 gzip 측정
 
 ```text
-Lafetch  44,104 bytes minified / 13,641 bytes gzip
+Lafetch  44,428 bytes minified / 13,742 bytes gzip
 Axios    45,838 bytes minified / 17,855 bytes gzip
 Ky       20,608 bytes minified /  7,370 bytes gzip
 ```
 
 해석:
 
-- Lafetch는 Axios보다 minified 약 `4%`, gzip 약 `24%` 작습니다.
-- Lafetch는 Ky보다 minified 약 `114%`, gzip 약 `85%` 큽니다.
-- Lafetch의 실제 root public API CI 기준선은 `44,961 / 13,875 bytes gzip`입니다. 대표 요청과 거의 차이가 없어 사용하지 않는 정책 코드도 root bundle에 상당 부분 포함됩니다.
+- Lafetch는 Axios보다 minified 약 `3%`, gzip 약 `23%` 작습니다.
+- Lafetch는 Ky보다 minified 약 `115%`, gzip 약 `86%` 큽니다.
+- Lafetch의 실제 root public API CI 기준선은 `45,433 / 14,022 bytes gzip`입니다. 대표 요청과 거의 차이가 없어 사용하지 않는 정책 코드도 root bundle에 상당 부분 포함됩니다.
 - 현재 `16 KiB gzip` 예산 안이지만, Ky와 같은 최소 wrapper를 목표로 한다면 경쟁력이 없습니다.
 - 통합 reliability 기능을 포함한 client로는 허용 가능한 크기지만, 대표 요청 bundle도 별도 회귀 지표로 관리해야 합니다.
-- representative request는 현재 기준선에서 충분한 여유를 두되 root보다 엄격한 `44 KiB / 14 KiB gzip` 상한을 사용합니다.
+- 대표 요청의 `44 KiB / 14 KiB gzip` 상한까지 남은 여유는 각각 `628 / 594 bytes`뿐입니다. Custom Retry predicate처럼 executor를 키우는 기능을 더 추가하기 전에 module graph 비용을 줄여야 합니다.
+
+대표 요청의 esbuild `bytesInOutput` 상위 module은 `executor.ts` 10,205 bytes, `config.ts` 4,682 bytes, `validation.ts` 4,068 bytes, `request-builder.ts` 3,793 bytes입니다. 단순 JSON 요청에서도 Cache와 Deduplication 구현이 각각 1,861 bytes, 1,655 bytes 포함됩니다. 따라서 COMP-08의 module graph 분석과 선택 policy 비용 분리는 v0.8까지 미룰 수 없으며 v0.4의 다음 구현 gate로 앞당깁니다.
 
 이 수치는 네트워크 왕복시간이나 실제 처리량 benchmark가 아닙니다. 현재 Lafetch에는 신뢰할 수 있는 runtime overhead 비교 자료가 없으므로 성능 우위를 주장하지 않습니다.
 
@@ -85,8 +87,8 @@ Ky       20,608 bytes minified /  7,370 bytes gzip
 | 항목 | Lafetch | Axios | Ky |
 | --- | --- | --- | --- |
 | Runtime dependency | 0 | 4 | 0 |
-| 배포 package unpacked | `428,801 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
-| 대표 browser bundle gzip | `13,641 bytes` | `17,855 bytes` | `7,370 bytes` |
+| 배포 package unpacked | `437,827 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
+| 대표 browser bundle gzip | `13,742 bytes` | `17,855 bytes` | `7,370 bytes` |
 | Module | ESM | ESM, CJS | ESM |
 | Node.js engine | `>=20` | package에서 미지정 | `>=22` |
 | Built-in transport | Fetch | XHR, HTTP, Fetch adapter | Fetch |
@@ -254,10 +256,10 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 
 | ID | 부족한 점 | 영향 | 방향 |
 | --- | --- | --- | --- |
-| COMP-05 | Retry가 `Retry-After` 외 rate-limit 관행, custom predicate, response-content Retry를 표현하지 못함 | Ky 2.0 대비 adaptive Retry 범위가 좁음 | v0.4에서 Retry decision RFC와 test matrix 추가 |
+| COMP-05 | Retry가 custom predicate와 response-content Retry를 표현하지 못함 | Ky 2.0 대비 adaptive Retry 범위가 좁음 | 진행 중: `maxRetryAfter` 분리 완료, predicate와 forced Retry gate는 후속 |
 | COMP-06 | Transport용 conformance kit와 안정성 정책 부재 | custom Transport는 가능하지만 품질을 검증할 공식 방법이 없음 | Feature SDK와 함께 Transport contract 안정화 |
 | COMP-07 | Upload/download progress 계약 부재 | 파일 전송 UX에서 Axios와 Ky보다 불편 | Stream·Telemetry 기반 optional Feature로 먼저 검토 |
-| COMP-08 | 대표 요청도 root 전체와 거의 같은 bundle | 사용하지 않는 policy가 기본 bundle 비용에 포함 | representative bundle budget과 module graph 분석 추가 |
+| COMP-08 | 대표 요청도 root 전체와 거의 같은 bundle | 새 policy를 추가할 bundle 여유가 거의 없음 | v0.4에서 module graph 분리 선행, v0.8에서 benchmark와 최종 최적화 |
 | COMP-09 | 실제 request overhead benchmark 부재 | 성능 우위를 주장하거나 회귀를 탐지할 수 없음 | deterministic local transport benchmark와 CI threshold 설계 |
 | COMP-10 | 성공 응답에 비해 HTTP status error Body 소비가 번거로움 | `HttpStatusError.response`를 직접 clone·decode해야 함 | bounded Body를 유지하면서 중복 보관 없는 error data DX RFC |
 
@@ -266,6 +268,7 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 Lafetch는 Ky의 동작을 그대로 복제하지 않습니다.
 
 - 표준 `Retry-After`는 기본 지원 유지
+- server delay 상한은 일반 Backoff와 분리하고, 상한을 넘으면 서버 지시보다 일찍 재시도하지 않음
 - 평가 시점의 RateLimit header는 Internet-Draft이므로 기본 표준처럼 고정하지 않음
 - non-standard `X-RateLimit-*`은 명시적 opt-in 또는 adapter로만 검토
 - server 지정 delay의 별도 상한을 공개 계약으로 분리
@@ -320,10 +323,10 @@ Upload progress는 runtime별 request stream 지원 차이가 크므로 조용�
 | 단계 | 연결된 개선 항목 |
 | --- | --- |
 | v0.3.1 완료 | COMP-01~04: Error guard, Standard Schema, `RequestInit`, Request snapshot |
-| v0.4 | COMP-05: adaptive Retry와 Reliability policy |
+| v0.4 | COMP-05와 COMP-08 일부: adaptive Retry, Reliability policy와 module graph gate |
 | v0.5 | COMP-06: Feature·Transport conformance |
 | v0.6 | COMP-07, COMP-10: Progress와 Status error data |
-| v0.8 | COMP-08, COMP-09: Bundle 구조와 runtime overhead |
+| v0.8 | COMP-08 마무리, COMP-09: 최종 Bundle 구조와 runtime overhead |
 
 ## 재평가 조건
 

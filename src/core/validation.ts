@@ -186,6 +186,9 @@ export function validateRetryOptions(value: unknown): asserts value is RetryOpti
   if (value.respectRetryAfter !== undefined) {
     validateBoolean(value.respectRetryAfter, "retry.respectRetryAfter");
   }
+  if (value.maxRetryAfter !== undefined) {
+    durationToMs(value.maxRetryAfter, "retry.maxRetryAfter");
+  }
 
   const backoff = value.backoff;
   if (backoff === undefined) return;
