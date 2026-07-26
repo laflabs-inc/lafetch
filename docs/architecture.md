@@ -81,7 +81,7 @@ Builder inputs are snapshotted at declaration time where the Web Platform permit
 
 Buffered execution reads the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. Buffered responses have a default 16 MiB actual-byte limit and may use an explicit request-specific `maxResponseBytes()` value. `Content-Length` is not trusted as the enforcement boundary.
 
-Streaming execution settles `as("stream")` after Header acceptance and transfers a wrapped Web Stream without retaining the complete Body. Timeout, Abort, attempt ownership, finalizers, and final lifecycle events remain open until Body completion or cancellation. Streaming is unbounded by default; an explicit `maxResponseBytes()` applies to actual delivered chunks.
+Streaming execution settles `as("stream")` after Header acceptance and returns an actual Fetch `Response` with an additive `pipe()` convenience interface. The original `body` and native Response/Web Stream methods remain available. `pipe()` normalizes a missing Body to a closed Stream, supports text or caller-owned standard transforms, and adds sequential `forEach()` consumption without retaining the complete Body. Timeout, Abort, attempt ownership, finalizers, and final lifecycle events remain open until Body completion or cancellation. Streaming is unbounded by default; an explicit `maxResponseBytes()` applies to actual delivered chunks.
 
 ## Retry invariant
 
@@ -170,7 +170,7 @@ Official Telemetry starts event delivery in lifecycle order but does not seriali
 
 Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. `as("json" | "text" | "bytes" | "blob" | "formData")` selects one decoder and returns a real Promise. When a Schema transforms data, its output drives both runtime values and terminal return types. `as("result")` wraps automatically decoded data with status, headers, and metadata, while buffered `as("response")` remains outside decoding and validation.
 
-`as("stream")` selects a separate live execution path before dispatch. It returns a standard Response, does not run whole-body decoding or Schema validation, and maps Body read failures in the response phase. A unified Builder `mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
+`as("stream")` selects a separate live execution path before dispatch. It returns `LafetchStreamResponse`, which is the same standard Response instance with additive helpers rather than an envelope or replacement wrapper. It does not run whole-body decoding or Schema validation and maps Body read failures in the response phase. A unified Builder `mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 

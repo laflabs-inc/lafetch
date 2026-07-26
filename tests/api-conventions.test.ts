@@ -1,6 +1,12 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import * as publicApi from "../src/index.js";
-import { lafetch, type LafetchResponse, type RequestBuilder } from "../src/index.js";
+import {
+  lafetch,
+  type LafetchResponse,
+  type LafetchStreamResponse,
+  type RequestBuilder,
+  type ResponseMode,
+} from "../src/index.js";
 import { defineFeature } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
 
@@ -117,7 +123,13 @@ describe("public API conventions", () => {
       expectTypeOf(api.get<{ id: string }>("/users/1").as("result"))
         .toEqualTypeOf<Promise<LafetchResponse<{ id: string }>>>();
       expectTypeOf(api.get("/users").as("response")).toEqualTypeOf<Promise<Response>>();
-      expectTypeOf(api.get("/events").as("stream")).toEqualTypeOf<Promise<Response>>();
+      expectTypeOf(api.get("/events").as("stream"))
+        .toEqualTypeOf<Promise<LafetchStreamResponse>>();
+      const responseMode: "json" | "text" = Math.random() > 0.5 ? "json" : "text";
+      expectTypeOf(api.get<{ id: string }>("/users").as(responseMode))
+        .toEqualTypeOf<Promise<string | { id: string }>>();
+      const anyMode = responseMode as ResponseMode;
+      api.get<{ id: string }>("/users").as(anyMode);
       // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
       api.get("/users").asJson();
       // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.

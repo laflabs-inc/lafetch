@@ -16,8 +16,9 @@ import {
   withTimeout,
   type RequestConfiguration,
 } from "./core/config.js";
-import { decodeResponse, type ResponseMode } from "./core/decode.js";
+import { decodeResponse, type ResponseMode as DecodeResponseMode } from "./core/decode.js";
 import { executeRequest, executeStreamingRequest } from "./core/executor.js";
+import type { LafetchStreamResponse } from "./core/stream-response.js";
 import {
   telemetry as createTelemetryFeature,
   type TelemetryHandler,
@@ -45,8 +46,33 @@ type ResponseConsumptionMode = "open" | "buffered";
 type ResponseValidationMode = "none" | "schema";
 type ConsumedData<TData, TFallback, TValidationMode extends ResponseValidationMode> =
   TValidationMode extends "schema" ? TData : TFallback;
-type BufferedResponseMode = "json" | "text" | "bytes" | "blob" | "formData";
-type ResponseTerminalMode = BufferedResponseMode | "result" | "response" | "stream";
+export type ResponseMode =
+  | "json"
+  | "text"
+  | "bytes"
+  | "blob"
+  | "formData"
+  | "result"
+  | "response"
+  | "stream";
+
+type AvailableResponseMode<TConsumptionMode extends ResponseConsumptionMode> =
+  | Exclude<ResponseMode, "stream">
+  | ("open" extends TConsumptionMode ? "stream" : never);
+
+type ResponseForMode<
+  TData,
+  TValidationMode extends ResponseValidationMode,
+  TMode extends ResponseMode,
+> = TMode extends "json" ? TData
+  : TMode extends "text" ? ConsumedData<TData, string, TValidationMode>
+  : TMode extends "bytes" ? ConsumedData<TData, Uint8Array, TValidationMode>
+  : TMode extends "blob" ? ConsumedData<TData, Blob, TValidationMode>
+  : TMode extends "formData" ? ConsumedData<TData, FormData, TValidationMode>
+  : TMode extends "result" ? LafetchResponse<TData>
+  : TMode extends "response" ? Response
+  : TMode extends "stream" ? LafetchStreamResponse
+  : never;
 
 function requireCallerOwnedKey(
   policy: "cache" | "dedupe",
@@ -109,25 +135,10 @@ interface CommonRequestOperations<
     options?: TelemetryOptions,
   ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   use(feature: RequestFeature): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
-  /** Consume the response as JSON using the Builder data type and end configuration. */
-  as(mode: "json"): Promise<TData>;
-  /** Consume the response as text and end Builder configuration. */
-  as(mode: "text"): Promise<ConsumedData<TData, string, TValidationMode>>;
-  /** Consume the response as bytes and end Builder configuration. */
-  as(mode: "bytes"): Promise<ConsumedData<TData, Uint8Array, TValidationMode>>;
-  /** Consume the response as a Blob and end Builder configuration. */
-  as(mode: "blob"): Promise<ConsumedData<TData, Blob, TValidationMode>>;
-  /** Consume the response as FormData and end Builder configuration. */
-  as(mode: "formData"): Promise<ConsumedData<TData, FormData, TValidationMode>>;
-  /** Consume automatically decoded data with HTTP and execution metadata. */
-  as(mode: "result"): Promise<LafetchResponse<TData>>;
-  /** Consume a buffered Fetch Response without decoding or schema validation. */
-  as(mode: "response"): Promise<Response>;
-}
-
-interface StreamingRequestOperation {
-  /** Consume a live, single-owner Fetch Response and end configuration. */
-  as(mode: "stream"): Promise<Response>;
+  /** Select a decoder or response ownership mode and end Builder configuration. */
+  as<TMode extends AvailableResponseMode<TConsumptionMode>>(
+    mode: TMode,
+  ): Promise<ResponseForMode<TData, TValidationMode, TMode>>;
 }
 
 interface ValidationRequestOperation<TBodyMode extends RequestBodyMode> {
@@ -171,8 +182,7 @@ export type RequestBuilderState<
   & (TBodyMode extends "allowed"
     ? RequestBodyOperations<TData, TConsumptionMode, TValidationMode>
     : unknown)
-  & (TValidationMode extends "none" ? ValidationRequestOperation<TBodyMode> : unknown)
-  & ("open" extends TConsumptionMode ? StreamingRequestOperation : unknown);
+  & (TValidationMode extends "none" ? ValidationRequestOperation<TBodyMode> : unknown);
 
 class RequestBuilderImplementation<TData = unknown> {
   readonly [Symbol.toStringTag] = "LafetchRequest";
@@ -235,7 +245,7 @@ class RequestBuilderImplementation<TData = unknown> {
     }
   }
 
-  async #consume<TResult>(responseMode: ResponseMode = "auto"): Promise<{ data: TResult; execution: RawExecution }> {
+  async #consume<TResult>(responseMode: DecodeResponseMode = "auto"): Promise<{ data: TResult; execution: RawExecution }> {
     this.#claimBuffered();
     const execution = await this.#execute();
     try {
@@ -356,7 +366,7 @@ class RequestBuilderImplementation<TData = unknown> {
     return this.#next(withFeature(this.configuration, feature));
   }
 
-  async as(mode: ResponseTerminalMode): Promise<unknown> {
+  async as(mode: ResponseMode): Promise<unknown> {
     if (mode === "stream") {
       if (this.responseSchema !== undefined) {
         throw new HttpConfigurationError(

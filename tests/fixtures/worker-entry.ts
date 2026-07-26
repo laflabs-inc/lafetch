@@ -31,9 +31,14 @@ export default {
           return value as { calls: number; processGlobal: boolean };
         },
       });
-    const streamed = await (await api
+    let streamed = "";
+    await (await api
       .get("https://fixture.invalid/stream")
-      .as("stream")).text();
+      .as("stream"))
+      .pipe("text")
+      .forEach((chunk) => {
+        streamed += chunk;
+      });
     return Response.json({ ...result, streamed });
   },
 };

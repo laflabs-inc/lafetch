@@ -134,10 +134,19 @@ const response = await api
   .timeout("2m")
   .as("stream");
 
-const text = response.body?.pipeThrough(new TextDecoderStream());
+await response.pipe("text").forEach((chunk) => {
+  console.log(chunk);
+});
 ```
 
-`as("stream")`은 Header가 확정되면 표준 `Response`를 반환하며 전체 Body를 보관하지 않습니다. 같은 Builder에서는 한 번만 사용할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
+`as("stream")`은 Header가 확정되면 실제 Fetch `Response`에 얇은 편의 인터페이스를 더한 `LafetchStreamResponse`를 반환합니다. `status`, `headers`, `body`, `text()`, `clone()`과 `body.pipeThrough()` 같은 표준 기능은 그대로 유지됩니다.
+
+- `response.pipe()`는 nullable Body 처리가 필요 없는 byte Stream을 반환합니다.
+- `response.pipe("text")`는 text Stream을 반환합니다.
+- `response.pipe(transform)`은 표준 `ReadableWritablePair`를 적용합니다.
+- 반환된 Stream의 `forEach()`는 각 callback을 순서대로 기다려 backpressure를 유지합니다.
+
+같은 Builder에서는 Streaming을 한 번만 시작할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
 
 ## 응답 형식 지정하기
 

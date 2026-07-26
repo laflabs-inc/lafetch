@@ -46,12 +46,32 @@ const response = await api
   .timeout("2m")
   .as("stream");
 
+await response.pipe("text").forEach(async (chunk, index) => {
+  await saveChunk(index, chunk);
+});
+```
+
+`as("stream")`은 Status와 Header가 확정되면 실제 Fetch `Response`를 확장한 `LafetchStreamResponse`를 반환합니다. 별도 envelope로 감싸지 않으므로 `status`, `headers`, `body`, `text()`, `arrayBuffer()`, `clone()`과 표준 `ReadableStream` API를 그대로 사용할 수 있습니다.
+
+```ts
+response.pipe();                // LafetchReadableStream<Uint8Array>
+response.pipe("text");          // LafetchReadableStream<string>
+response.pipe(customTransform); // LafetchReadableStream<T>
+
+await response.pipe().pipeTo(writable);
+```
+
+`forEach()`는 callback을 순차적으로 `await`합니다. Stream이 끝나면 반환한 `Promise<void>`가 완료되고, source 또는 callback이 실패하면 Stream을 취소한 뒤 같은 오류로 실패합니다. Body가 없는 응답의 `pipe()`는 즉시 닫히는 Stream을 반환합니다.
+
+기존 저수준 API도 제거하지 않습니다.
+
+```ts
 const reader = response.body
-  ?.pipeThrough(new TextDecoderStream())
+  ?.pipeThrough(customTransform)
   .getReader();
 ```
 
-`as("stream")`은 Status와 Header가 확정되면 표준 Fetch `Response`를 반환합니다. Lafetch는 전체 Body를 보관하지 않으며, Body는 한 소비자만 소유합니다. 같은 Builder에서 Streaming 소비를 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
+Lafetch는 전체 Body를 보관하지 않으며 Body는 한 소비자만 소유합니다. 같은 Builder에서 Streaming 소비를 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
 
 Streaming은 기본 총량 제한이 없습니다. 제한이 필요한 요청만 `maxResponseBytes()`를 명시합니다.
 

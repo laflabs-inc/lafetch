@@ -341,6 +341,7 @@ describe("RequestBuilder", () => {
 
     expect(await first.text()).toBe("raw body");
     expect(await second.text()).toBe("raw body");
+    expect(first).not.toHaveProperty("pipe");
   });
 });
 

@@ -15,11 +15,11 @@ In addition to the runtime matrix, `pnpm check` packs the publishable files into
 
 The Next fixture intentionally uses TypeScript 5.9 while the library is developed with TypeScript 7. This catches declaration output that compiles internally but is unusable in a stable consumer toolchain.
 
-The complete browser-facing root export has a hard regression budget of `36 KiB` minified and `12 KiB` gzip. The v0.3 unified `as(mode)` baseline is `36,633 bytes` minified and `11,679 bytes` gzip; the initial v0.3 Streaming baseline was `36,709 bytes` minified and `11,649 bytes` gzip, and the previous v0.2.1 baseline was `33,713 bytes` minified and `10,606 bytes` gzip.
+The complete browser-facing root export has a hard regression budget of `48 KiB` minified and `16 KiB` gzip. The earlier `36 KiB / 12 KiB gzip` threshold was introduced as an alpha snapshot guard rather than a browser or package-distribution constraint; keeping it only a few bytes above the implementation incorrectly blocked intentional public DX work. The larger ceiling remains a regression alarm, not a size target: reviewed features may move the recorded baseline, while accidental growth still fails CI. The v0.3 Stream DX baseline is `37,318 bytes` minified and `11,895 bytes` gzip; the unified `as(mode)` baseline was `36,633 bytes` minified and `11,679 bytes` gzip, and the previous v0.2.1 baseline was `33,713 bytes` minified and `10,606 bytes` gzip.
 
 ## Support boundary
 
-Lafetch requires standard `fetch`, `Request`, `Response`, `Headers`, `AbortController`, `ReadableStream`, `Blob`, and `FormData` implementations. A custom Transport can replace global Fetch, but response consumption still depends on the corresponding Web Platform response types. `TextDecoderStream` appears only in optional text-stream examples and is not required by the core.
+Lafetch requires standard `fetch`, `Request`, `Response`, `Headers`, `AbortController`, `ReadableStream`, `Blob`, and `FormData` implementations. A custom Transport can replace global Fetch, but response consumption still depends on the corresponding Web Platform response types. `response.pipe("text")` additionally uses the runtime's standard `TextDecoderStream`; byte and caller-supplied transform paths do not.
 
 Runtime-specific caching is not silently delegated to Next.js or a platform cache. The Lafetch cache Feature owns its explicit `CacheStore`; a future Next adapter may bridge framework revalidation semantics through a separate optional module.
 

@@ -68,7 +68,11 @@ if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
 const streamed = await api.get("/stream").as("stream");
-if ((await streamed.json()).packageProbe !== null || transport.calls.length !== 2) {
+let streamedText = "";
+await streamed.pipe("text").forEach((chunk) => {
+  streamedText += chunk;
+});
+if (JSON.parse(streamedText).packageProbe !== null || transport.calls.length !== 2) {
   throw new Error("Packed Streaming terminal did not execute correctly.");
 }
 if (typeof HttpResponseTooLargeError !== "function") {
@@ -116,7 +120,12 @@ if (transport.calls.length !== 2) throw new Error("Invalid configuration reached
   run(process.execPath, ["runtime.mjs"], consumerDirectory);
 
   writeFileSync(join(consumerDirectory, "consumer.ts"), `
-import { lafetch, type LafetchResponse } from "@laflabs/lafetch";
+import {
+  lafetch,
+  type LafetchResponse,
+  type LafetchStreamResponse,
+  type ResponseMode,
+} from "@laflabs/lafetch";
 import { defineFeature, type RequestFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 
@@ -140,7 +149,10 @@ const validatedText: Promise<number> = api.get("https://api.example.com/text").v
   parse(value: unknown): number { return String(value).length; },
 }).as("text");
 const limited: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
-const streaming: Promise<Response> = api.get("https://api.example.com/events").as("stream");
+const streaming: Promise<LafetchStreamResponse> = api.get("https://api.example.com/events").as("stream");
+const dynamicMode: "json" | "text" = Math.random() > 0.5 ? "json" : "text";
+const dynamic: Promise<User | string> = api.get<User>("https://api.example.com/users/1").as(dynamicMode);
+const publicMode: ResponseMode = dynamicMode;
 if (false) {
   // @ts-expect-error Response data types are declared on the HTTP method, not as().
   api.get("/users").as<User>("json");
@@ -187,6 +199,8 @@ void bufferedResponse;
 void validatedText;
 void limited;
 void streaming;
+void dynamic;
+void publicMode;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
     compilerOptions: {

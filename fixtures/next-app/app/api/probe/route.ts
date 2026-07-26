@@ -9,8 +9,13 @@ export async function GET() {
   const data = await api
     .get<{ ok: boolean }>("https://fixture.invalid/probe")
     .use(fixtureFeature);
-  const streamed = await (await api
+  let streamed = "";
+  await (await api
     .get("https://fixture.invalid/stream")
-    .as("stream")).text();
+    .as("stream"))
+    .pipe("text")
+    .forEach((chunk) => {
+      streamed += chunk;
+    });
   return Response.json({ ...data, streamed });
 }

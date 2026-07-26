@@ -1,7 +1,11 @@
 export type { LafetchClient } from "./client.js";
 export { lafetch } from "./lafetch.js";
 export type { Lafetch } from "./lafetch.js";
-export type { RequestBuilder } from "./request-builder.js";
+export type { RequestBuilder, ResponseMode } from "./request-builder.js";
+export type {
+  LafetchReadableStream,
+  LafetchStreamResponse,
+} from "./core/stream-response.js";
 
 export { fetchTransport } from "./transports/fetch.js";
 export { MemoryCacheStore } from "./core/cache-store.js";
