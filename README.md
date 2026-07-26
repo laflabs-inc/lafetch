@@ -261,7 +261,6 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 
 - [문서 전체 목차](docs/README.md)
 - [상세 사용 가이드](docs/advanced-usage.md)
-- [v0.1에서 v0.3으로 마이그레이션](docs/migration-v0.3.md)
 - [개발 로드맵](docs/roadmap.md)
 - [기술 경쟁력 평가와 개선 백로그](docs/improvements.md)
 

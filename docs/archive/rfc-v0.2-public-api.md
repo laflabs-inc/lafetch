@@ -181,28 +181,6 @@ import { defineFeature } from "@laflabs/lafetch/feature";
 
 루트 패키지는 일반 요청에 필요한 클라이언트, 응답, Transport, 오류 타입만 노출한다.
 
-## 마이그레이션
-
-현재 전환 순서와 동작 차이는 [v0.1에서 v0.3으로 마이그레이션](../migration-v0.3.md)에 정리합니다.
-
-| v0.1 | v0.2 |
-| --- | --- |
-| `await request` → `HttpResult<T>` | `await request` → `T` |
-| `request.send()` | `request.response()` |
-| `request.jsonBody(value)` | `request.json(value)` |
-| `request.json<T>()` | `await request` 또는 `.as("json")` |
-| `request.text()` | `request.as("text")` |
-| `request.schema(schema)` | `request.validate(schema)` |
-| `request.mapDecodeError()` | `request.mapError()` |
-| `request.timeout({ total, attempt })` | `.timeout(total).attemptTimeout(attempt)` |
-| `request.retry({ attempts: 3 })` | `request.retry(2)` |
-| `request.cache()` 또는 `.cache({ ttl })` | `request.cache(ttl, options?)` |
-| `request.telemetry({ onEvent })` | `request.telemetry(onEvent, options?)` |
-| `api.request(url, { method })` | `api.request(method, url)` |
-| `api.extend(options)` | `lafetch.create(options)` |
-| 클라이언트 `features` | 요청별 전용 메서드 또는 `.use(feature)` |
-| 루트의 Feature 타입 | `@laflabs/lafetch/feature` |
-
 ## 공개 전 안정화 조건
 
 v0.2 API 구현 후 다음 조건을 통과해야 첫 공개 버전 후보가 된다.
