@@ -6,7 +6,6 @@
 
 1. [프로젝트 README](../README.md) — 설치와 핵심 사용법
 2. [상세 사용 가이드](advanced-usage.md) — 요청 정책과 확장 기능
-3. [v0.1에서 v0.3으로 마이그레이션](migration-v0.3.md) — 알파 API 전환
 
 ## 현재 기술 계약
 
@@ -36,6 +35,6 @@
 
 - 현행 API 예제는 `README.md`와 `advanced-usage.md`를 기준으로 한 번만 설명합니다.
 - 대체된 문서는 현재 문법으로 계속 고쳐 쓰지 않고 `archive/`에 상태와 대체 문서를 기록합니다.
-- 공개 API나 반환 계약이 바뀌면 README, 상세 가이드, 마이그레이션, 관련 RFC와 package consumer 검증을 함께 갱신합니다.
+- 공개 API나 반환 계약이 바뀌면 README, 상세 가이드, 관련 RFC와 package consumer 검증을 함께 갱신합니다.
 - 실행 환경이나 번들 수치는 검증 가능한 최신 기준선만 현행 문서에 유지합니다.
 - 계획은 `roadmap.md`, 문제와 판단 근거는 `improvements.md`에서 각각 관리해 같은 백로그를 중복 서술하지 않습니다.

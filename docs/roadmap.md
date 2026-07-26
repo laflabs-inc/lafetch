@@ -54,7 +54,6 @@
 - native option과 기존 `credentials()`, `cache()`, `signal()` 충돌 규칙
 - `LResponse.request: Request`를 immutable redacted `RequestSnapshot`으로 전환
 - complete root와 대표 JSON 요청 bundle의 별도 측정
-- [마이그레이션 문서](migration-v0.3.md) 갱신
 
 ### 완료 조건
 
@@ -178,7 +177,7 @@
 
 범위:
 
-- 공개 API freeze와 전체 migration guide
+- 공개 API freeze와 최종 API reference 정리
 - 실제 프로젝트 beta 적용
 - 지원 runtime, TypeScript와 SemVer 정책 확정
 - 라이선스와 보안 취약점 신고 정책

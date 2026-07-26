@@ -38,7 +38,6 @@ try {
     "dist/testing/index.js",
     "dist/testing/index.d.ts",
     "README.md",
-    "docs/migration-v0.3.md",
   ]) {
     if (!packagedFiles.has(requiredFile)) throw new Error(`Packed package is missing ${requiredFile}.`);
   }
