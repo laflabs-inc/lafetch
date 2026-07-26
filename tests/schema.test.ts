@@ -29,7 +29,7 @@ describe("response schema", () => {
       },
     };
     const api = lafetch.create({ transport: mockTransport(() => new Response("hello")) });
-    const resultPromise = api.get("https://api.example.com/text").validate(lengthSchema).asText();
+    const resultPromise = api.get("https://api.example.com/text").validate(lengthSchema).as("text");
 
     expectTypeOf(resultPromise).toEqualTypeOf<Promise<number>>();
     await expect(resultPromise).resolves.toBe(5);
@@ -55,7 +55,7 @@ describe("response schema", () => {
 
   it("keeps raw response access outside schema consumption", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ nope: true })) });
-    const response = await api.get("https://api.example.com/user").validate(userSchema).asRaw();
+    const response = await api.get("https://api.example.com/user").validate(userSchema).as("response");
     expect(response.status).toBe(200);
   });
 });

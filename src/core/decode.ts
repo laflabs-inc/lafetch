@@ -1,6 +1,6 @@
 import { HttpDecodeError } from "./errors.js";
 
-export type ResponseMode = "auto" | "json" | "text" | "arrayBuffer" | "blob" | "formData";
+export type ResponseMode = "auto" | "json" | "text" | "bytes" | "blob" | "formData";
 
 function hasNoBody(response: Response, method?: string): boolean {
   return method === "HEAD" || response.status === 204 || response.status === 205;
@@ -8,7 +8,7 @@ function hasNoBody(response: Response, method?: string): boolean {
 
 function emptyValue(mode: ResponseMode): unknown {
   if (mode === "text") return "";
-  if (mode === "arrayBuffer") return new ArrayBuffer(0);
+  if (mode === "bytes") return new Uint8Array();
   if (mode === "blob") return new Blob();
   if (mode === "formData") return new FormData();
   return undefined;
@@ -26,7 +26,7 @@ export async function decodeResponse(response: Response, mode: ResponseMode, met
   try {
     if (mode === "json") return await parseJson(response);
     if (mode === "text") return await response.text();
-    if (mode === "arrayBuffer") return await response.arrayBuffer();
+    if (mode === "bytes") return new Uint8Array(await response.arrayBuffer());
     if (mode === "blob") return await response.blob();
     if (mode === "formData") return await response.formData();
 
@@ -39,7 +39,7 @@ export async function decodeResponse(response: Response, mode: ResponseMode, met
     ) {
       return await response.text();
     }
-    return await response.arrayBuffer();
+    return new Uint8Array(await response.arrayBuffer());
   } catch (cause) {
     throw new HttpDecodeError(mode, { cause });
   }

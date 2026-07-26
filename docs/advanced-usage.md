@@ -14,12 +14,12 @@ const user = await api.get<User>("/users/123");
 
 ### 전체 응답
 
-`asResponse()`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
+`as("result")`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
 
 ```ts
 const result = await api
   .get<User>("/users/123")
-  .asResponse();
+  .as("result");
 
 result.data;
 result.status;
@@ -33,10 +33,10 @@ result.meta.attempts;
 ### 원본 Response
 
 ```ts
-const response = await api.get("/download").asRaw();
+const response = await api.get("/download").as("response");
 ```
 
-`asRaw()`는 응답 디코딩과 `validate()`를 적용하지 않지만 여전히 Buffered 소비입니다. 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
+`as("response")`는 응답 디코딩과 `validate()`를 적용하지 않지만 여전히 Buffered 소비입니다. 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
 
 ### Streaming Response
 
@@ -44,14 +44,14 @@ const response = await api.get("/download").asRaw();
 const response = await api
   .get("/events")
   .timeout("2m")
-  .asStream();
+  .as("stream");
 
 const reader = response.body
   ?.pipeThrough(new TextDecoderStream())
   .getReader();
 ```
 
-`asStream()`은 Status와 Header가 확정되면 표준 Fetch `Response`를 반환합니다. Lafetch는 전체 Body를 보관하지 않으며, Body는 한 소비자만 소유합니다. 같은 Builder에서 `asStream()`을 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
+`as("stream")`은 Status와 Header가 확정되면 표준 Fetch `Response`를 반환합니다. Lafetch는 전체 Body를 보관하지 않으며, Body는 한 소비자만 소유합니다. 같은 Builder에서 Streaming 소비를 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
 
 Streaming은 기본 총량 제한이 없습니다. 제한이 필요한 요청만 `maxResponseBytes()`를 명시합니다.
 
@@ -59,30 +59,30 @@ Streaming은 기본 총량 제한이 없습니다. 제한이 필요한 요청만
 const response = await api
   .get("/downloads/report.csv")
   .maxResponseBytes(1024 * 1024 * 1024)
-  .asStream();
+  .as("stream");
 ```
 
-`validate()`, `cache()`, `dedupe()` 뒤에는 `asStream()`이 TypeScript 자동완성에서 제거되며 JavaScript 우회도 Transport 실행 전에 실패합니다. accepted Body를 노출한 뒤 발생한 오류와 Timeout은 Stream을 실패시키지만 새 시도로 교체하지 않습니다. Body를 끝까지 읽지 않을 때는 `response.body?.cancel()`로 lifecycle을 종료해야 합니다.
+`validate()`, `cache()`, `dedupe()` 뒤에는 `as("stream")` overload가 TypeScript 자동완성에서 제거되며 JavaScript 우회도 Transport 실행 전에 실패합니다. accepted Body를 노출한 뒤 발생한 오류와 Timeout은 Stream을 실패시키지만 새 시도로 교체하지 않습니다. Body를 끝까지 읽지 않을 때는 `response.body?.cancel()`로 lifecycle을 종료해야 합니다.
 
 ## 응답 형식
 
-기본 `auto` 모드는 JSON 계열 Content-Type을 객체로, text·XML·form-urlencoded를 문자열로, 그 외 응답을 `ArrayBuffer`로 디코딩합니다. 빈 JSON과 자동 소비, `HEAD`, `204`, `205`의 데이터는 `undefined`가 될 수 있습니다. 명시적 `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`는 각각 빈 문자열, 빈 ArrayBuffer, 빈 Blob, 빈 FormData를 반환해 선언된 타입을 유지합니다.
+기본 자동 소비는 JSON 계열 Content-Type을 객체로, text·XML·form-urlencoded를 문자열로, 그 외 응답을 `Uint8Array`로 디코딩합니다. 빈 JSON과 자동 소비, `HEAD`, `204`, `205`의 데이터는 `undefined`가 될 수 있습니다. 명시적 `text`, `bytes`, `blob`, `formData` 모드는 각각 빈 문자열, 빈 `Uint8Array`, 빈 Blob, 빈 FormData를 반환해 선언된 타입을 유지합니다.
 
-서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 명시적인 `as*()` 종결 메서드를 사용합니다.
+서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 명시적인 `as(mode)` 종결 메서드를 사용합니다.
 
 ```ts
-const json = await api.get<User>("/user").asJson();
-const text = await api.get("/health").asText();
-const bytes = await api.get("/binary").asArrayBuffer();
-const blob = await api.get("/file").asBlob();
-const form = await api.get("/form").asFormData();
+const json = await api.get<User>("/user").as("json");
+const text = await api.get("/health").as("text");
+const bytes = await api.get("/binary").as("bytes");
+const blob = await api.get("/file").as("blob");
+const form = await api.get("/form").as("formData");
 ```
 
-응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `asJson<T>()`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
+응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `as<T>(mode)`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
 
-`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `asText()` 같은 명시적 decoder를 사용하더라도 최종 반환 타입과 값은 Schema 출력입니다.
+`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `as("text")` 같은 명시적 decoder를 사용하더라도 최종 반환 타입과 값은 Schema 출력입니다.
 
-각 메서드는 실제 `Promise`를 반환합니다. 응답 형식을 문자열로 전달하지 않으므로 잘못된 decoder 이름이 기본 동작으로 처리될 여지가 없고, terminal 뒤에는 Builder 설정을 연결할 수 없습니다. `asStream()`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
+`as(mode)`는 실제 `Promise`를 반환합니다. 모드는 닫힌 literal union이며 JavaScript의 알 수 없는 값도 기본 동작으로 처리하지 않고 `HttpConfigurationError`로 거부합니다. terminal 뒤에는 Builder 설정을 연결할 수 없고, `stream`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
 
 ## Promise 호환성과 실행 불변식
 
@@ -143,7 +143,7 @@ await api
 await api
   .request<SearchResult>("QUERY", "/search")
   .json({ filters })
-  .asJson();
+  .as("json");
 ```
 
 자격 증명의 기본값은 `"omit"`입니다. 클라이언트 또는 요청에서 명시적으로 활성화할 수 있습니다.

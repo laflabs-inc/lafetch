@@ -76,9 +76,10 @@ describe("RequestBuilder", () => {
     expectTypeOf(user).toEqualTypeOf<User>();
   });
 
-  it("auto-decodes text and empty responses", async () => {
+  it("auto-decodes text, bytes, and empty responses", async () => {
     const responses = [
       new Response("hello", { headers: { "content-type": "text/plain" } }),
+      new Response(new Uint8Array([1, 2, 3])),
       new Response(null, { status: 204 }),
     ];
     const api = lafetch.create({
@@ -87,10 +88,11 @@ describe("RequestBuilder", () => {
     });
 
     expect(await api.get<string>("/hello")).toBe("hello");
+    expect(await api.get<Uint8Array>("/bytes")).toEqual(new Uint8Array([1, 2, 3]));
     expect(await api.get<void>("/empty")).toBeUndefined();
   });
 
-  it("uses explicit asJson() terminal consumption", async () => {
+  it("uses explicit as(\"json\") terminal consumption", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response('{"id":"1","name":"Dohyun"}', {
@@ -98,13 +100,13 @@ describe("RequestBuilder", () => {
       })),
     });
 
-    const user = await api.get<User>("/users/1").asJson();
+    const user = await api.get<User>("/users/1").as("json");
 
     expect(user.name).toBe("Dohyun");
     expectTypeOf(user).toEqualTypeOf<User>();
   });
 
-  it("exposes explicit as* terminals as real Promises", async () => {
+  it("exposes explicit as(mode) terminals as real Promises", async () => {
     const responses = [
       new Response("hello", { headers: { "content-type": "text/plain" } }),
       new Response(new Uint8Array([1, 2, 3])),
@@ -118,13 +120,13 @@ describe("RequestBuilder", () => {
       transport: mockTransport(() => responses.shift()!),
     });
 
-    const text = api.get("/text").asText();
+    const text = api.get("/text").as("text");
     expect(text).toBeInstanceOf(Promise);
     expect(await text).toBe("hello");
 
-    expect([...new Uint8Array(await api.get("/bytes").asArrayBuffer())]).toEqual([1, 2, 3]);
-    expect(await (await api.get("/blob").asBlob()).text()).toBe("blob body");
-    expect((await api.get("/form").asFormData()).get("name")).toBe("Lafetch");
+    expect([...(await api.get("/bytes").as("bytes"))]).toEqual([1, 2, 3]);
+    expect(await (await api.get("/blob").as("blob")).text()).toBe("blob body");
+    expect((await api.get("/form").as("formData")).get("name")).toBe("Lafetch");
   });
 
   it("keeps fixed terminal return types for empty responses", async () => {
@@ -139,10 +141,10 @@ describe("RequestBuilder", () => {
       transport: mockTransport(() => responses.shift()!),
     });
 
-    expect(await api.get("/empty-text").asText()).toBe("");
-    expect((await api.get("/empty-bytes").asArrayBuffer()).byteLength).toBe(0);
-    expect((await api.get("/empty-blob").asBlob()).size).toBe(0);
-    expect([...((await api.get("/empty-form").asFormData()).entries())]).toEqual([]);
+    expect(await api.get("/empty-text").as("text")).toBe("");
+    expect((await api.get("/empty-bytes").as("bytes")).byteLength).toBe(0);
+    expect((await api.get("/empty-blob").as("blob")).size).toBe(0);
+    expect([...((await api.get("/empty-form").as("formData")).entries())]).toEqual([]);
   });
 
   it("does not discard a body because of an incorrect Content-Length header", async () => {
@@ -153,7 +155,7 @@ describe("RequestBuilder", () => {
       })),
     });
 
-    await expect(api.get("/incorrect-length").asText()).resolves.toBe("present");
+    await expect(api.get("/incorrect-length").as("text")).resolves.toBe("present");
   });
 
   it("limits buffered responses using actual received bytes", async () => {
@@ -164,7 +166,7 @@ describe("RequestBuilder", () => {
 
     const error = await api.get("/large")
       .maxResponseBytes(4)
-      .asArrayBuffer()
+      .as("bytes")
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(HttpResponseTooLargeError);
@@ -173,7 +175,7 @@ describe("RequestBuilder", () => {
       limitBytes: 4,
       receivedBytes: 5,
     });
-    await expect(api.get("/exact").maxResponseBytes(5).asArrayBuffer())
+    await expect(api.get("/exact").maxResponseBytes(5).as("bytes"))
       .resolves.toHaveProperty("byteLength", 5);
   });
 
@@ -199,6 +201,15 @@ describe("RequestBuilder", () => {
 
     expect(() => api.get("/invalid-limit").maxResponseBytes(-1)).toThrow(HttpConfigurationError);
     expect(() => api.get("/invalid-limit").maxResponseBytes(1.5)).toThrow(HttpConfigurationError);
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("rejects unknown response modes before dispatch", async () => {
+    const transport = mockTransport(() => new Response("unused"));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect((api.get("/invalid-mode") as any).as("xml"))
+      .rejects.toBeInstanceOf(HttpConfigurationError);
     expect(transport.calls).toHaveLength(0);
   });
 
@@ -304,7 +315,7 @@ describe("RequestBuilder", () => {
     const result = await api
       .get<{ code: string }>("/missing")
       .acceptStatus([404])
-      .asResponse();
+      .as("result");
     expect(result.status).toBe(404);
     expect(result.data.code).toBe("NOT_FOUND");
     expectTypeOf(result).toEqualTypeOf<LafetchResponse<{ code: string }>>();
@@ -319,14 +330,14 @@ describe("RequestBuilder", () => {
     await expect(api.get("/broken")).rejects.toBeInstanceOf(HttpDecodeError);
   });
 
-  it("returns a clone of the raw Response", async () => {
+  it("returns independent clones of the buffered Response", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response("raw body", { status: 200 })),
     });
     const request = api.get("/raw");
 
-    const [first, second] = await Promise.all([request.asRaw(), request.asRaw()]);
+    const [first, second] = await Promise.all([request.as("response"), request.as("response")]);
 
     expect(await first.text()).toBe("raw body");
     expect(await second.text()).toBe("raw body");

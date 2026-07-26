@@ -35,11 +35,13 @@ describe("browser Fetch runtime", () => {
     await expect(request).rejects.toBeInstanceOf(HttpAbortError);
   });
 
-  it("keeps explicit terminal contracts in browser Fetch", async () => {
+  it("keeps explicit as(mode) contracts in browser Fetch", async () => {
     const api = lafetch.create();
 
-    await expect(api.get("/__lafetch_fixture__/text").asText()).resolves.toBe("browser text");
-    await expect(api.get("/__lafetch_fixture__/empty").asText()).resolves.toBe("");
+    await expect(api.get("/__lafetch_fixture__/text").as("text")).resolves.toBe("browser text");
+    await expect(api.get("/__lafetch_fixture__/text").as("bytes"))
+      .resolves.toEqual(new TextEncoder().encode("browser text"));
+    await expect(api.get("/__lafetch_fixture__/empty").as("text")).resolves.toBe("");
   });
 
   it("enforces actual buffered bytes in browser Fetch", async () => {
@@ -54,7 +56,7 @@ describe("browser Fetch runtime", () => {
     const response = await lafetch
       .create()
       .get("/__lafetch_fixture__/stream")
-      .asStream();
+      .as("stream");
     const reader = response.body!
       .pipeThrough(new TextDecoderStream())
       .getReader();

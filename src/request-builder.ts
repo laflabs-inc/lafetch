@@ -45,6 +45,8 @@ type ResponseConsumptionMode = "open" | "buffered";
 type ResponseValidationMode = "none" | "schema";
 type ConsumedData<TData, TFallback, TValidationMode extends ResponseValidationMode> =
   TValidationMode extends "schema" ? TData : TFallback;
+type BufferedResponseMode = "json" | "text" | "bytes" | "blob" | "formData";
+type ResponseTerminalMode = BufferedResponseMode | "result" | "response" | "stream";
 
 function requireCallerOwnedKey(
   policy: "cache" | "dedupe",
@@ -108,24 +110,24 @@ interface CommonRequestOperations<
   ): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   use(feature: RequestFeature): RequestBuilderState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   /** Consume the response as JSON using the Builder data type and end configuration. */
-  asJson(): Promise<TData>;
+  as(mode: "json"): Promise<TData>;
   /** Consume the response as text and end Builder configuration. */
-  asText(): Promise<ConsumedData<TData, string, TValidationMode>>;
-  /** Consume the response as an ArrayBuffer and end Builder configuration. */
-  asArrayBuffer(): Promise<ConsumedData<TData, ArrayBuffer, TValidationMode>>;
+  as(mode: "text"): Promise<ConsumedData<TData, string, TValidationMode>>;
+  /** Consume the response as bytes and end Builder configuration. */
+  as(mode: "bytes"): Promise<ConsumedData<TData, Uint8Array, TValidationMode>>;
   /** Consume the response as a Blob and end Builder configuration. */
-  asBlob(): Promise<ConsumedData<TData, Blob, TValidationMode>>;
+  as(mode: "blob"): Promise<ConsumedData<TData, Blob, TValidationMode>>;
   /** Consume the response as FormData and end Builder configuration. */
-  asFormData(): Promise<ConsumedData<TData, FormData, TValidationMode>>;
+  as(mode: "formData"): Promise<ConsumedData<TData, FormData, TValidationMode>>;
   /** Consume automatically decoded data with HTTP and execution metadata. */
-  asResponse(): Promise<LafetchResponse<TData>>;
+  as(mode: "result"): Promise<LafetchResponse<TData>>;
   /** Consume a buffered Fetch Response without decoding or schema validation. */
-  asRaw(): Promise<Response>;
+  as(mode: "response"): Promise<Response>;
 }
 
 interface StreamingRequestOperation {
   /** Consume a live, single-owner Fetch Response and end configuration. */
-  asStream(): Promise<Response>;
+  as(mode: "stream"): Promise<Response>;
 }
 
 interface ValidationRequestOperation<TBodyMode extends RequestBodyMode> {
@@ -210,7 +212,7 @@ class RequestBuilderImplementation<TData = unknown> {
   #claimBuffered(): void {
     if (this.#consumptionMode === "streaming") {
       throw new HttpConsumptionError(
-        "RequestBuilder is already owned by asStream().",
+        "RequestBuilder is already owned by as(\"stream\").",
       );
     }
     this.#consumptionMode = "buffered";
@@ -219,7 +221,7 @@ class RequestBuilderImplementation<TData = unknown> {
   #claimStreaming(): void {
     if (this.#consumptionMode !== "open") {
       throw new HttpConsumptionError(
-        "asStream() requires an unconsumed RequestBuilder.",
+        "as(\"stream\") requires an unconsumed RequestBuilder.",
       );
     }
     this.#consumptionMode = "streaming";
@@ -354,28 +356,46 @@ class RequestBuilderImplementation<TData = unknown> {
     return this.#next(withFeature(this.configuration, feature));
   }
 
-  async asJson(): Promise<TData> {
-    return (await this.#consume<TData>("json")).data;
-  }
+  async as(mode: ResponseTerminalMode): Promise<unknown> {
+    if (mode === "stream") {
+      if (this.responseSchema !== undefined) {
+        throw new HttpConfigurationError(
+          "as(\"stream\") cannot be combined with validate().",
+        );
+      }
+      this.#claimStreaming();
+      try {
+        return await executeStreamingRequest(this.configuration, async (error, request, response) =>
+          await mapRequestError(this.errorMappers, error, {
+            phase: "response",
+            request,
+            response,
+          })
+        );
+      } catch (error) {
+        return await mapRequestError(this.errorMappers, error, { phase: "request" });
+      }
+    }
 
-  async asText(): Promise<string> {
-    return (await this.#consume<string>("text")).data;
-  }
+    if (mode === "response") {
+      this.#claimBuffered();
+      return (await this.#execute()).response.clone();
+    }
 
-  async asArrayBuffer(): Promise<ArrayBuffer> {
-    return (await this.#consume<ArrayBuffer>("arrayBuffer")).data;
-  }
+    const responseMode = mode === "result" ? "auto" : mode;
+    if (
+      responseMode !== "auto"
+      && responseMode !== "json"
+      && responseMode !== "text"
+      && responseMode !== "bytes"
+      && responseMode !== "blob"
+      && responseMode !== "formData"
+    ) {
+      throw new HttpConfigurationError(`Unknown response mode: ${String(mode)}.`);
+    }
 
-  async asBlob(): Promise<Blob> {
-    return (await this.#consume<Blob>("blob")).data;
-  }
-
-  async asFormData(): Promise<FormData> {
-    return (await this.#consume<FormData>("formData")).data;
-  }
-
-  async asResponse(): Promise<LafetchResponse<TData>> {
-    const { data, execution } = await this.#consume<TData>();
+    const { data, execution } = await this.#consume<unknown>(responseMode);
+    if (mode !== "result") return data;
     return Object.freeze({
       data,
       status: execution.response.status,
@@ -385,32 +405,6 @@ class RequestBuilderImplementation<TData = unknown> {
       response: execution.response.clone(),
       meta: execution.meta,
     });
-  }
-
-  async asRaw(): Promise<Response> {
-    this.#claimBuffered();
-    const execution = await this.#execute();
-    return execution.response.clone();
-  }
-
-  async asStream(): Promise<Response> {
-    if (this.responseSchema !== undefined) {
-      throw new HttpConfigurationError(
-        "asStream() cannot be combined with validate().",
-      );
-    }
-    this.#claimStreaming();
-    try {
-      return await executeStreamingRequest(this.configuration, async (error, request, response) =>
-        await mapRequestError(this.errorMappers, error, {
-          phase: "response",
-          request,
-          response,
-        })
-      );
-    } catch (error) {
-      return await mapRequestError(this.errorMappers, error, { phase: "request" });
-    }
   }
 
   then<TResult1 = TData, TResult2 = never>(

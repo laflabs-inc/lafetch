@@ -63,16 +63,25 @@ const transport = mockTransport((request) => Response.json({
   packageProbe: request.headers.get("x-package-probe"),
 }));
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
-const result = await api.get("/probe").use(feature).asJson();
+const result = await api.get("/probe").use(feature).as("json");
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
-const streamed = await api.get("/stream").asStream();
+const streamed = await api.get("/stream").as("stream");
 if ((await streamed.json()).packageProbe !== null || transport.calls.length !== 2) {
   throw new Error("Packed Streaming terminal did not execute correctly.");
 }
 if (typeof HttpResponseTooLargeError !== "function") {
   throw new Error("Packed response-size error export is missing.");
+}
+try {
+  await api.get("/invalid-mode").as("xml");
+  throw new Error("Unknown packed-package response mode was accepted.");
+} catch (error) {
+  if (!(error instanceof HttpConfigurationError)) throw error;
+}
+if (transport.calls.length !== 2) {
+  throw new Error("Unknown response mode reached the packed Transport.");
 }
 
 const invalidConfigurations = [
@@ -115,26 +124,32 @@ interface User { id: string }
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const request: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").use(feature);
-const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").asJson();
+const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").as("json");
 const methodResults: Promise<User>[] = [
-  api.post<User>("https://api.example.com/users").asJson(),
-  api.put<User>("https://api.example.com/users/1").asJson(),
-  api.patch<User>("https://api.example.com/users/1").asJson(),
-  api.delete<User>("https://api.example.com/users/1").asJson(),
-  api.request<User>("QUERY", "https://api.example.com/users").asJson(),
+  api.post<User>("https://api.example.com/users").as("json"),
+  api.put<User>("https://api.example.com/users/1").as("json"),
+  api.patch<User>("https://api.example.com/users/1").as("json"),
+  api.delete<User>("https://api.example.com/users/1").as("json"),
+  api.request<User>("QUERY", "https://api.example.com/users").as("json"),
 ];
-const headResult: Promise<void> = api.head<void>("https://api.example.com/users").asJson();
-const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").asResponse();
+const headResult: Promise<void> = api.head<void>("https://api.example.com/users").as("json");
+const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").as("result");
+const bytes: Promise<Uint8Array> = api.get("https://api.example.com/binary").as("bytes");
+const bufferedResponse: Promise<Response> = api.get("https://api.example.com/response").as("response");
 const validatedText: Promise<number> = api.get("https://api.example.com/text").validate({
   parse(value: unknown): number { return String(value).length; },
-}).asText();
+}).as("text");
 const limited: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
-const streaming: Promise<Response> = api.get("https://api.example.com/events").asStream();
+const streaming: Promise<Response> = api.get("https://api.example.com/events").as("stream");
 if (false) {
-  // @ts-expect-error Response data types are declared on the HTTP method, not asJson().
-  api.get("/users").asJson<User>();
-  // @ts-expect-error Response consumption uses explicit as* terminal methods.
-  api.get("/users").as("json");
+  // @ts-expect-error Response data types are declared on the HTTP method, not as().
+  api.get("/users").as<User>("json");
+  // @ts-expect-error Response modes are a closed public contract.
+  api.get("/users").as("xml");
+  // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
+  api.get("/users").asJson();
+  // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
+  api.get("/events").asStream();
   // @ts-expect-error The old response() terminal is not part of the public grammar.
   api.get("/users").response();
   // @ts-expect-error The old raw() terminal is not part of the public grammar.
@@ -156,17 +171,19 @@ if (false) {
   // @ts-expect-error Jitter types are a closed public contract.
   api.get("/users").retry(1, { backoff: { jitter: "equal" } });
   // @ts-expect-error Response Schema validation requires buffered consumption.
-  api.get("/events").validate((value) => value).asStream();
+  api.get("/events").validate((value) => value).as("stream");
   // @ts-expect-error Cache requires buffered consumption.
-  api.get("/events").cache("1m").asStream();
+  api.get("/events").cache("1m").as("stream");
   // @ts-expect-error Deduplication requires buffered consumption.
-  api.get("/events").dedupe().asStream();
+  api.get("/events").dedupe().as("stream");
 }
 void request;
 void explicit;
 void methodResults;
 void headResult;
 void response;
+void bytes;
+void bufferedResponse;
 void validatedText;
 void limited;
 void streaming;

@@ -1,6 +1,6 @@
-# Lafetch v0.1에서 v0.2.1로 마이그레이션
+# Lafetch v0.1에서 현재 v0.3 API로 마이그레이션
 
-v0.2 계열은 호환 별칭을 추가하는 버전이 아니라 요청 문법을 하나로 통일하는 공개 API 재설계입니다. v0.2.1은 응답 형식 문자열을 실제 Promise를 반환하는 `as*()` terminal로 교체합니다. 기존 코드와 새 코드를 섞기보다 아래 순서대로 한 번에 전환하는 것을 권장합니다.
+v0.2 계열은 호환 별칭을 추가하는 버전이 아니라 요청 문법을 하나로 통일하는 공개 API 재설계입니다. v0.3은 개별 `as*()` 이름을 단일 `as(mode)` terminal로 다시 정리합니다. 알파 API의 호환 alias는 제공하지 않으므로 기존 코드와 새 코드를 섞기보다 아래 순서대로 한 번에 전환하는 것을 권장합니다.
 
 ## 가장 빠른 전환 순서
 
@@ -8,7 +8,7 @@ v0.2 계열은 호환 별칭을 추가하는 버전이 아니라 요청 문법�
 2. 직접 `await`의 반환값을 `HttpResult<T>`에서 데이터 `T`로 변경합니다.
 3. JSON 본문, 응답 형식, 검증 메서드의 이름을 교체합니다.
 4. Timeout, Retry, Cache, Telemetry 시그니처를 v0.2 형식으로 바꿉니다.
-5. 응답 소비를 `asJson()`, `asText()`, `asResponse()`, `asRaw()` terminal로 변경합니다.
+5. 응답 소비를 `as("json" | "text" | "result" | "response" | "stream")` terminal로 변경합니다.
 6. 사용자 Feature 타입과 Helper import를 `@laflabs/lafetch/feature`로 이동합니다.
 
 ## 전체 요청 비교
@@ -27,7 +27,7 @@ result.data;
 result.status;
 ```
 
-v0.2.1:
+현재 v0.3:
 
 ```ts
 const user = await api
@@ -38,13 +38,13 @@ const user = await api
   .retry(2);
 ```
 
-상태 코드와 헤더가 필요할 때만 `asResponse()`를 사용합니다.
+상태 코드와 헤더가 필요할 때만 `as("result")`를 사용합니다.
 
 ```ts
 const result = await api
   .post<User>("/users")
   .json({ name: "Dohyun" })
-  .asResponse();
+  .as("result");
 
 result.data;
 result.status;
@@ -52,13 +52,13 @@ result.status;
 
 ## API 변경표
 
-| v0.1 | v0.2.1 | 비고 |
+| v0.1 | 현재 v0.3 | 비고 |
 | --- | --- | --- |
 | `await request` → `HttpResult<T>` | `await request` → `T` | 데이터 우선 반환 |
-| `request.send()` | `request.asResponse()` | 전체 응답이 필요할 때만 사용 |
+| `request.send()` | `request.as("result")` | 전체 응답이 필요할 때만 사용 |
 | `request.jsonBody(value)` | `request.json(value)` | JSON 요청 본문 |
-| `request.json<T>()` | `await api.get<T>(url)` 또는 `api.get<T>(url).asJson()` | 응답 타입은 HTTP 메서드에서 한 번만 선언 |
-| `request.text()` | `request.asText()` | 다른 형식도 `as*()` terminal로 통일 |
+| `request.json<T>()` | `await api.get<T>(url)` 또는 `api.get<T>(url).as("json")` | 응답 타입은 HTTP 메서드에서 한 번만 선언 |
+| `request.text()` | `request.as("text")` | 모든 명시적 소비는 `as(mode)`로 통일 |
 | `request.schema(schema)` | `request.validate(schema)` | 검증과 타입 변환 |
 | `request.mapDecodeError()` | `request.mapError()` | 요청·응답 오류 매핑 통합 |
 | `request.timeout({ total, attempt })` | `.timeout(total).attemptTimeout(attempt)` | 제한 시간 역할을 이름으로 구분 |
@@ -85,7 +85,7 @@ request.retry(2);               // v0.2
 
 ### JSON의 역할
 
-v0.2.1의 `json(value)`는 요청 본문만 설정합니다. JSON 응답은 기본 자동 디코딩에 맡기고, 서버의 `Content-Type`을 신뢰할 수 없을 때만 `api.get<T>(url).asJson()`을 사용합니다. 응답 타입은 HTTP 메서드에서 한 번만 선언하며 `asJson<T>()` 형태는 제공하지 않습니다. GET과 HEAD에서는 Fetch가 요청 본문을 허용하지 않으므로 `json(value)`, `body(value)`, `bodyFactory(factory)`가 TypeScript에 노출되지 않으며 JavaScript에서도 즉시 거부됩니다.
+`json(value)`는 요청 본문만 설정합니다. JSON 응답은 기본 자동 디코딩에 맡기고, 서버의 `Content-Type`을 신뢰할 수 없을 때만 `api.get<T>(url).as("json")`을 사용합니다. 응답 타입은 HTTP 메서드에서 한 번만 선언하며 `as<T>(mode)` 형태는 제공하지 않습니다. GET과 HEAD에서는 Fetch가 요청 본문을 허용하지 않으므로 `json(value)`, `body(value)`, `bodyFactory(factory)`가 TypeScript에 노출되지 않으며 JavaScript에서도 즉시 거부됩니다.
 
 ### 오류 매핑
 
@@ -104,8 +104,9 @@ v0.2.1의 `json(value)`는 요청 본문만 설정합니다. JSON 응답은 기�
 | Credentials | `omit`, `same-origin`, `include` |
 | Backoff `type` | `fixed`, `exponential` |
 | Backoff `jitter` | `none`, `full` |
+| Response mode | `json`, `text`, `bytes`, `blob`, `formData`, `result`, `response`, `stream` |
 
-응답 소비는 문자열 설정이 아니라 `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`라는 닫힌 메서드 집합을 사용합니다. 문자열 축약형 `backoff: "fixed"`나 알 수 없는 값은 기본 동작으로 대체되지 않고 Transport 실행 전에 `HttpConfigurationError`를 발생시킵니다.
+`bytes`와 Content-Type 기반 자동 binary 소비는 모두 `Uint8Array`를 반환합니다. 문자열 축약형 `backoff: "fixed"`나 알 수 없는 response mode는 기본 동작으로 대체되지 않고 Transport 실행 전에 `HttpConfigurationError`를 발생시킵니다.
 
 ## 마이그레이션 확인 목록
 
@@ -113,6 +114,6 @@ v0.2.1의 `json(value)`는 요청 본문만 설정합니다. JSON 응답은 기�
 - `send`, `jsonBody`, `schema`, `mapDecodeError`, `extend` 호출을 제거합니다.
 - `retry()`의 숫자를 전체 시도 횟수에서 추가 재시도 횟수로 변환합니다.
 - 모든 `cache()` 호출에 TTL을 명시합니다.
-- 응답 종결 메서드를 직접 `await` 또는 `asJson()`, `asText()`, `asResponse()`, `asRaw()` 중 의도에 맞게 변경합니다.
+- 응답 종결 메서드를 직접 `await` 또는 하나의 `as(mode)` 중 의도에 맞게 변경합니다.
 - 클라이언트 Feature를 요청별 전용 메서드 또는 사용자 `.use(feature)`로 옮깁니다.
 - TypeScript 검사와 실제 JavaScript 런타임 테스트를 모두 통과시킵니다.

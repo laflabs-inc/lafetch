@@ -33,7 +33,7 @@ export default {
       });
     const streamed = await (await api
       .get("https://fixture.invalid/stream")
-      .asStream()).text();
+      .as("stream")).text();
     return Response.json({ ...result, streamed });
   },
 };
