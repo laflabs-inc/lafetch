@@ -23,7 +23,7 @@
 | v0.2.1 공개 API | 구현과 hardening 완료 |
 | v0.3 Streaming | 단일 `as(mode)`, Body lifecycle, Stream DX, 통합 CI 완료 |
 | 다음 개발 단계 | API polish 후 작은 DX utility, 이어서 v0.4 Cache·Deduplication 강화 |
-| `LRequest` → `LResponse` 계약 | 자동·강제 decoder와 metadata envelope 통합 |
+| `LRequest` 응답 계약 | direct `LResponse`, data mode 직접 반환, native escape hatch 분리 |
 | 제한된 Type-State와 `as(mode)` terminal | v0.3 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
 | Cache와 Deduplication | 최종 Request 키, unsafe method, 클라이언트 격리 계약 테스트 |
@@ -152,7 +152,7 @@ const created = await api
 
 - Streaming 응답 공개 API RFC
 - 개별 `as*()` terminal을 `as("json" | "text" | "bytes" | "blob" | "formData" | "response" | "stream")`으로 통합
-- direct `await`와 모든 Buffered data mode를 `LResponse<T>`로 통일
+- direct `await`는 `LResponse<T>`, Buffered data mode는 지정한 값을 직접 반환
 - `bytes`와 자동 binary decoding을 `Uint8Array`로 통일
 - 기존 buffered `as("response")`와 새로운 streaming 실행 경로의 책임 분리
 - Streaming terminal 이름과 반환 타입 확정

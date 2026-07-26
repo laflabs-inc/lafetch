@@ -20,11 +20,10 @@ result.url;
 result.redirected;
 result.type;
 result.request;
-result.response;
 result.meta.attempts;
 ```
 
-`LResponse` 객체는 shallow freeze되며 소비자마다 독립적인 `Headers`와 Buffered `Response` clone을 받습니다. `Headers`와 native `Response` 자체의 표준 동작까지 얼리지는 않습니다.
+`LResponse` 객체는 shallow freeze되며 소비자마다 독립적인 `Headers`를 받습니다. 이미 디코딩한 Body의 native `Response` clone은 중복 보관하지 않습니다.
 
 ### 원본 Response
 
@@ -32,7 +31,7 @@ result.meta.attempts;
 const response = await api.get("/download").as("response");
 ```
 
-`as("response")`는 응답 디코딩과 `validate()`를 적용하지 않지만 여전히 Buffered 소비입니다. 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
+`as("response")`는 native Fetch `Response`가 필요한 유일한 Buffered 경로입니다. 응답 디코딩과 `validate()`를 적용하지 않으며 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
 
 ### Streaming Response
 
@@ -87,16 +86,16 @@ const response = await api
 direct `await`가 일반 경로입니다. 서버의 `Content-Type`을 신뢰할 수 없거나 특정 형식이 반드시 필요할 때만 `as("json" | "text" | "bytes" | "blob" | "formData")`로 decoder를 강제합니다.
 
 ```ts
-const { data: json } = await api.get<User>("/legacy-user").as("json"); // text/plain으로 잘못 표시된 JSON
-const { data: text } = await api.get("/health").as("text");
-const { data: bytes } = await api.get("/binary").as("bytes");
-const { data: blob } = await api.get("/file").as("blob");
-const { data: form } = await api.get("/form").as("formData");
+const json: User = await api.get<User>("/legacy-user").as("json"); // text/plain으로 잘못 표시된 JSON
+const text: string = await api.get("/health").as("text");
+const bytes: Uint8Array = await api.get("/binary").as("bytes");
+const blob: Blob = await api.get("/file").as("blob");
+const form: FormData = await api.get("/form").as("formData");
 ```
 
 응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `as<T>(mode)`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
 
-`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `as("text")` 같은 명시적 decoder를 사용하더라도 최종 `LResponse.data` 타입과 값은 Schema 출력입니다.
+`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 direct `await`는 `LResponse<SchemaOutput>`, `as(mode)`는 `Promise<SchemaOutput>`을 반환합니다. 따라서 `as("text")`처럼 명시적 decoder를 사용해도 최종 값은 Schema 출력입니다.
 
 `as(mode)`는 실제 `Promise`를 반환합니다. 모드는 닫힌 literal union이며 JavaScript의 알 수 없는 값도 기본 동작으로 처리하지 않고 `HttpConfigurationError`로 거부합니다. terminal 뒤에는 `LRequest` 설정을 연결할 수 없고, `stream`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
 

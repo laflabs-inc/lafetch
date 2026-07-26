@@ -49,8 +49,9 @@ response.meta.attempts;
 | `await request` → `HttpResult<T>` | `await request` → `LResponse<T>` | 일관된 data·HTTP metadata envelope |
 | `request.send()` | `await request` | 별도 전송 terminal 제거 |
 | `request.jsonBody(value)` | `request.json(value)` | JSON 요청 본문 |
-| `request.json<T>()` | `await api.get<T>(url)` 또는 `api.get<T>(url).as("json")` | 응답 타입은 HTTP 메서드에서 한 번만 선언 |
-| `request.text()` | `request.as("text")` | 모든 명시적 소비는 `as(mode)`로 통일 |
+| `request.json<T>()` | `await api.get<T>(url)` 또는 `api.get<T>(url).as("json")` | direct는 `LResponse<T>`, `as`는 `T` 반환 |
+| `request.text()` | `request.as("text")` | `Promise<string>`을 직접 반환 |
+| Alpha `response.response` | `request.as("response")` | native `Response`가 필요한 요청에서만 명시적으로 선택 |
 | `request.schema(schema)` | `request.validate(schema)` | 검증과 타입 변환 |
 | `request.mapDecodeError()` | `request.mapError()` | 요청·응답 오류 매핑 통합 |
 | `request.timeout({ total, attempt })` | `.timeout(total).attemptTimeout(attempt)` | 제한 시간 역할을 이름으로 구분 |
@@ -77,7 +78,7 @@ request.retry(2);               // v0.2
 
 ### JSON의 역할
 
-`json(value)`는 요청 본문만 설정합니다. JSON 응답은 기본 자동 디코딩에 맡기고, 서버의 `Content-Type`을 신뢰할 수 없을 때만 `api.get<T>(url).as("json")`을 사용합니다. 응답 타입은 HTTP 메서드에서 한 번만 선언하며 `as<T>(mode)` 형태는 제공하지 않습니다. GET과 HEAD에서는 Fetch가 요청 본문을 허용하지 않으므로 `json(value)`, `body(value)`, `bodyFactory(factory)`가 TypeScript에 노출되지 않으며 JavaScript에서도 즉시 거부됩니다.
+`json(value)`는 요청 본문만 설정합니다. JSON 응답은 기본 자동 디코딩에 맡기고, 서버의 `Content-Type`을 신뢰할 수 없을 때만 `api.get<T>(url).as("json")`을 사용합니다. direct `await`는 HTTP 문맥을 포함한 `LResponse<T>`를, `as("json")`은 강제 디코딩한 `T`를 직접 반환합니다. 응답 타입은 HTTP 메서드에서 한 번만 선언하며 `as<T>(mode)` 형태는 제공하지 않습니다. GET과 HEAD에서는 Fetch가 요청 본문을 허용하지 않으므로 `json(value)`, `body(value)`, `bodyFactory(factory)`가 TypeScript에 노출되지 않으며 JavaScript에서도 즉시 거부됩니다.
 
 ### 오류 매핑
 
@@ -103,6 +104,8 @@ request.retry(2);               // v0.2
 ## 마이그레이션 확인 목록
 
 - 직접 `await`한 값의 디코딩 결과를 `.data`에서 읽는지 확인합니다.
+- `as(dataMode)` 결과에서는 `.data`를 제거하고 값을 직접 사용하는지 확인합니다.
+- Alpha의 `LResponse.response` 또는 `LResponse.raw` 접근을 `request.as("response")`로 변경합니다.
 - `send`, `jsonBody`, `schema`, `mapDecodeError`, `extend` 호출을 제거합니다.
 - `retry()`의 숫자를 전체 시도 횟수에서 추가 재시도 횟수로 변환합니다.
 - 모든 `cache()` 호출에 TTL을 명시합니다.

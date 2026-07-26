@@ -81,14 +81,6 @@ type ResponseForMode<
   : TMode extends "stream" ? LStreamResponse
   : never;
 
-type LResponseForMode<
-  TData,
-  TValidationMode extends ResponseValidationMode,
-  TMode extends ResponseMode,
-> = TMode extends "response" | "stream"
-  ? ResponseForMode<TData, TValidationMode, TMode>
-  : LResponse<ResponseForMode<TData, TValidationMode, TMode>>;
-
 function requireCallerOwnedKey(
   policy: "cache" | "dedupe",
   method: string,
@@ -156,12 +148,12 @@ interface CommonRequestOperations<
   ): RequestState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   use(feature: RequestFeature): RequestState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   /**
-   * End request configuration. Data modes force a decoder and return LResponse;
-   * response and stream expose the corresponding Fetch response ownership mode.
+   * End request configuration. Data modes force a decoder and return its value
+   * directly; response and stream expose the corresponding Fetch response mode.
    */
   as<TMode extends AvailableResponseMode<TConsumptionMode>>(
     mode: TMode,
-  ): Promise<LResponseForMode<TData, TValidationMode, TMode>>;
+  ): Promise<ResponseForMode<TData, TValidationMode, TMode>>;
 }
 
 interface ValidationRequestOperation<TBodyMode extends RequestBodyMode> {
@@ -187,7 +179,7 @@ interface RequestBodyOperations<
  * An immutable, lazy Lafetch request. Method-specific state is inferred from the
  * client entry point and intentionally hidden from this public type. Direct
  * await returns LResponse with Content-Type auto decoding; data modes passed to
- * as() force a decoder while preserving the same envelope.
+ * as() force a decoder and return the decoded value directly.
  */
 export type LRequest<TData = unknown> = RequestState<
   TData,
@@ -293,7 +285,7 @@ class RequestImplementation<TData = unknown> {
   }
 
   #createResponse<TResult>(data: TResult, execution: ExecutionResult): LResponse<TResult> {
-    const response = execution.response.clone();
+    const response = execution.response;
     return Object.freeze({
       data,
       ok: response.ok,
@@ -304,7 +296,6 @@ class RequestImplementation<TData = unknown> {
       redirected: response.redirected,
       type: response.type,
       request: execution.request,
-      response,
       meta: execution.meta,
     });
   }
@@ -449,8 +440,8 @@ class RequestImplementation<TData = unknown> {
       throw new HttpConfigurationError(`Unknown response mode: ${String(mode)}.`);
     }
 
-    const { data, execution } = await this.#consume<unknown>(responseMode);
-    return this.#createResponse(data, execution);
+    const { data } = await this.#consume<unknown>(responseMode);
+    return data;
   }
 
   then<TResult1 = LResponse<TData>, TResult2 = never>(
