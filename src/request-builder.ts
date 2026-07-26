@@ -11,6 +11,7 @@ import {
   withMaxResponseBytes,
   withoutHeader,
   withQuery,
+  withRequestInit,
   withRetry,
   withSignal,
   withTimeout,
@@ -34,6 +35,7 @@ import {
   type ResponseSchema,
 } from "./consumption/schema.js";
 import { HttpConfigurationError, HttpConsumptionError } from "./core/errors.js";
+import { snapshotRequest } from "./core/request-snapshot.js";
 import {
   mapRequestError,
   validateRequestErrorMapper,
@@ -41,6 +43,7 @@ import {
 } from "./consumption/error-mapping.js";
 import type {
   BodyFactory,
+  AdvancedRequestInit,
   Duration,
   LResponse,
   QueryParams,
@@ -131,6 +134,9 @@ interface CommonRequestOperations<
   credentials(
     credentials: RequestCredentials,
   ): RequestState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  requestInit(
+    init: AdvancedRequestInit,
+  ): RequestState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   cache(
     ttl: Duration,
     options?: CacheOptions,
@@ -157,7 +163,7 @@ interface CommonRequestOperations<
 }
 
 interface ValidationRequestOperation<TBodyMode extends RequestBodyMode> {
-  validate<TSchema extends ResponseSchema<unknown>>(
+  validate<TSchema extends ResponseSchema<any>>(
     schema: TSchema,
   ): RequestState<InferSchema<TSchema>, TBodyMode, "buffered", "schema">;
 }
@@ -295,7 +301,7 @@ class RequestImplementation<TData = unknown> {
       url: response.url,
       redirected: response.redirected,
       type: response.type,
-      request: execution.request,
+      request: snapshotRequest(execution.request),
       meta: execution.meta,
     });
   }
@@ -356,6 +362,10 @@ class RequestImplementation<TData = unknown> {
     return this.#next(withCredentials(this.configuration, credentials));
   }
 
+  requestInit(init: AdvancedRequestInit): RequestImplementation<TData> {
+    return this.#next(withRequestInit(this.configuration, init));
+  }
+
   cache(ttl: Duration, options: CacheOptions = {}): RequestImplementation<TData> {
     requireCallerOwnedKey("cache", this.configuration.method, options?.key);
     const feature = createCacheFeature(ttl, options, {
@@ -375,7 +385,7 @@ class RequestImplementation<TData = unknown> {
     return this.#next(withFeature(this.configuration, createIdempotencyFeature(options)));
   }
 
-  validate<TSchema extends ResponseSchema<unknown>>(
+  validate<TSchema extends ResponseSchema<any>>(
     schema: TSchema,
   ): RequestImplementation<InferSchema<TSchema>> {
     if (this.responseSchema !== undefined) {

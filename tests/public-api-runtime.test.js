@@ -14,6 +14,8 @@ describe("JavaScript public API configuration", () => {
       () => api.get("/users").body("payload"),
       () => api.get("/users").bodyFactory(() => "payload"),
       () => api.get("/users").validate((value) => value).validate((value) => value),
+      () => api.get("/users").requestInit({ method: "POST" }),
+      () => api.get("/users").requestInit({ cache: "only-if-cached" }),
       () => api.head("/users").json({ filter: "active" }),
       () => api.request("GET", "/users").body("payload"),
       () => lafetch.create({ credentials: "cross-origin" }),

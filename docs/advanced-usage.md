@@ -1,6 +1,6 @@
 # Lafetch 상세 사용 가이드
 
-이 문서는 Lafetch v0.3의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
+이 문서는 Lafetch v0.3.1의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
 
 ## LResponse, 원본 응답, Streaming 응답
 
@@ -25,7 +25,7 @@ result.meta.attempts;
 
 `LResponse` 객체는 shallow freeze되며 소비자마다 독립적인 `Headers`를 받습니다. 이미 디코딩한 Body의 native `Response` clone은 중복 보관하지 않습니다.
 
-현재 alpha의 `result.request`는 최종 native `Request`입니다. 진단 외의 용도로 장기 보관하면 upload Body와 원본 Header 참조가 함께 남을 수 있으므로 애플리케이션 상태에 저장하지 않는 것을 권장합니다. v0.3.1에서는 method, redacted URL과 Header만 포함한 immutable `RequestSnapshot`으로 전환할 예정입니다.
+`result.request`는 method, 최종 URL과 Header만 담은 immutable `RequestSnapshot`입니다. upload Body와 native `Request`를 보존하지 않으며 URL user information, credential Header와 token 형태 Query를 제거합니다. 재전송 입력이 아니라 안전한 진단 정보로 사용합니다.
 
 ### 원본 Response
 
@@ -173,6 +173,24 @@ await api.get("/session").credentials("include");
 
 Credentials는 Fetch 표준의 `"omit"`, `"same-origin"`, `"include"`만 허용합니다.
 
+### 고급 RequestInit
+
+기존 요청 문법이 소유하지 않는 stable Fetch option은 `requestInit()` 하나로 전달합니다.
+
+```ts
+await api
+  .get("/download")
+  .requestInit({
+    redirect: "manual",
+    cache: "no-store",
+    priority: "high",
+  });
+```
+
+허용 필드는 `cache`, `integrity`, `keepalive`, `mode`, `priority`, `redirect`, `referrer`, `referrerPolicy`입니다. `method`, `headers`, `body`, `signal`, `credentials`는 각각 기존 Lafetch 메서드와 lifecycle이 소유하므로 거부합니다. Browser가 생성하는 `mode: "navigate"`도 사용할 수 없습니다.
+
+`requestInit.cache`는 Fetch의 native HTTP cache mode이고 `.cache(ttl)`는 Lafetch application Cache입니다. 두 계층의 의미가 조용히 충돌하지 않도록 같은 요청에서 함께 사용할 수 없습니다. 런타임 Request constructor가 지원하지 않는 조합은 `HttpConfigurationError`로 정규화됩니다.
+
 ## 제한 시간
 
 전체 요청과 개별 시도는 서로 다른 메서드로 설정합니다.
@@ -295,7 +313,7 @@ await api
 
 ## 응답 검증
 
-`validate()`는 함수 또는 `parse()`나 `validate()` 메서드가 있는 객체를 받습니다. 검증과 반환 타입 변환을 함께 지원합니다.
+`validate()`는 Standard Schema V1, 함수 또는 `parse()`나 `validate()` 메서드가 있는 객체를 받습니다. 검증과 반환 타입 변환을 함께 지원합니다.
 
 요청에는 하나의 최종 Response Schema만 선언할 수 있습니다. 여러 검증 단계를 사용하려면 하나의 Schema 안에서 조합하며, 뒤의 `validate()`가 앞의 Schema를 조용히 덮어쓰지 않습니다.
 
@@ -310,6 +328,25 @@ const { data: user } = await api
   .get("/users/123")
   .validate(userSchema);
 ```
+
+Zod, Valibot처럼 Standard Schema V1을 구현한 validator는 별도 Lafetch adapter 없이 전달합니다. Schema가 vendor-specific `parse()`와 `~standard`를 함께 제공하면 vendor-neutral Standard Schema 계약을 우선합니다. 검증 실패의 `issues`와 validator가 throw한 `cause`는 `HttpSchemaError`에 보존됩니다.
+
+## 오류 좁히기
+
+`catch`의 `unknown` 오류는 `isHttpError(error, code?)`로 좁힙니다.
+
+```ts
+try {
+  await api.get("/reports/1").timeout("1s");
+} catch (error) {
+  if (isHttpError(error, "ERR_HTTP_TIMEOUT")) {
+    error.scope;
+    error.timeoutMs;
+  }
+}
+```
+
+code를 생략하면 `HttpError`, stable code를 전달하면 해당 오류 subtype으로 추론합니다. guard는 `instanceof`만 사용하지 않으므로 같은 runtime에 Lafetch가 중복 설치된 경우에도 동작하며, 구조만 비슷한 일반 객체는 오류로 분류하지 않습니다.
 
 ## 오류 매핑
 

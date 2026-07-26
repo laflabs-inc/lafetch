@@ -4,6 +4,7 @@ import { durationToMs } from "./duration.js";
 import { mergeQuery } from "./query.js";
 import {
   validateAbortSignal,
+  validateAdvancedRequestInit,
   validateCapabilityMode,
   validateQueryParams,
   validateRequestCredentials,
@@ -13,6 +14,7 @@ import {
 import type {
   BodyFactory,
   BodySource,
+  AdvancedRequestInit,
   Duration,
   QueryParams,
   QueryValue,
@@ -139,6 +141,7 @@ export interface RequestConfiguration {
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
+  readonly requestInit: AdvancedRequestInit;
   readonly maxResponseBytes?: number;
   readonly scope: ClientPolicyScope;
 }
@@ -189,6 +192,7 @@ export function createRequestConfiguration(
     transport: client.transport,
     runtime: client.runtime,
     credentials: client.credentials,
+    requestInit: Object.freeze({}),
     scope: client.scope,
   };
 }
@@ -282,6 +286,38 @@ export function withCredentials(config: RequestConfiguration, credentials: Reque
   return { ...config, credentials: validateRequestCredentials(credentials, "credentials() value") };
 }
 
+function hasCapability(config: RequestConfiguration, name: string): boolean {
+  return config.features.some((feature) =>
+    feature.capabilities?.provides?.some((capability) => capability.name === name),
+  );
+}
+
+export function withRequestInit(
+  config: RequestConfiguration,
+  requestInit: AdvancedRequestInit,
+): RequestConfiguration {
+  const next = validateAdvancedRequestInit(requestInit, false);
+  const merged = validateAdvancedRequestInit({
+    ...config.requestInit,
+    ...next,
+  });
+  if (merged.cache !== undefined && hasCapability(config, "cache")) {
+    throw new HttpConfigurationError(
+      "requestInit.cache cannot be combined with Lafetch application caching.",
+    );
+  }
+  return { ...config, requestInit: merged };
+}
+
 export function withFeature(config: RequestConfiguration, feature: RequestFeature): RequestConfiguration {
-  return { ...config, features: Object.freeze([...config.features, snapshotFeature(feature)]) };
+  const snapshot = snapshotFeature(feature);
+  if (
+    config.requestInit.cache !== undefined
+    && snapshot.capabilities?.provides?.some((capability) => capability.name === "cache")
+  ) {
+    throw new HttpConfigurationError(
+      "Lafetch application caching cannot be combined with requestInit.cache.",
+    );
+  }
+  return { ...config, features: Object.freeze([...config.features, snapshot]) };
 }

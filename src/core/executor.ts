@@ -10,8 +10,8 @@ import {
   HttpStatusError,
   HttpTimeoutError,
   HttpTransportError,
-  snapshotRequest,
 } from "./errors.js";
+import { snapshotRequest } from "./request-snapshot.js";
 import { FeatureRuntime, type AttemptErrorInput } from "./feature-runtime.js";
 import { resolveFeatures } from "./features.js";
 import { applyQuery, resolveUrl } from "./query.js";
@@ -158,7 +158,11 @@ async function bodyForAttempt(source: BodySource, signal: AbortSignal): Promise<
   return source.value;
 }
 
-async function buildRequest(draft: MutableRequestDraft, signal: AbortSignal): Promise<Request> {
+async function buildRequest(
+  draft: MutableRequestDraft,
+  signal: AbortSignal,
+  requestInit: RequestConfiguration["requestInit"],
+): Promise<Request> {
   let body: BodyInit | null | undefined;
   try {
     body = await bodyForAttempt(draft.body, signal);
@@ -167,6 +171,7 @@ async function buildRequest(draft: MutableRequestDraft, signal: AbortSignal): Pr
     throw new HttpConfigurationError("bodyFactory() failed to create a request body.", { cause });
   }
   const init: RequestInit & { duplex?: "half" } = {
+    ...requestInit,
     method: draft.method,
     headers: draft.headers,
     signal,
@@ -626,7 +631,7 @@ async function execute(
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
         await featureRuntime.beforeAttempt(attemptDraft, attempt, attemptSignal.signal);
 
-        request = await buildRequest(attemptDraft, attemptSignal.signal);
+        request = await buildRequest(attemptDraft, attemptSignal.signal, config.requestInit);
         finalRequest = request;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);
         await featureRuntime.emit(Object.freeze({

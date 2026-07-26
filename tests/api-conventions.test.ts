@@ -71,6 +71,18 @@ describe("public API conventions", () => {
       api.get("/users").credentials("cross-origin");
       // @ts-expect-error Client credentials use the Fetch standard values.
       lafetch.create({ credentials: "cross-origin" });
+      // @ts-expect-error Request method is owned by the LClient entry point.
+      api.get("/users").requestInit({ method: "POST" });
+      // @ts-expect-error Request Body is owned by json(), body(), or bodyFactory().
+      api.post("/users").requestInit({ body: "payload" });
+      // @ts-expect-error Request Header is owned by header() and headers().
+      api.get("/users").requestInit({ headers: { "X-Test": "value" } });
+      // @ts-expect-error Request Signal is owned by signal().
+      api.get("/users").requestInit({ signal: AbortSignal.timeout(1_000) });
+      // @ts-expect-error Request credentials are owned by credentials().
+      api.get("/users").requestInit({ credentials: "include" });
+      // @ts-expect-error Browser-created navigate mode is not constructible by Lafetch.
+      api.get("/users").requestInit({ mode: "navigate" });
       // @ts-expect-error Backoff types are a closed public contract.
       api.get("/users").retry(2, { backoff: { type: "linear" } });
       // @ts-expect-error Jitter types are a closed public contract.

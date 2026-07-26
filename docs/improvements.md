@@ -4,7 +4,7 @@
 
 비교 대상:
 
-- `@laflabs/lafetch@0.3.0-alpha.0`
+- `@laflabs/lafetch@0.3.1-alpha.0`
 - `axios@1.18.1`
 - `ky@2.0.2`
 
@@ -19,7 +19,7 @@ Lafetch는 이미 **현대적인 Browser, Node.js, Next.js, Workers/Edge 환경�
 - 일반적인 JSON 호출과 최소 번들에서는 Ky가 더 단순하고 작습니다.
 - Proxy, HTTP/2, rate limiting, 자동 Form 직렬화, CJS와 같은 Node.js transport 범위에서는 Axios가 더 넓습니다.
 - 최신 Ky는 Standard Schema, 세분화된 오류 guard, adaptive Retry, 전체 Timeout과 전송 progress까지 제공하므로 더 이상 단순한 Fetch wrapper로 평가하면 안 됩니다.
-- Lafetch는 오류 narrowing, Standard Schema 공식 호환, 고급 `RequestInit` 전달 경로와 일부 응답 metadata의 보존 비용을 공개 API 동결 전에 보강해야 합니다.
+- Lafetch는 v0.3.1에서 오류 narrowing, Standard Schema 공식 호환, 고급 `RequestInit` 전달 경로와 성공 응답의 요청 보존 비용을 보강했습니다.
 
 따라서 제품 포지셔닝은 다음과 같이 고정합니다.
 
@@ -64,16 +64,16 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 - Node.js `zlib.gzipSync`로 gzip 측정
 
 ```text
-Lafetch  41,210 bytes minified / 12,795 bytes gzip
+Lafetch  44,104 bytes minified / 13,641 bytes gzip
 Axios    45,838 bytes minified / 17,855 bytes gzip
 Ky       20,608 bytes minified /  7,370 bytes gzip
 ```
 
 해석:
 
-- Lafetch는 Axios보다 minified 약 `10%`, gzip 약 `28%` 작습니다.
-- Lafetch는 Ky보다 minified 약 `100%`, gzip 약 `74%` 큽니다.
-- Lafetch의 실제 root public API CI 기준선은 `41,470 / 12,876 bytes gzip`입니다. 대표 요청과 거의 차이가 없어 사용하지 않는 정책 코드도 root bundle에 상당 부분 포함됩니다.
+- Lafetch는 Axios보다 minified 약 `4%`, gzip 약 `24%` 작습니다.
+- Lafetch는 Ky보다 minified 약 `114%`, gzip 약 `85%` 큽니다.
+- Lafetch의 실제 root public API CI 기준선은 `44,961 / 13,875 bytes gzip`입니다. 대표 요청과 거의 차이가 없어 사용하지 않는 정책 코드도 root bundle에 상당 부분 포함됩니다.
 - 현재 `16 KiB gzip` 예산 안이지만, Ky와 같은 최소 wrapper를 목표로 한다면 경쟁력이 없습니다.
 - 통합 reliability 기능을 포함한 client로는 허용 가능한 크기지만, 대표 요청 bundle도 별도 회귀 지표로 관리해야 합니다.
 - representative request는 현재 기준선에서 충분한 여유를 두되 root보다 엄격한 `44 KiB / 14 KiB gzip` 상한을 사용합니다.
@@ -85,8 +85,8 @@ Ky       20,608 bytes minified /  7,370 bytes gzip
 | 항목 | Lafetch | Axios | Ky |
 | --- | --- | --- | --- |
 | Runtime dependency | 0 | 4 | 0 |
-| 배포 package unpacked | `396,746 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
-| 대표 browser bundle gzip | `12,795 bytes` | `17,855 bytes` | `7,370 bytes` |
+| 배포 package unpacked | `428,801 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
+| 대표 browser bundle gzip | `13,641 bytes` | `17,855 bytes` | `7,370 bytes` |
 | Module | ESM | ESM, CJS | ESM |
 | Node.js engine | `>=20` | package에서 미지정 | `>=22` |
 | Built-in transport | Fetch | XHR, HTTP, Fetch adapter | Fetch |
@@ -99,9 +99,9 @@ Package unpacked 크기는 dependency 설치 크기를 포함하지 않으며 ru
 | --- | --- | --- | --- | --- |
 | 기본 응답 DX | 자동 변환된 `AxiosResponse.data` | direct `Response`, shortcut decoder | direct `LResponse.data`, 명시적 `as(mode)` | Lafetch는 Axios metadata와 Ky식 terminal의 장점을 결합 |
 | Fetch 상호운용성 | adapter에 따라 의미가 달라질 수 있음 | native Fetch 중심 | native Request/Response/Stream 중심 | Ky와 Lafetch 우세 |
-| RequestInit 범위 | 자체 config가 매우 넓음 | 대부분의 `RequestInit` 지원 | 일부 필드만 공개 | Lafetch 열세 |
-| Runtime Schema | core 지원 없음 | Standard Schema V1 | 함수, `parse`, `validate` duck typing | Ky가 표준 계약에서 우세 |
-| 오류 narrowing | `isAxiosError`, `isCancel` | 세분화된 `is*Error` guard | 오류 class만 공개 | Lafetch 열세 |
+| RequestInit 범위 | 자체 config가 매우 넓음 | 대부분의 `RequestInit` 지원 | stable 고급 필드의 `requestInit()` | Ky가 범위에서 우세, Lafetch는 정책 충돌을 차단 |
+| Runtime Schema | core 지원 없음 | Standard Schema V1 | Standard Schema V1과 기존 adapter | Ky와 Lafetch 대등 |
+| 오류 narrowing | `isAxiosError`, `isCancel` | 세분화된 `is*Error` guard | `isHttpError(error, code?)` | 세 제품 모두 공식 guard 제공 |
 | Retry | core API 없음 | 기본 Retry, custom predicate, forced Retry, server delay header | 명시적 Retry, Retry-After, Backoff, Idempotency 연계 | Lafetch는 Axios보다 우세, Ky보다 제어 범위가 좁음 |
 | Timeout | 단일 request timeout 중심 | attempt와 total timeout | attempt와 total timeout | Ky와 Lafetch 대등 |
 | Body 완료까지 Timeout·Abort | adapter와 소비 방식에 따라 다름 | shortcut Body 소비는 response Promise 이후 | Buffered와 Streaming Body 종료까지 lifecycle 유지 | Lafetch 우세 |
@@ -205,14 +205,14 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 - `P1`: v1 이전에 경쟁력을 결정하는 production 기능
 - `P2`: 사용 근거가 생길 때 선택적으로 추가하거나 문서로 해결할 기능
 
-### P0 — 공개 계약 보강
+### P0 — 완료된 공개 계약 보강
 
 | ID | 부족한 점 | 영향 | 결정 |
 | --- | --- | --- | --- |
-| COMP-01 | `unknown` 오류를 안전하게 좁히는 guard 부재 | Axios와 Ky보다 `catch` DX가 약하고 package 중복·realm 경계에서 `instanceof`만으로 부족 | 하나의 `isHttpError(error, code?)` 공식 utility를 설계하고 code별 subtype narrowing 제공 |
-| COMP-02 | Standard Schema V1 공식 호환 부재 | 현재 duck typing은 넓지만 validator 상호운용 계약과 타입 추론이 비표준 | runtime dependency 없이 `~standard.validate`를 지원하고 기존 adapter 형태와 우선순위 확정 |
-| COMP-03 | `redirect`, `mode`, `cache`, `keepalive`, `integrity`, `referrerPolicy` 등 고급 `RequestInit` 전달 경로 부재 | Fetch 기반을 표방하지만 실제 Web Platform 기능 일부를 표현할 수 없음 | 기존 fluent policy와 중복되지 않는 하나의 advanced escape hatch RFC 작성 |
-| COMP-04 | `LResponse.request`가 native `Request`를 보존 | 성공 응답 수명 동안 upload Body와 민감 header를 불필요하게 참조할 수 있음 | native `Request`를 제거하고 immutable, redacted `RequestSnapshot`으로 대체 |
+| COMP-01 | `unknown` 오류를 안전하게 좁히는 guard 부재 | package 중복·realm 경계에서 `instanceof`만으로 부족 | 완료: branded `isHttpError(error, code?)`와 code별 subtype narrowing |
+| COMP-02 | Standard Schema V1 공식 호환 부재 | validator 상호운용 계약과 타입 추론이 비표준 | 완료: dependency 없는 `~standard.validate`와 Zod·Valibot 검증 |
+| COMP-03 | 고급 `RequestInit` 전달 경로 부재 | Web Platform 기능 일부를 표현할 수 없음 | 완료: stable field만 허용하는 `requestInit()`과 cache 충돌 규칙 |
+| COMP-04 | `LResponse.request`가 native `Request`를 보존 | upload Body와 민감 Header를 불필요하게 참조 | 완료: immutable redacted `RequestSnapshot`으로 대체 |
 
 #### COMP-01 완료 조건
 
@@ -248,7 +248,7 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 - method, 최종 URL과 redacted header가 필요한 진단 사용 사례는 snapshot으로 충족
 - snapshot 객체와 내부 header record가 immutable
 - direct `LResponse`를 장기 보관해도 raw upload Body에 도달할 수 없음
-- Migration 문서에 alpha 변경 기록
+- 현행 README, 상세 가이드와 RFC에 계약 기록
 
 ### P1 — Reliability와 production 경쟁력
 
@@ -319,7 +319,7 @@ Upload progress는 runtime별 request stream 지원 차이가 크므로 조용�
 
 | 단계 | 연결된 개선 항목 |
 | --- | --- |
-| v0.3.1 | COMP-01~04: Error guard, Standard Schema, `RequestInit`, Request snapshot |
+| v0.3.1 완료 | COMP-01~04: Error guard, Standard Schema, `RequestInit`, Request snapshot |
 | v0.4 | COMP-05: adaptive Retry와 Reliability policy |
 | v0.5 | COMP-06: Feature·Transport conformance |
 | v0.6 | COMP-07, COMP-10: Progress와 Status error data |
@@ -329,7 +329,6 @@ Upload progress는 runtime별 request stream 지원 차이가 크므로 조용�
 
 다음 시점에 같은 기준으로 다시 평가합니다.
 
-- v0.3.1 완료
 - v0.5 Feature와 Transport SDK 완료
 - v0.9 Release Candidate 진입
 - Axios 또는 Ky의 major release로 핵심 계약이 변경된 경우

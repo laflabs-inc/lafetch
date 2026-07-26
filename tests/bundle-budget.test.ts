@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 // public API growth must still record a measured baseline in the runtime docs.
 const MAX_MINIFIED_BYTES = 48 * 1_024;
 const MAX_GZIP_BYTES = 16 * 1_024;
+const MAX_REPRESENTATIVE_MINIFIED_BYTES = 44 * 1_024;
+const MAX_REPRESENTATIVE_GZIP_BYTES = 14 * 1_024;
 
 describe("browser bundle budget", () => {
   it("keeps the complete public API inside the alpha size budget", async () => {
@@ -24,5 +26,32 @@ describe("browser bundle budget", () => {
 
     expect(output!.byteLength).toBeLessThanOrEqual(MAX_MINIFIED_BYTES);
     expect(gzipSync(output!).byteLength).toBeLessThanOrEqual(MAX_GZIP_BYTES);
+  });
+
+  it("keeps a representative JSON request inside its stricter budget", async () => {
+    const result = await build({
+      stdin: {
+        contents: `
+          import { lafetch } from "./src/index.ts";
+          const api = lafetch.create({ baseUrl: "https://api.example.com" });
+          export const request = api.get("/users/1").as("json");
+        `,
+        loader: "ts",
+        resolveDir: process.cwd(),
+        sourcefile: "representative-request.ts",
+      },
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      minify: true,
+      treeShaking: true,
+      write: false,
+    });
+    const output = result.outputFiles[0]?.contents;
+    expect(output).toBeDefined();
+
+    expect(output!.byteLength).toBeLessThanOrEqual(MAX_REPRESENTATIVE_MINIFIED_BYTES);
+    expect(gzipSync(output!).byteLength).toBeLessThanOrEqual(MAX_REPRESENTATIVE_GZIP_BYTES);
   });
 });

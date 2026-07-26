@@ -22,7 +22,12 @@ export type {
   RequestErrorMapper,
   RequestErrorPhase,
 } from "./consumption/error-mapping.js";
-export type { InferSchema, ResponseSchema, SchemaResult } from "./consumption/schema.js";
+export type {
+  InferSchema,
+  ResponseSchema,
+  SchemaResult,
+  StandardSchemaV1,
+} from "./consumption/schema.js";
 export type { CacheEntry, CacheStore } from "./core/cache-store.js";
 
 export {
@@ -39,11 +44,19 @@ export {
   HttpStatusError,
   HttpTimeoutError,
   HttpTransportError,
+  isHttpError,
 } from "./core/errors.js";
 
-export type { HttpErrorOptions, RequestSnapshot } from "./core/errors.js";
+export type {
+  HttpErrorByCode,
+  HttpErrorCode,
+  HttpErrorForCode,
+  HttpErrorOptions,
+} from "./core/errors.js";
+export type { RequestSnapshot } from "./core/request-snapshot.js";
 
 export type {
+  AdvancedRequestInit,
   BackoffOptions,
   BodyFactory,
   ClientOptions,
