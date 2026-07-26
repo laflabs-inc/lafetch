@@ -13,6 +13,6 @@ const user = await api
   .get<User>("/users/123")
   .timeout("3s")
   .retry(3)
-  .asJson();
+  .as("json");
 
 console.log(user.name);

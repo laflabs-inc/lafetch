@@ -44,7 +44,7 @@ describe("public API conventions", () => {
       api.head("/users").body("payload");
       // @ts-expect-error The custom-method entry point preserves the GET body restriction.
       api.request("GET", "/users").bodyFactory(() => "payload");
-      // @ts-expect-error asResponse() is the only decoded response-envelope terminal.
+      // @ts-expect-error as("result") is the only decoded response-envelope terminal.
       api.get("/users").send();
       // @ts-expect-error A client boundary is created only through lafetch.create().
       api.extend({ baseUrl: "https://other.example.com" });
@@ -56,8 +56,8 @@ describe("public API conventions", () => {
       api.get("/users").retry({ attempts: 2 });
       // @ts-expect-error Backoff uses one structured form inside retry options.
       api.get("/users").retry(2, { backoff: "fixed" });
-      // @ts-expect-error Response consumption uses explicit terminal methods.
-      api.get("/users").as("json");
+      // @ts-expect-error Response modes are a closed public contract.
+      api.get("/users").as("xml");
       // @ts-expect-error The old response() terminal is not part of the unified grammar.
       api.get("/users").response();
       // @ts-expect-error The old raw() terminal is not part of the unified grammar.
@@ -83,50 +83,54 @@ describe("public API conventions", () => {
       // @ts-expect-error One mapError() handles request and response failures.
       api.get("/users").mapDecodeError((error: Error) => error);
 
-      expectTypeOf(api.get("/users").asText()).toEqualTypeOf<Promise<string>>();
-      expectTypeOf(api.get<{ id: string }>("/users").asJson())
+      expectTypeOf(api.get("/users").as("text")).toEqualTypeOf<Promise<string>>();
+      expectTypeOf(api.get<{ id: string }>("/users").as("json"))
         .toEqualTypeOf<Promise<{ id: string }>>();
-      expectTypeOf(api.post<{ id: string }>("/users").asJson())
+      expectTypeOf(api.post<{ id: string }>("/users").as("json"))
         .toEqualTypeOf<Promise<{ id: string }>>();
-      expectTypeOf(api.put<{ id: string }>("/users/1").asJson())
+      expectTypeOf(api.put<{ id: string }>("/users/1").as("json"))
         .toEqualTypeOf<Promise<{ id: string }>>();
-      expectTypeOf(api.patch<{ id: string }>("/users/1").asJson())
+      expectTypeOf(api.patch<{ id: string }>("/users/1").as("json"))
         .toEqualTypeOf<Promise<{ id: string }>>();
-      expectTypeOf(api.delete<{ id: string }>("/users/1").asJson())
+      expectTypeOf(api.delete<{ id: string }>("/users/1").as("json"))
         .toEqualTypeOf<Promise<{ id: string }>>();
-      expectTypeOf(api.head<void>("/users").asJson()).toEqualTypeOf<Promise<void>>();
-      expectTypeOf(api.request<{ id: string }>("QUERY", "/users").asJson())
+      expectTypeOf(api.head<void>("/users").as("json")).toEqualTypeOf<Promise<void>>();
+      expectTypeOf(api.request<{ id: string }>("QUERY", "/users").as("json"))
         .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.get("/users/1").validate({
         parse(value: unknown): { id: string } {
           return value as { id: string };
         },
-      }).asJson()).toEqualTypeOf<Promise<{ id: string }>>();
+      }).as("json")).toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.get("/users/1").validate({
         parse(value: unknown): { id: string } {
           return value as { id: string };
         },
-      }).asText()).toEqualTypeOf<Promise<{ id: string }>>();
+      }).as("text")).toEqualTypeOf<Promise<{ id: string }>>();
       // @ts-expect-error A request has exactly one response Schema.
       api.get("/users").validate((value) => value).validate((value) => value);
       // @ts-expect-error Response data types are declared once on the HTTP method.
-      api.get("/users").asJson<{ id: string }>();
-      expectTypeOf(api.get("/binary").asArrayBuffer()).toEqualTypeOf<Promise<ArrayBuffer>>();
-      expectTypeOf(api.get("/file").asBlob()).toEqualTypeOf<Promise<Blob>>();
-      expectTypeOf(api.get("/form").asFormData()).toEqualTypeOf<Promise<FormData>>();
-      expectTypeOf(api.get<{ id: string }>("/users/1").asResponse())
+      api.get("/users").as<{ id: string }>("json");
+      expectTypeOf(api.get("/binary").as("bytes")).toEqualTypeOf<Promise<Uint8Array>>();
+      expectTypeOf(api.get("/file").as("blob")).toEqualTypeOf<Promise<Blob>>();
+      expectTypeOf(api.get("/form").as("formData")).toEqualTypeOf<Promise<FormData>>();
+      expectTypeOf(api.get<{ id: string }>("/users/1").as("result"))
         .toEqualTypeOf<Promise<LafetchResponse<{ id: string }>>>();
-      expectTypeOf(api.get("/users").asRaw()).toEqualTypeOf<Promise<Response>>();
-      expectTypeOf(api.get("/events").asStream()).toEqualTypeOf<Promise<Response>>();
+      expectTypeOf(api.get("/users").as("response")).toEqualTypeOf<Promise<Response>>();
+      expectTypeOf(api.get("/events").as("stream")).toEqualTypeOf<Promise<Response>>();
+      // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
+      api.get("/users").asJson();
+      // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
+      api.get("/events").asStream();
       expectTypeOf(api.get("/users").maxResponseBytes(1_000_000)).toEqualTypeOf(api.get("/users"));
       // @ts-expect-error Explicit response terminals return Promise and end Builder configuration.
-      api.get("/users").asJson().timeout("1s");
+      api.get("/users").as("json").timeout("1s");
       // @ts-expect-error Response Schema validation requires buffered consumption.
-      api.get("/events").validate((value) => value).asStream();
+      api.get("/events").validate((value) => value).as("stream");
       // @ts-expect-error Cache requires buffered consumption.
-      api.get("/events").cache("1m").asStream();
+      api.get("/events").cache("1m").as("stream");
       // @ts-expect-error Deduplication requires buffered consumption.
-      api.get("/events").dedupe().asStream();
+      api.get("/events").dedupe().as("stream");
 
       api.delete("/users/1").json({ reason: "duplicate" });
       // @ts-expect-error A request has exactly one body source.

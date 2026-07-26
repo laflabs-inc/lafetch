@@ -22,7 +22,7 @@ Application requests have one public grammar:
 client.method(url).configure().policy() -> await data
 ```
 
-Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns automatically decoded data directly. Explicit `asJson()`, `asText()` and related methods terminate configuration and return a real Promise. `asResponse()` opts into the decoded response envelope, `asRaw()` returns a retained Fetch Response, and `asStream()` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns automatically decoded data directly. The single `as(mode)` method terminates configuration and returns a real Promise. `as("result")` opts into the decoded Lafetch response envelope, `as("response")` returns a retained Fetch Response, and `as("stream")` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
 
 ## State isolation
 
@@ -75,13 +75,13 @@ Buffered  = one memoized execution, multiple retained-response consumers
 Streaming = one live execution, one Body owner
 ```
 
-Buffered consumers decode clones of the retained response. The first `asStream()` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable Builder with a separate execution identity.
+Buffered consumers decode clones of the retained response. The first `as("stream")` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable Builder with a separate execution identity.
 
 Builder inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
 
 Buffered execution reads the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. Buffered responses have a default 16 MiB actual-byte limit and may use an explicit request-specific `maxResponseBytes()` value. `Content-Length` is not trusted as the enforcement boundary.
 
-Streaming execution settles `asStream()` after Header acceptance and transfers a wrapped Web Stream without retaining the complete Body. Timeout, Abort, attempt ownership, finalizers, and final lifecycle events remain open until Body completion or cancellation. Streaming is unbounded by default; an explicit `maxResponseBytes()` applies to actual delivered chunks.
+Streaming execution settles `as("stream")` after Header acceptance and transfers a wrapped Web Stream without retaining the complete Body. Timeout, Abort, attempt ownership, finalizers, and final lifecycle events remain open until Body completion or cancellation. Streaming is unbounded by default; an explicit `maxResponseBytes()` applies to actual delivered chunks.
 
 ## Retry invariant
 
@@ -168,9 +168,9 @@ Official Telemetry starts event delivery in lifecycle order but does not seriali
 
 ## Consumption scope
 
-Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. Explicit `asJson()`, `asText()`, `asBlob()` and related terminals select one decoder and return a real Promise. When a Schema transforms data, its output drives both runtime values and terminal return types. `asResponse()` wraps automatically decoded data with status, headers, and metadata, while buffered `asRaw()` remains outside decoding and validation.
+Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. `as("json" | "text" | "bytes" | "blob" | "formData")` selects one decoder and returns a real Promise. When a Schema transforms data, its output drives both runtime values and terminal return types. `as("result")` wraps automatically decoded data with status, headers, and metadata, while buffered `as("response")` remains outside decoding and validation.
 
-`asStream()` selects a separate live execution path before dispatch. It returns a standard Response, does not run whole-body decoding or Schema validation, and maps Body read failures in the response phase. A unified Builder `mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
+`as("stream")` selects a separate live execution path before dispatch. It returns a standard Response, does not run whole-body decoding or Schema validation, and maps Body read failures in the response phase. A unified Builder `mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 

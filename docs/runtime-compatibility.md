@@ -15,7 +15,7 @@ In addition to the runtime matrix, `pnpm check` packs the publishable files into
 
 The Next fixture intentionally uses TypeScript 5.9 while the library is developed with TypeScript 7. This catches declaration output that compiles internally but is unusable in a stable consumer toolchain.
 
-The complete browser-facing root export has a hard regression budget of `36 KiB` minified and `12 KiB` gzip. The v0.3 Streaming baseline is `36,709 bytes` minified and `11,649 bytes` gzip; the previous v0.2.1 baseline was `33,713 bytes` minified and `10,606 bytes` gzip.
+The complete browser-facing root export has a hard regression budget of `36 KiB` minified and `12 KiB` gzip. The v0.3 unified `as(mode)` baseline is `36,633 bytes` minified and `11,679 bytes` gzip; the initial v0.3 Streaming baseline was `36,709 bytes` minified and `11,649 bytes` gzip, and the previous v0.2.1 baseline was `33,713 bytes` minified and `10,606 bytes` gzip.
 
 ## Support boundary
 

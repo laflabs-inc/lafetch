@@ -14,17 +14,17 @@
 - React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
 - 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
 
-## 현재 기준: v0.3 구현 완료, 통합 검증 대기
+## 현재 기준: v0.3 terminal 통합 완료, 통합 검증 대기
 
-현재 소스 후보는 `0.3.0-alpha.0`이며 **Buffered와 Streaming 응답 계약까지 구현**했습니다. 로컬 검증을 마쳤고 Node.js 버전 매트릭스와 Chromium 통합 검증이 남아 있습니다. 이 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다. 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
+현재 소스 후보는 `0.3.0-alpha.0`이며 **Buffered와 Streaming 응답 계약 및 단일 `as(mode)` terminal을 구현**했습니다. 로컬 검증을 마쳤고 Node.js 버전 매트릭스와 Chromium 통합 검증이 남아 있습니다. 이 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다. 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
 | v0.2.1 공개 API | 구현과 hardening 완료 |
-| v0.3 Streaming | 단일 소비, Body lifecycle, 정책 충돌 구현; 통합 CI 대기 |
+| v0.3 Streaming | 단일 `as(mode)`, Body lifecycle, 정책 충돌 구현; 통합 CI 대기 |
 | 다음 개발 단계 | v0.3 통합 검증 후 v0.4 Cache와 Deduplication 강화 |
 | 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
-| 제한된 Type-State와 `as*()` terminal | v0.2.1 구현 및 계약 테스트 |
+| 제한된 Type-State와 `as(mode)` terminal | v0.3 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
 | Cache와 Deduplication | 최종 Request 키, unsafe method, 클라이언트 격리 계약 테스트 |
 | Idempotency, Validation, Error Mapping | 구현 완료 |
@@ -55,8 +55,8 @@ const user = await api
 ### 구현된 범위
 
 - 직접 `await`하면 디코딩된 데이터 `T` 반환
-- 전체 응답과 Fetch 응답은 v0.2.1의 `asResponse()`, `asRaw()`로 명시
-- JSON 본문은 `json(value)`, 명시적 응답 소비는 `asJson()` 같은 `as*()` terminal로 분리
+- 전체 결과와 Fetch 응답은 명시적 terminal로 분리
+- JSON 본문은 `json(value)`, 응답 소비는 별도 terminal로 분리
 - 응답 검증은 `validate(schema)`로 통일
 - 전체 Timeout과 시도 Timeout을 `timeout()`과 `attemptTimeout()`으로 분리
 - Retry의 숫자를 최초 시도 이후의 추가 재시도 횟수로 정의
@@ -75,7 +75,7 @@ const user = await api
 - 모든 요청이 같은 Builder 표면을 사용해 GET과 HEAD에서도 요청 본문 메서드가 IDE에 나타났습니다.
 - HTTP와 Feature의 모든 조합을 Type-State로 표현하면 공개 타입과 오류가 과도하게 복잡해질 위험이 확인되었습니다.
 
-이 항목은 v0.2.1에서 기능을 제거하지 않는 제한형 Type-State와 명시적인 `as*()` terminal로 보강합니다.
+이 항목은 v0.2.1에서 기능을 제거하지 않는 제한형 Type-State와 명시적 terminal로 보강했고, v0.3에서 단일 `as(mode)` 문법으로 정리했습니다.
 
 ### 완료 조건
 
@@ -86,7 +86,7 @@ const user = await api
 
 ## v0.2.1 — Progressive Builder와 소비 문법
 
-상태: 구현 완료, 통합 CI 검증 대기 (`2026-07-25`)
+상태: 완료 (`2026-07-25`)
 
 ### 목표
 
@@ -100,7 +100,7 @@ const created = await api
   .json(input)
   .timeout("5s")
   .retry(2)
-  .asJson();
+  .as("json");
 ```
 
 ### 작업 범위
@@ -108,10 +108,10 @@ const created = await api
 - GET과 HEAD Builder에서 `json()`, `body()`, `bodyFactory()` 제거
 - 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
 - Request body 허용 여부, buffered 여부, Schema 출력만 내부에서 추적하는 제한형 Type-State
-- `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal
-- 응답 타입을 모든 HTTP 진입 메서드에서 한 번만 선언하고 `asJson<T>()` 중복 문법 제거
-- 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
-- 기존 `as(type)`, `response()`, `raw()` 제거
+- 당시 `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal 도입
+- 응답 타입을 모든 HTTP 진입 메서드에서 한 번만 선언하고 terminal의 중복 제네릭 제거
+- 당시 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
+- 이 개별 이름은 v0.3의 단일 `as(mode)`로 대체
 - 직접 `await`와 Promise 호환성 유지
 - TypeScript, JavaScript, 실제 tarball 소비 계약 테스트
 - 공개 `RequestBuilder<TData>`에서 내부 Type-State 제네릭 숨김
@@ -124,7 +124,7 @@ const created = await api
 ### 완료 조건
 
 - 일반 요청이 Feature 또는 Type-State 개념을 알지 않고 동작해야 합니다.
-- 명시적 `as*()` terminal은 실제 Promise를 반환해야 합니다.
+- 명시적 `as(mode)` terminal은 실제 Promise를 반환해야 합니다.
 - 확실히 잘못된 조합만 타입에서 제거하고, 상황 의존 정책은 런타임 검증이 담당해야 합니다.
 - 공식 Timeout, Retry, Cache, Deduplication, Idempotency, Validation, Error Mapping, Telemetry 기능을 유지해야 합니다.
 - 전체 브라우저 공개 API가 기존 `12 KiB` gzip 예산을 지켜야 합니다.
@@ -151,7 +151,9 @@ const created = await api
 ### 작업 범위
 
 - Streaming 응답 공개 API RFC
-- 기존 buffered `asRaw()`와 새로운 streaming 실행 경로의 책임 분리
+- 개별 `as*()` terminal을 `as("json" | "text" | "bytes" | "blob" | "formData" | "result" | "response" | "stream")`으로 통합
+- `bytes`와 자동 binary decoding을 `Uint8Array`로 통일
+- 기존 buffered `as("response")`와 새로운 streaming 실행 경로의 책임 분리
 - Streaming terminal 이름과 반환 타입 확정
 - Streaming 응답의 단일 소비와 Request 재사용 규칙
 - v0.2.1의 `maxResponseBytes()`와 Streaming 상한 계약 분리
@@ -177,15 +179,16 @@ const created = await api
 
 ### 완료 근거
 
-- `asStream(): Promise<Response>`와 Builder 단일 소비 소유권 구현
+- 닫힌 `as(mode)` overload와 JavaScript mode 검증 구현
+- `as("stream"): Promise<Response>`와 Builder 단일 소비 소유권 구현
 - accepted Body 노출 전 Status Retry, 노출 후 Body 오류 Retry 금지
 - 전체 Timeout, 시도 Timeout, Abort, finalizer를 Body 종료까지 유지
 - 실제 전달 chunk 기준 선택적 `maxResponseBytes()` 적용
 - Schema, Cache, Deduplication 충돌을 TypeScript와 Runtime에서 거부
-- 16개 test file, 115개 core test와 Node.js 24 로컬 검증
+- 16개 test file, 116개 core test와 Node.js 24 로컬 검증
 - Workers/Edge, Next.js App Router, npm tarball 소비 로컬 검증
 - Node.js 20/22와 Chromium은 PR CI 검증 대기
-- 전체 브라우저 공개 API `36,709 bytes` minified, `11,649 bytes` gzip
+- 전체 브라우저 공개 API `36,633 bytes` minified, `11,679 bytes` gzip
 - 기존 예산 `36 KiB` minified, `12 KiB` gzip 유지
 
 ## v0.4 — Cache와 Deduplication 프로덕션 강화

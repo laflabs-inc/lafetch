@@ -11,6 +11,6 @@ export async function GET() {
     .use(fixtureFeature);
   const streamed = await (await api
     .get("https://fixture.invalid/stream")
-    .asStream()).text();
+    .as("stream")).text();
   return Response.json({ ...data, streamed });
 }

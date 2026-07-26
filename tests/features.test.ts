@@ -199,7 +199,7 @@ describe("request features", () => {
           },
         },
       })
-      .asResponse();
+      .as("result");
 
     expect(result.data).toEqual({ value: 2 });
     expect(result.meta.transport).toBe("feature:fixture");
@@ -247,7 +247,7 @@ describe("request features", () => {
     await expect(api.get("/optional").use({
       name: "optional",
       ordering: { optionalBefore: ["missing"] },
-    }).asResponse()).resolves.toMatchObject({ status: 204 });
+    }).as("result")).resolves.toMatchObject({ status: 204 });
   });
 
   it("isolates finalizer response bodies", async () => {

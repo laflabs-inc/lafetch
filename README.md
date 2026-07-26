@@ -111,12 +111,12 @@ TypeScript에서 차단한 조합은 JavaScript에서도 요청 선언 시 `Http
 
 ## 전체 응답이 필요할 때
 
-상태 코드, 헤더, 요청 메타데이터가 필요하면 `asResponse()`를 명시합니다.
+상태 코드, 헤더, 요청 메타데이터가 필요하면 `as("result")`를 명시합니다.
 
 ```ts
 const response = await api
   .get<User>("/users/123")
-  .asResponse();
+  .as("result");
 
 response.data;
 response.status;
@@ -124,36 +124,37 @@ response.headers;
 response.meta.attempts;
 ```
 
-Fetch `Response`가 직접 필요하면 `asRaw()`를 사용합니다. `asRaw()`도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
+Fetch `Response`가 직접 필요하면 `as("response")`를 사용합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
 
-실시간 Body가 필요하면 `asStream()`을 사용합니다.
+실시간 Body가 필요하면 `as("stream")`을 사용합니다.
 
 ```ts
 const response = await api
   .get("/events")
   .timeout("2m")
-  .asStream();
+  .as("stream");
 
 const text = response.body?.pipeThrough(new TextDecoderStream());
 ```
 
-`asStream()`은 Header가 확정되면 표준 `Response`를 반환하며 전체 Body를 보관하지 않습니다. 같은 Builder에서는 한 번만 사용할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
+`as("stream")`은 Header가 확정되면 표준 `Response`를 반환하며 전체 Body를 보관하지 않습니다. 같은 Builder에서는 한 번만 사용할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
 
 ## 응답 형식 지정하기
 
-기본적으로 `Content-Type`에 따라 JSON, 문자열, `ArrayBuffer`를 자동 선택합니다. 형식을 강제해야 할 때만 명시적인 `as*()` 종결 메서드를 사용합니다. 이 메서드들은 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실이 분명합니다.
+기본적으로 `Content-Type`에 따라 JSON, 문자열, `Uint8Array`를 자동 선택합니다. 형식을 강제하거나 응답 소유권을 선택할 때만 단일 `as(mode)` 종결 메서드를 사용합니다. 이 메서드는 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실이 분명합니다.
 
 ```ts
-const user = await api.get<User>("/users/123").asJson();
-const health = await api.get("/health").asText();
-const file = await api.get("/files/1").asBlob();
+const user = await api.get<User>("/users/123").as("json");
+const health = await api.get("/health").as("text");
+const bytes = await api.get("/files/1").as("bytes");
+const file = await api.get("/files/1").as("blob");
 ```
 
-응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `asJson()`은 별도 타입 인자를 받지 않고 Builder의 데이터 타입을 그대로 반환하므로 서로 다른 타입을 중복 선언할 수 없습니다.
+응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `as<T>(mode)` 같은 타입 단언 문법은 제공하지 않으므로 서로 다른 타입을 중복 선언할 수 없습니다.
 
 `validate(schema)`가 값을 변환하면 이후 소비 메서드의 반환 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
 
-`asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()`, `asResponse()`, `asRaw()`, `asStream()`이 같은 종결 문법을 사용합니다.
+지원 모드는 `json`, `text`, `bytes`, `blob`, `formData`, `result`, `response`, `stream`입니다. `result`는 Lafetch 데이터와 실행 메타데이터를, `response`는 Buffered Fetch `Response`를, `stream`은 live Fetch `Response`를 반환합니다. 알 수 없는 모드는 Transport 실행 전에 거부합니다.
 
 ## 주요 기능
 
@@ -165,7 +166,7 @@ const file = await api.get("/files/1").asBlob();
 | Timeout | `.timeout("3s")` | 전체 요청 제한 시간 |
 | Attempt Timeout | `.attemptTimeout("1s")` | 개별 시도 제한 시간 |
 | Response Limit | `.maxResponseBytes(1_000_000)` | Buffered 또는 명시적 Streaming 실제 바이트 상한 |
-| Streaming | `.asStream()` | Header 우선 단일 소비 `Response` |
+| Streaming | `.as("stream")` | Header 우선 단일 소비 `Response` |
 | Retry & Backoff | `.retry(2)` | 안전한 재시도와 지연 |
 | Abort | `.signal(signal)` | 표준 `AbortSignal` 취소 |
 | Cache | `.cache("30s")` | 완료된 안전한 응답 재사용 |
@@ -254,6 +255,6 @@ pnpm check:runtimes
 
 ## 현재 상태
 
-현재 소스 후보는 `0.3.0-alpha.0`입니다. Buffered 계약을 유지하면서 `asStream()`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 버전 매트릭스와 Chromium 통합 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다.
+현재 소스 후보는 `0.3.0-alpha.0`입니다. 응답 terminal을 단일 `as(mode)` 문법으로 통합했고, `as("stream")`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 버전 매트릭스와 Chromium 통합 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

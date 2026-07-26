@@ -310,7 +310,7 @@ function assertStreamingCompatible(features: readonly RequestFeature[]): void {
   );
   if (!incompatible) return;
   throw new HttpFeatureConflictError(
-    `Feature "${incompatible.name}" is not compatible with asStream().`,
+    `Feature "${incompatible.name}" is not compatible with as("stream").`,
   );
 }
 
