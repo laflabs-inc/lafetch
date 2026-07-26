@@ -1,33 +1,67 @@
-# Runtime compatibility
+# 런타임 호환성
 
-Lafetch is implemented against Fetch and Web Platform primitives. Runtime support is treated as an executable contract rather than an assumption.
+Lafetch는 Fetch와 Web Platform primitive를 기준으로 구현합니다. 지원 범위는 추정이 아니라 자동 검증 결과로 정의합니다.
 
-## Automated matrix
+## 자동 검증 범위
 
-| Runtime | Automated evidence | Covered behavior |
+| 런타임 | 검증 방법 | 주요 범위 |
 | --- | --- | --- |
-| Node.js 20, 22, 24 | Vitest and TypeScript build matrix | Kernel, policies, Buffered/Streaming consumption, lifecycle errors |
-| Chromium | Vitest Browser Mode with Playwright | Real same-origin Fetch, status retry, AbortSignal, incremental Streaming |
-| Workers/Edge | Bundled fixture inside Miniflare/workerd | Browser-target bundle, retry, schema, Web Stream execution in an isolate |
-| Next.js App Router | Next.js 16 production build | Buffered and Streaming package consumption in Server, Client, and Route Handler builds |
+| Node.js 20, 22, 24 | Vitest와 TypeScript build matrix | 커널, 정책, Buffered/Streaming 소비, lifecycle 오류 |
+| Chromium | Playwright 기반 Vitest Browser Mode | 실제 same-origin Fetch, Status Retry, AbortSignal, incremental Streaming |
+| Workers/Edge | Miniflare/workerd 격리 fixture | Browser target bundle, Retry, Schema, Web Stream |
+| Next.js App Router | Next.js 16 production build | Server, Client, Route Handler의 공개 package 소비 |
 
-In addition to the runtime matrix, `pnpm check` packs the publishable files into a tarball, installs it in an empty consumer, executes every public export path, and compiles its declarations without workspace source aliases.
+`pnpm check`는 일반 테스트 외에도 배포 대상 파일을 tarball로 만들고 빈 프로젝트에 설치합니다. 이 독립 소비자에서 JavaScript 실행, TypeScript declaration과 `.`, `./feature`, `./testing` 공개 export를 검증합니다.
 
-The Next fixture intentionally uses TypeScript 5.9 while the library is developed with TypeScript 7. This catches declaration output that compiles internally but is unusable in a stable consumer toolchain.
+Next.js fixture는 라이브러리 개발 환경의 TypeScript 7과 다른 TypeScript 5.9를 사용합니다. 내부에서는 compile되지만 안정 버전 소비자에서 깨지는 declaration을 찾기 위한 의도적인 차이입니다.
 
-The complete browser-facing root export has a hard regression budget of `48 KiB` minified and `16 KiB` gzip. The earlier `36 KiB / 12 KiB gzip` threshold was introduced as an alpha snapshot guard rather than a browser or package-distribution constraint; keeping it only a few bytes above the implementation incorrectly blocked intentional public DX work. The larger ceiling remains a regression alarm, not a size target: reviewed features may move the recorded baseline, while accidental growth still fails CI. The v0.3 terminal DX baseline is `41,470 bytes` minified and `12,876 bytes` gzip; the `LResponse` API polish baseline was `41,512 bytes` minified and `12,878 bytes` gzip; the Stream DX baseline was `37,318 bytes` minified and `11,895 bytes` gzip; the unified `as(mode)` baseline was `36,633 bytes` minified and `11,679 bytes` gzip, and the previous v0.2.1 baseline was `33,713 bytes` minified and `10,606 bytes` gzip.
+## 번들 회귀 기준
 
-## Support boundary
+Browser 대상 루트 export의 현재 v0.3 기준선:
 
-Lafetch requires standard `fetch`, `Request`, `Response`, `Headers`, `AbortController`, `ReadableStream`, `Blob`, and `FormData` implementations. A custom Transport can replace global Fetch, but response consumption still depends on the corresponding Web Platform response types. `response.pipe("text")` additionally uses the runtime's standard `TextDecoderStream`; byte and caller-supplied transform paths do not.
+- minified: `41,470 bytes`
+- gzip: `12,876 bytes`
 
-Runtime-specific caching is not silently delegated to Next.js or a platform cache. The Lafetch cache Feature owns its explicit `CacheStore`; a future Next adapter may bridge framework revalidation semantics through a separate optional module.
+Hard ceiling:
 
-## CI responsibilities
+- minified: `48 KiB`
+- gzip: `16 KiB`
 
-- The Node matrix runs the complete core suite and Worker isolate test.
-- The browser job installs a pinned Playwright dependency and its matching Chromium build.
-- The Next job builds Lafetch first, then consumes only its public package exports from the fixture.
-- The Node check installs the packed tarball into an isolated consumer and verifies runtime and TypeScript imports for `.`, `./feature`, and `./testing`.
-- The core suite fails when the complete browser-facing root export exceeds either bundle budget.
-- Native dependency build scripts are limited to the explicitly approved `esbuild`, `workerd`, and `sharp` packages.
+이 상한은 성능 목표나 배포 플랫폼 제한이 아니라 의도하지 않은 증가를 막는 회귀 경보입니다. 과거 버전별 수치는 보관 PR에서 확인하고 현행 문서에는 최신 기준선만 유지합니다.
+
+v0.3.1부터는 complete root bundle과 대표 JSON 요청 bundle을 별도로 측정해 사용하지 않는 정책 코드의 tree-shaking 상태도 확인합니다.
+
+## 지원 경계
+
+다음 표준 구현이 필요합니다.
+
+- `fetch`
+- `Request`
+- `Response`
+- `Headers`
+- `AbortController`
+- `ReadableStream`
+- `Blob`
+- `FormData`
+
+사용자 Transport는 전역 Fetch를 교체할 수 있지만 응답 소비는 해당 런타임의 Web Platform Response 타입에 의존합니다. `response.pipe("text")`는 표준 `TextDecoderStream`을 추가로 사용하고, byte 및 사용자 transform 경로는 사용하지 않습니다.
+
+Runtime Cache를 Next.js나 배포 플랫폼 Cache에 암묵적으로 위임하지 않습니다. Lafetch Cache Feature는 명시적인 `CacheStore`를 소유하며, framework revalidation 연동은 향후 선택 adapter로 분리합니다.
+
+현재 지원을 선언하지 않는 범위:
+
+- CommonJS 전용 소비자
+- Node.js 전용 Proxy·HTTP/2·bandwidth limit
+- React Native
+- Web Platform primitive가 불완전한 임의의 Fetch polyfill
+
+이 기능은 검증 없이 호환된다고 간주하지 않으며, 실제 수요가 확인되면 core가 아닌 선택 Transport 또는 별도 adapter를 우선 검토합니다.
+
+## CI 책임
+
+- Node matrix는 전체 core suite와 Worker 격리 테스트를 실행합니다.
+- Browser job은 고정된 Playwright와 일치하는 Chromium build를 설치합니다.
+- Next.js job은 Lafetch를 먼저 build한 뒤 fixture가 공개 package export만 소비합니다.
+- Package 검증은 packed tarball을 독립 프로젝트에 설치합니다.
+- Bundle budget 초과는 core test를 실패시킵니다.
+- Native dependency build script는 명시적으로 허용한 `esbuild`, `workerd`, `sharp`만 사용합니다.

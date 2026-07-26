@@ -156,7 +156,7 @@ await response.pipe("text").forEach((chunk) => {
 
 ## 자동 디코딩과 형식 강제
 
-일반 요청의 기본 문법은 direct `await`입니다. 서버의 `Content-Type`이 정확하다면 JSON API에서도 `as("json")`을 반복할 필요가 없습니다.
+일반 요청의 기본 문법은 직접 `await`하는 것입니다. 서버의 `Content-Type`이 정확하다면 JSON API에서도 `as("json")`을 반복할 필요가 없습니다.
 
 | 문법 | 동작 | 권장 사용처 |
 | --- | --- | --- |
@@ -259,17 +259,13 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 
 ## 문서
 
-- [v0.2 공개 API RFC](docs/rfcs/v0.2-public-api.md)
-- [v0.2.1 Progressive Builder RFC](docs/rfcs/v0.2.1-progressive-builder.md)
-- [v0.3 Streaming과 본문 안전성 RFC](docs/rfcs/v0.3-streaming-body-safety.md)
-- [v0.1에서 v0.2.1로 마이그레이션](docs/migration-v0.2.md)
+- [문서 전체 목차](docs/README.md)
 - [상세 사용 가이드](docs/advanced-usage.md)
-- [커널 아키텍처](docs/architecture.md)
-- [Cache와 Deduplication 설계](docs/cache-deduplication.md)
-- [응답 소비 RFC](docs/rfcs/response-consumption.md)
-- [런타임 호환성](docs/runtime-compatibility.md)
-- [v0.3 API polish 감사 보고서](docs/reports/v0.3-api-polish.md)
+- [v0.1에서 v0.3으로 마이그레이션](docs/migration-v0.3.md)
 - [개발 로드맵](docs/roadmap.md)
+- [기술 경쟁력 평가와 개선 백로그](docs/improvements.md)
+
+현행 계약과 이미 대체된 설계 기록은 [문서 전체 목차](docs/README.md)에서 구분해 안내합니다.
 
 ## 개발
 
@@ -283,6 +279,8 @@ pnpm check:runtimes
 
 ## 현재 상태
 
-현재 소스 후보는 `0.3.0-alpha.0`입니다. 응답 terminal을 단일 `as(mode)` 문법으로 통합했고, `as("stream")`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 버전 매트릭스와 Chromium 통합 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다.
+현재 소스 후보는 `0.3.0-alpha.0`입니다. 응답 terminal을 단일 `as(mode)` 문법으로 통합했고, `as("stream")`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 통과했습니다.
+
+다음 단계는 v0.3.1 공개 계약 보강입니다. Error narrowing, Standard Schema V1, 고급 `RequestInit` 전달 경로와 `LResponse.request`의 redacted snapshot 전환을 API 동결 전에 처리합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

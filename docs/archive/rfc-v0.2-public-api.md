@@ -1,8 +1,8 @@
-# RFC: Lafetch v0.2 공개 API
+# 보관 문서: Lafetch v0.2 공개 API RFC
 
-상태: v0.2.1 RFC로 대체됨
+상태: v0.3 공개 계약으로 대체됨
 
-> v0.2.1의 개별 `as*()` terminal 결정은 v0.3에서 닫힌 `as(mode)` 하나로 대체됐습니다. 현재 계약은 [v0.3 Streaming과 본문 안전성 RFC](v0.3-streaming-body-safety.md)를 우선합니다.
+> 이 문서는 v0.2 설계 당시의 판단을 보존하는 역사 기록입니다. 현재 사용법의 근거로 사용하지 마세요. 현행 계약은 [v0.3 Streaming과 본문 안전성 RFC](../rfcs/v0.3-streaming-body-safety.md)를 따릅니다.
 
 ## 제품 정의
 
@@ -183,7 +183,7 @@ import { defineFeature } from "@laflabs/lafetch/feature";
 
 ## 마이그레이션
 
-전체 전환 순서와 동작 차이는 [v0.1에서 v0.2로 마이그레이션](../migration-v0.2.md)에 정리한다.
+현재 전환 순서와 동작 차이는 [v0.1에서 v0.3으로 마이그레이션](../migration-v0.3.md)에 정리합니다.
 
 | v0.1 | v0.2 |
 | --- | --- |

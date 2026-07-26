@@ -25,6 +25,8 @@ result.meta.attempts;
 
 `LResponse` 객체는 shallow freeze되며 소비자마다 독립적인 `Headers`를 받습니다. 이미 디코딩한 Body의 native `Response` clone은 중복 보관하지 않습니다.
 
+현재 alpha의 `result.request`는 최종 native `Request`입니다. 진단 외의 용도로 장기 보관하면 upload Body와 원본 Header 참조가 함께 남을 수 있으므로 애플리케이션 상태에 저장하지 않는 것을 권장합니다. v0.3.1에서는 method, redacted URL과 Header만 포함한 immutable `RequestSnapshot`으로 전환할 예정입니다.
+
 ### 원본 Response
 
 ```ts
@@ -33,7 +35,7 @@ const response = await api.get("/download").as("response");
 
 `as("response")`는 native Fetch `Response`가 필요한 유일한 Buffered 경로입니다. 응답 디코딩과 `validate()`를 적용하지 않으며 전체 Body가 기본 16 MiB 상한 안에 들어와야 합니다.
 
-### Streaming Response
+### Streaming 응답
 
 ```ts
 const response = await api
@@ -171,7 +173,7 @@ await api.get("/session").credentials("include");
 
 Credentials는 Fetch 표준의 `"omit"`, `"same-origin"`, `"include"`만 허용합니다.
 
-## Timeout
+## 제한 시간
 
 전체 요청과 개별 시도는 서로 다른 메서드로 설정합니다.
 
@@ -231,7 +233,7 @@ await api
   .retry(1, { methods: ["POST"] });
 ```
 
-## Abort
+## 요청 취소
 
 ```ts
 const controller = new AbortController();
@@ -277,7 +279,7 @@ await api
 
 세부 규칙은 [Cache와 Deduplication 설계](cache-deduplication.md)를 참고하세요.
 
-## Idempotency
+## 멱등성
 
 Idempotency는 하나의 재시도 시퀀스에서 안정적인 키를 유지합니다.
 
@@ -335,7 +337,7 @@ const { data: job } = await api
   .acceptStatus((status) => status === 200 || status === 404);
 ```
 
-## Telemetry
+## 관찰과 Telemetry
 
 ```ts
 await api

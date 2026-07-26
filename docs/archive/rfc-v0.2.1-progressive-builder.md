@@ -1,10 +1,10 @@
-# RFC: Lafetch v0.2.1 Progressive Builder
+# 보관 문서: Lafetch v0.2.1 Progressive Builder RFC
 
-상태: 완료 (`2026-07-25`)
+상태: v0.3 공개 계약으로 대체됨 (`2026-07-26`)
 
 대상 버전: `0.2.1-alpha`
 
-> v0.3 보정 (`2026-07-26`): v0.2.1에서 도입한 개별 `asJson()`, `asRaw()` 계열 이름은 단일 `as(mode)` terminal로 대체됐습니다. 이 RFC의 Type-State와 Buffered 실행 결정은 유지되며, 아래 공개 예시는 현재 v0.3 문법을 사용합니다. 호환 alias는 제공하지 않습니다.
+> 이 문서는 v0.2.1 설계 당시의 판단을 보존하는 역사 기록입니다. 개별 `asJson()`, `asRaw()` 계열 이름은 v0.3의 단일 `as(mode)` terminal로 대체됐습니다. 현재 사용법은 [상세 사용 가이드](../advanced-usage.md)를 따릅니다.
 
 ## 요약
 
@@ -70,7 +70,7 @@ type ResponseValidationMode = "none" | "schema";
 
 내부 타입 인자는 루트의 공개 `LRequest<TData>`에서 직접 지정할 수 없습니다. `get()`, `post()`, `validate()`, `cache()` 같은 기존 메서드가 상태를 추론합니다. Schema 상태는 변환 Schema 이후 `as("text")` 같은 terminal이 고정 decoder 타입으로 거짓말하지 않도록 최종 출력 타입만 보존합니다.
 
-### Request Body
+### 요청 본문
 
 Fetch는 GET과 HEAD 요청 본문을 허용하지 않습니다. `get()`과 `head()`가 반환하는 `LRequest`에서는 `json()`, `body()`, `bodyFactory()`를 노출하지 않습니다.
 
@@ -93,7 +93,7 @@ await api
   .as("json");
 ```
 
-### Response Consumption
+### 응답 소비
 
 초기 `LRequest`는 향후 Streaming을 선택할 수 있는 `open` 상태입니다. 전체 응답 본문이 필요한 알려진 기능은 `buffered` 상태를 반환합니다.
 
