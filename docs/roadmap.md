@@ -1,278 +1,137 @@
 # Lafetch 개발 로드맵
 
-이 문서는 Lafetch 코어 라이브러리의 개발 순서와 각 버전의 완료 조건을 정의합니다. 기능 개수나 임의의 진행률보다 테스트, 런타임 호환성, 공개 API 계약처럼 확인 가능한 근거로 성숙도를 판단합니다.
-
-웹사이트와 플레이그라운드는 라이브러리의 공개 API가 동결되는 v0.9 단계 이후에 시작합니다.
+이 문서는 Lafetch 코어의 개발 순서와 각 단계의 완료 조건만 관리합니다. 문제의 근거와 경쟁 제품 비교는 [기술 경쟁력 평가와 개선 백로그](improvements.md), 과거 설계 내용은 [문서 목차의 보관 문서](README.md#보관-문서)를 참고하세요.
 
 ## 제품 원칙
 
-- Lafetch는 특정 백엔드나 Laf ID에 의존하지 않는 범용 TypeScript HTTP 클라이언트입니다.
+- 특정 backend나 Laf ID에 종속되지 않는 범용 TypeScript HTTP client를 유지합니다.
 - 하나의 동작에는 하나의 공식 표현만 제공합니다.
-- 일반 요청은 일관된 `LResponse`로 단순하게 유지하고, 실패 정책은 체인에서 명시합니다.
+- 일반 요청은 `LResponse`, 형식을 강제할 때만 `as(mode)`를 사용합니다.
 - Fetch와 Web Platform 타입을 불필요하게 다시 추상화하지 않습니다.
-- Browser, Node.js, Next.js, Workers/Edge에서 같은 요청 계약을 유지합니다.
-- React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
-- 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
+- Browser, Node.js, Next.js, Workers/Edge에서 같은 계약을 검증합니다.
+- 새 기능 수보다 격리, 예측 가능성, Body 소유권과 메모리 안전성을 우선합니다.
+- React와 Next.js 연동은 core가 아닌 선택 package로 분리합니다.
 
-## 현재 기준: v0.3 terminal·Stream DX 통합 완료
+## 현재 상태
 
-현재 소스 후보는 `0.3.0-alpha.0`이며 **Buffered와 Streaming 응답 계약, 단일 `as(mode)` terminal, 호환 가능한 Stream DX 계층을 구현**했습니다. Node.js 버전 매트릭스, Chromium, Workers/Edge, Next.js 통합 검증을 통과했습니다. 현재 공개 API 명명·오류 경계·불필요 코드 정리 단계이며, 이후 작은 DX utility를 별도 변경으로 추가합니다. 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
+소스 버전은 `0.3.0-alpha.0`입니다. Buffered/Streaming 응답 소유권, 단일 `as(mode)`, Stream DX와 runtime matrix를 구현했지만 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
 
-| 영역 | 현재 상태 |
+| 영역 | 상태 |
 | --- | --- |
-| v0.2.1 공개 API | 구현과 hardening 완료 |
-| v0.3 Streaming | 단일 `as(mode)`, Body lifecycle, Stream DX, 통합 CI 완료 |
-| 다음 개발 단계 | API polish 후 작은 DX utility, 이어서 v0.4 Cache·Deduplication 강화 |
-| `LRequest` 응답 계약 | direct `LResponse`, data mode 직접 반환, native escape hatch 분리 |
-| 제한된 Type-State와 `as(mode)` terminal | v0.3 구현 및 계약 테스트 |
-| Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
-| Cache와 Deduplication | 최종 Request 키, unsafe method, 클라이언트 격리 계약 테스트 |
-| Idempotency, Validation, Error Mapping | 구현 완료 |
-| Feature Runtime | 생명주기, 순서, Capability 충돌 구현 |
-| Telemetry | 요청 단위 비차단 관찰 기능 구현 |
-| Transport 교체 | 구현 완료 |
-| Browser, Node.js, Next.js, Workers/Edge | 자동 검증 구성 |
-| npm 패키지 소비 | tarball 설치와 공개 export 검증 |
-| Streaming과 메모리 상한 | Buffered 기본 16 MiB, Streaming 선택 상한 구현 |
-| React와 Next.js 선택 모듈 | 미구현 |
-| 라이선스와 공개 배포 자동화 | 미완성 |
+| 공개 요청 문법 | 구현 완료 |
+| `LResponse`와 data mode 반환 계약 | 구현 완료 |
+| Streaming Body lifecycle | 구현 완료 |
+| Timeout, Retry, Abort | 구현 및 경쟁 상태 테스트 완료 |
+| Cache, Deduplication, Idempotency | 기본 구현과 격리 테스트 완료 |
+| Validation, Error Mapping, Telemetry | 기본 구현 완료 |
+| Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
+| Packed package 소비 | JavaScript·TypeScript 검증 완료 |
+| 다음 단계 | v0.3.1 공개 계약 보강 |
+| 라이선스와 npm 배포 자동화 | 미완료 |
 
-## v0.2 — 공개 API 재설계
+현재 bundle 기준선은 `41,470 bytes` minified, `12,876 bytes` gzip이며 hard ceiling은 `48 KiB / 16 KiB gzip`입니다.
 
-상태: 완료
+## 완료된 기반
 
-### 목표
+| 버전 | 완료 내용 | 근거 |
+| --- | --- | --- |
+| v0.2 | 명시적 client, immutable request, Timeout·Retry·Cache 정책, Feature Runtime | [보관된 v0.2 RFC](archive/rfc-v0.2-public-api.md) |
+| v0.2.1 | 제한형 Type-State, GET/HEAD Body 차단, Buffered 상한, package consumer 검증 | [보관된 v0.2.1 RFC](archive/rfc-v0.2.1-progressive-builder.md) |
+| v0.3 | 단일 `as(mode)`, `LResponse`, live Streaming, Body 종료까지 Timeout·Abort·finalize, Stream DX | [v0.3 RFC](rfcs/v0.3-streaming-body-safety.md) |
 
-데이터 우선 소비와 하나의 공식 요청 문법을 확정합니다.
+과거 버전의 세부 작업과 당시 bundle 수치는 보관 문서와 병합된 PR에 남기고 현행 로드맵에서는 반복하지 않습니다.
 
-```ts
-const user = await api
-  .get<User>("/users/123")
-  .timeout("3s")
-  .retry(2);
-```
+## v0.3.1 — 공개 계약 보강
 
-### 구현된 범위
+목표: 새로운 policy를 늘리기 전에 공개 API 동결을 방해하는 계약 결함을 해결합니다.
 
-- 직접 `await`하면 디코딩된 데이터 `T` 반환
-- 전체 결과와 Fetch 응답은 명시적 terminal로 분리
-- JSON 본문은 `json(value)`, 응답 소비는 별도 terminal로 분리
-- 응답 검증은 `validate(schema)`로 통일
-- 전체 Timeout과 시도 Timeout을 `timeout()`과 `attemptTimeout()`으로 분리
-- Retry의 숫자를 최초 시도 이후의 추가 재시도 횟수로 정의
-- Cache TTL을 `cache(ttl, options?)`의 첫 번째 인자로 명시
-- `lafetch`는 `create()`만 노출하고 모든 요청을 명시적 클라이언트에 귀속
-- 공식 정책은 전용 메서드, 사용자 Feature만 `use(feature)` 사용
-- Feature 타입과 Helper를 `@laflabs/lafetch/feature` 진입점으로 분리
-- 중복 Feature 이름과 Capability 충돌을 네트워크 실행 전에 거부
-- URL, Query, 상태 목록, Retry 옵션, Feature 정의를 선언 시점에 스냅샷
-- 실제 tarball 설치와 루트, `./feature`, `./testing` export 소비 검증
-- 한국어 README, 상세 가이드, 마이그레이션 RFC 작성
+### 범위
 
-### v0.2.0 이후 확인된 보강점
-
-- 문자열 기반 응답 형식과 소비 메서드의 역할이 시각적으로 분리되지 않았습니다.
-- 모든 요청이 같은 request 표면을 사용해 GET과 HEAD에서도 요청 본문 메서드가 IDE에 나타났습니다.
-- HTTP와 Feature의 모든 조합을 Type-State로 표현하면 공개 타입과 오류가 과도하게 복잡해질 위험이 확인되었습니다.
-
-이 항목은 v0.2.1에서 기능을 제거하지 않는 제한형 Type-State와 명시적 terminal로 보강했고, v0.3에서 단일 `as(mode)` 문법으로 정리했습니다.
+- `isHttpError(error, code?)`와 stable error code 기반 narrowing
+- Standard Schema V1 공식 호환
+- 함수, `parse`, `validate` adapter와 Standard Schema 우선순위 확정
+- 고급 `RequestInit`을 위한 단일 escape hatch RFC
+- native option과 기존 `credentials()`, `cache()`, `signal()` 충돌 규칙
+- `LResponse.request: Request`를 immutable redacted `RequestSnapshot`으로 전환
+- complete root와 대표 JSON 요청 bundle의 별도 측정
+- [마이그레이션 문서](migration-v0.3.md) 갱신
 
 ### 완료 조건
 
-- 하나의 기능을 표현하는 공식 문법이 하나뿐이어야 합니다.
-- Lafetch가 계약으로 정의한 요청 본문 충돌, 닫힌 설정 값, Feature graph 오류는 Transport 실행 전에 구조화된 오류로 실패해야 합니다.
-- Node.js 전체 매트릭스, Chromium, Next.js, Workers/Edge CI가 통과해야 합니다.
-- 독립 소비자가 공개 export와 선언 파일을 소스 경로 없이 사용할 수 있어야 합니다.
+- package 중복과 realm 경계에서도 `unknown` 오류를 stable code로 안전하게 좁힐 수 있어야 합니다.
+- Standard Schema의 sync, async, success, issues와 output type을 실제 validator consumer로 검증해야 합니다.
+- 고급 `RequestInit` 경로가 두 번째 일반 요청 DSL을 만들지 않아야 합니다.
+- `LResponse`를 보관해도 raw upload Body와 원본 credential Header에 접근할 수 없어야 합니다.
+- 전체 runtime matrix와 packed consumer 검증을 유지해야 합니다.
+- complete root는 `48 KiB / 16 KiB gzip`, 대표 요청은 `44 KiB / 14 KiB gzip` 안에 있어야 합니다.
 
-## v0.2.1 — Progressive Builder와 소비 문법
+상세 ID와 판단 근거: [COMP-01~04](improvements.md#p0--공개-계약-보강)
 
-상태: 완료 (`2026-07-25`)
+## v0.4 — Reliability policy 강화
 
-### 목표
+목표: 외부 Store와 높은 동시성에서도 Cache, Deduplication과 Retry를 예측 가능하게 만듭니다.
 
-기능 개수를 줄이지 않고, 평범한 요청이 부담하는 개념과 잘못된 IDE 선택지만 줄입니다.
+### 범위
 
-```ts
-const user = await api.get<User>("/users/123");
-
-const created = await api
-  .post<User>("/users")
-  .json(input)
-  .timeout("5s")
-  .retry(2)
-  .as("json");
-```
-
-### 작업 범위
-
-- GET과 HEAD `LRequest`에서 `json()`, `body()`, `bodyFactory()` 제거
-- 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
-- Request body 허용 여부, buffered 여부, Schema 출력만 내부에서 추적하는 제한형 Type-State
-- 당시 `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal 도입
-- 응답 타입을 모든 HTTP 진입 메서드에서 한 번만 선언하고 terminal의 중복 제네릭 제거
-- 당시 전체 결과 `asResponse()`, Fetch 응답 `asRaw()`로 소비 이름 통일
-- 이 개별 이름은 v0.3의 단일 `as(mode)`로 대체
-- 직접 `await`와 Promise 호환성 유지
-- TypeScript, JavaScript, 실제 tarball 소비 계약 테스트
-- 공개 `LRequest<TData>`에서 내부 Type-State 제네릭 숨김
-- Schema 변환 이후 terminal 반환 타입 일치
-- Cache와 Deduplication 키를 `beforeAttempt` 이후 최종 Request에서 계산
-- unsafe method Cache와 Deduplication에 caller-owned key 강제
-- Buffered 응답 기본 16 MiB 상한과 `maxResponseBytes()` 추가
-- 느리거나 실패한 Telemetry handler와 HTTP 결과 격리
-
-### 완료 조건
-
-- 일반 요청이 Feature 또는 Type-State 개념을 알지 않고 동작해야 합니다.
-- 명시적 `as(mode)` terminal은 실제 Promise를 반환해야 합니다.
-- 확실히 잘못된 조합만 타입에서 제거하고, 상황 의존 정책은 런타임 검증이 담당해야 합니다.
-- 공식 Timeout, Retry, Cache, Deduplication, Idempotency, Validation, Error Mapping, Telemetry 기능을 유지해야 합니다.
-- 전체 브라우저 공개 API가 기존 `12 KiB` gzip 예산을 지켜야 합니다.
-- Cache, Deduplication, 빈 응답, Schema 변환의 타입·런타임 회귀 테스트가 통과해야 합니다.
-
-### 현재 검증 근거
-
-- [PR #18](https://github.com/laflabs-inc/lafetch/pull/18) 병합
-- Node.js 20, 22, 24에서 15개 test file, 98개 test 통과
-- Chromium, Workers/Edge, Next.js App Router, npm tarball 소비 검증 통과
-- 전체 브라우저 공개 API `33,713 bytes` minified, `10,606 bytes` gzip
-- 기존 예산 `36 KiB` minified, `12 KiB` gzip 유지
-
-## v0.3 — Streaming과 본문 안전성
-
-상태: 완료 (`2026-07-26`)
-
-확정 계약: [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md)
-
-### 목표
-
-현재의 Buffered 다중 소비 계약과 진짜 Streaming 소비 계약을 명시적으로 분리하고, 응답 크기에 따른 메모리 위험을 제거합니다.
-
-### 작업 범위
-
-- Streaming 응답 공개 API RFC
-- 개별 `as*()` terminal을 `as("json" | "text" | "bytes" | "blob" | "formData" | "response" | "stream")`으로 통합
-- direct `await`는 `LResponse<T>`, Buffered data mode는 지정한 값을 직접 반환
-- `bytes`와 자동 binary decoding을 `Uint8Array`로 통일
-- 기존 buffered `as("response")`와 새로운 streaming 실행 경로의 책임 분리
-- Streaming terminal 이름과 반환 타입 확정
-- Streaming 응답의 단일 소비와 Request 재사용 규칙
-- v0.2.1의 `maxResponseBytes()`와 Streaming 상한 계약 분리
-- `Content-Length`가 없거나 잘못된 Streaming 응답의 크기 추적
-- 본문 소비 중 전체 Timeout, 시도 Timeout, Abort 처리
-- Streaming 실패와 Retry의 경계
-- 대용량 다운로드와 Streaming 업로드 테스트
-- Cache, Deduplication, Feature finalizer와 Streaming의 충돌 규칙
-- 표준 Response와 ReadableStream을 보존하는 `pipe()`·`forEach()` 편의 계층
-- union 변수도 허용하는 mode-dependent `as(mode)` 반환 타입
-
-### 범위 제외
-
-- v0.2.1 공개 API 전체 재작성 또는 두 번째 공식 DSL
-- Protocol/Contract layer, Server adapter, OpenAPI 생성, Mock framework
-- 알파 내부 코드에 대한 호환 alias와 Migration 작업
-
-### 완료 조건
-
-- Streaming 경로가 전체 응답을 메모리에 보관하지 않아야 합니다.
-- Buffered 경로는 설정된 메모리 상한을 초과할 수 없어야 합니다.
-- Timeout과 Abort가 응답 헤더뿐 아니라 본문 소비 종료까지 일관되게 적용되어야 합니다.
-- Cache, Deduplication, Retry처럼 Streaming과 호환되지 않거나 의미가 달라지는 정책이 타입 또는 실행 전 오류로 명확히 구분되어야 합니다.
-- 전체 브라우저 공개 API가 `48 KiB / 16 KiB gzip` 회귀 예산 안에 있어야 합니다.
-
-### 완료 근거
-
-- 닫힌 generic `as(mode)`와 mode-dependent 반환 타입, JavaScript mode 검증 구현
-- `as("stream"): Promise<LStreamResponse>`와 `LRequest` 단일 소비 소유권 구현
-- 실제 Response·ReadableStream을 유지하는 `pipe()`, text/custom transform, 순차 `forEach()` 구현
-- accepted Body 노출 전 Status Retry, 노출 후 Body 오류 Retry 금지
-- 전체 Timeout, 시도 Timeout, Abort, finalizer를 Body 종료까지 유지
-- 실제 전달 chunk 기준 선택적 `maxResponseBytes()` 적용
-- Schema, Cache, Deduplication 충돌을 TypeScript와 Runtime에서 거부
-- 16개 test file, 122개 core test와 Node.js 20, 22, 24 검증
-- Workers/Edge, Next.js App Router, npm tarball 소비 로컬 검증
-- Chromium Browser Mode와 Next.js App Router 통합 CI 검증
-- 전체 브라우저 공개 API `41,512 bytes` minified, `12,878 bytes` gzip
-- 회귀 예산 `48 KiB` minified, `16 KiB` gzip
-
-## v0.4 — Cache와 Deduplication 프로덕션 강화
-
-### 목표
-
-기본 메모리 구현을 넘어 외부 CacheStore와 높은 동시성에서도 예측 가능한 정책을 제공합니다.
-
-### 작업 범위
-
-- CacheStore 적합성 테스트 확장
-- Store 읽기와 쓰기 실패 처리 정책
-- 명시적인 Cache 무효화와 갱신 계약
+- CacheStore 적합성 테스트와 Store 실패 정책 확대
+- Cache invalidation과 revalidation 계약
 - TTL, `Cache-Control`, `Age` 상호작용 검증
-- Leader와 Follower의 Abort·Timeout 경쟁 상태 확대
-- Deduplication 정리 누락과 메모리 누수 테스트
-- 사용자 정의 키의 테넌트·인증 경계 문서화
-- Next.js Cache Adapter가 사용할 수 있는 기반 인터페이스 검토
+- leader/follower Abort·Timeout 경쟁 상태와 누수 테스트
+- 사용자 key의 tenant·인증 경계 문서화
+- server-directed Retry delay 별도 상한
+- `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙
+- custom Retry predicate와 forced Retry의 method·idempotency gate
 
 ### 완료 조건
 
-- 서로 다른 클라이언트와 테넌트의 응답이 암묵적으로 공유되지 않아야 합니다.
-- Leader 실패나 Follower 취소가 다른 요청을 잘못 취소하지 않아야 합니다.
-- 외부 Store 구현이 공통 적합성 검사를 통과할 수 있어야 합니다.
+- client와 tenant 사이에서 Response가 암묵적으로 공유되지 않아야 합니다.
+- leader 실패나 follower 취소가 다른 요청을 잘못 취소하지 않아야 합니다.
+- 외부 Store가 공통 conformance suite를 통과할 수 있어야 합니다.
+- server delay와 custom predicate가 total Timeout이나 safe method 경계를 우회하지 않아야 합니다.
 
-## v0.5 — Feature SDK 안정화
+## v0.5 — Feature와 Transport SDK
 
-### 목표
+목표: 외부 개발자가 core 내부 구현에 의존하지 않고 안전한 확장을 만들 수 있게 합니다.
 
-외부 개발자가 코어 내부 구현에 의존하지 않고 Feature를 만들 수 있도록 확장 계약을 안정화합니다.
+### 범위
 
-### 작업 범위
-
-- Hook별 입력, 출력, 실패 의미 최종 확정
-- Feature 상태와 공유 Metadata의 변경 가능 범위 명시
-- Feature conformance test 도구
-- Capability 모드와 충돌 규칙의 런타임 검증
-- 순서 그래프 오류 메시지 개선
-- Feature API 호환성 및 버전 정책
-- 공식 Feature와 사용자 Feature의 보안 경계 검토
-- `@laflabs/lafetch/feature` 공개 API 보고서 생성
+- Hook 입력·출력·실패 의미와 상태 변경 범위 확정
+- Feature·Transport conformance 도구
+- Capability와 ordering 오류 개선
+- Abort, Response ownership과 오류 정규화 계약
+- runtime capability metadata
+- 공개 API 변경 감지와 버전 정책
 
 ### 완료 조건
 
-- Feature 실행 순서가 체인 작성 순서나 객체 변경에 따라 우연히 달라지지 않아야 합니다.
-- 잘못된 Feature가 Transport 오류로 오분류되지 않아야 합니다.
-- 공개 Feature 타입 변경을 자동으로 감지할 수 있어야 합니다.
+- Feature 순서가 chain 작성 순서나 외부 객체 변경에 따라 우연히 달라지지 않아야 합니다.
+- Feature 실패를 Transport 오류로 오분류하지 않아야 합니다.
+- custom Transport가 Abort와 Response ownership 적합성 검사를 통과해야 합니다.
 
-## v0.6 — Observability 계약 안정화
+## v0.6 — Observability와 전송 신호
 
-### 목표
+목표: 특정 수집 서비스에 종속되지 않는 관찰 계약과 progress·status error data 경계를 확정합니다.
 
-특정 수집 서비스에 의존하지 않는 요청 관찰 계약을 확정합니다.
+### 범위
 
-### 작업 범위
-
-- Telemetry 이벤트 스키마 버전 관리
-- Retry, Cache, Deduplication 결과를 포함한 실행 Metadata 정리
-- Sampling과 필터링
-- Trace context 전달
-- 범용 Exporter 인터페이스
-- OpenTelemetry 호환성 검토
-- 비동기 Batch와 전송 실패 격리
-- URL, 헤더, 쿼리의 개인정보 제거 정책 확대
-- Browser, Node.js, Edge의 수명주기 차이 검증
-- 현재 `telemetry(handler)` 계약의 v1 최종 형태 결정
+- Telemetry event schema versioning, sampling과 filtering
+- Retry, Cache, Deduplication metadata
+- Trace context와 OpenTelemetry 호환성
+- 비동기 batch와 exporter 실패 격리
+- URL, Header, Query 개인정보 제거 확대
+- Download progress recipe 또는 optional Feature
+- Upload progress runtime capability 판정
+- bounded `HttpStatusError` Body의 data 소비 DX
 
 ### 완료 조건
 
-- 관찰 기능의 실패가 HTTP 요청의 성공과 실패를 바꾸지 않아야 합니다.
-- 요청 본문과 인증 정보가 기본 이벤트에 포함되지 않아야 합니다.
-- 이벤트 스키마가 버전으로 식별되어야 합니다.
+- 관찰 기능 실패가 HTTP 성공과 실패를 바꾸지 않아야 합니다.
+- 요청 Body와 인증 정보가 기본 event에 포함되지 않아야 합니다.
+- progress가 Body backpressure를 깨거나 과도한 event를 생성하지 않아야 합니다.
 
 ## v0.7 — React와 Next.js 선택 모듈
 
-### 목표
-
-코어 패키지를 프레임워크에 종속시키지 않으면서 React와 Next.js의 실행 모델에 맞는 선택 연동을 제공합니다.
-
-### 예상 패키지
+예상 package:
 
 ```text
 @laflabs/lafetch
@@ -280,97 +139,85 @@ const created = await api
 @laflabs/lafetch-next
 ```
 
-### 작업 범위
+범위:
 
-- React 요청 상태 Hook
-- 취소, 재실행, Suspense 연동 여부
-- Server Component와 Client Component 경계
-- Route Handler와 Server Action 사용 패턴
-- Next.js Cache와 Revalidation Adapter
-- 코어 패키지의 React 의존성 부재 검증
-- 선택 모듈을 설치하지 않은 소비자의 번들 회귀 방지
+- React request state와 취소·재실행
+- Suspense 도입 여부
+- Server Component, Client Component, Route Handler와 Server Action 경계
+- Next.js Cache와 Revalidation adapter
 
-### 완료 조건
+완료 조건:
 
-- 코어 패키지는 React와 Next.js를 런타임 의존성으로 가져서는 안 됩니다.
-- 선택 모듈이 코어의 요청·오류·격리 계약을 변경해서는 안 됩니다.
+- core package가 React와 Next.js를 runtime dependency로 가져서는 안 됩니다.
+- 선택 module이 core의 요청, 오류와 격리 계약을 변경해서는 안 됩니다.
 
-## v0.8 — 성능과 보안 강화
+## v0.8 — 성능과 보안
 
-### 목표
+목표: 공개 배포 전에 성능 회귀, 경쟁 상태, 민감 정보 노출과 공급망 위험을 자동 검증합니다.
 
-공개 배포 전 성능 회귀, 경쟁 상태, 민감 정보 노출, 공급망 위험을 자동 검증합니다.
+범위:
 
-### 작업 범위
+- deterministic Transport 기반 request overhead benchmark
+- 정책 수와 Body 크기에 따른 benchmark
+- root와 대표 요청 bundle 예산, tree-shaking
+- Timeout, Abort, Retry Fuzz test
+- 악성 Transport와 Feature 격리
+- 오류·진단·event의 민감 정보 유출 검사
+- dependency와 배포 산출물 점검
+- npm provenance와 재현 가능한 배포
 
-- 요청 경로와 Feature 수에 따른 Benchmark
-- 루트 및 하위 진입점별 번들 예산
-- Tree-shaking 검증
-- Timeout, Abort, Retry 경쟁 상태 Fuzz test
-- 악성 Transport와 Feature 실패 격리 테스트
-- 진단 정보와 오류 직렬화의 민감 정보 유출 검사
-- 의존성 및 배포 산출물 점검
-- npm provenance와 재현 가능한 배포 검토
-- 공개 API 변경 감지 자동화
+완료 조건:
 
-### 완료 조건
-
-- 성능과 번들 크기의 허용 기준이 자동 테스트로 고정되어야 합니다.
-- 민감 정보가 기본 오류, 이벤트, Cache key 외부 표현에 노출되지 않아야 합니다.
-- 배포 산출물이 저장소에서 검증한 코드와 연결되어야 합니다.
+- 성능과 bundle 허용 기준이 재현 가능한 자동 테스트로 고정되어야 합니다.
+- 민감 정보가 기본 오류, event와 외부 Cache key 표현에 노출되지 않아야 합니다.
+- 배포 산출물이 저장소에서 검증한 commit과 연결되어야 합니다.
 
 ## v0.9 — Release Candidate
 
-### 목표
+목표: 신규 기능을 중단하고 v1에서 유지할 계약을 실제 사용 환경에서 검증합니다.
 
-신규 기능을 중단하고 v1.0에서 유지할 계약을 실제 사용자와 배포 환경에서 검증합니다.
+범위:
 
-### 작업 범위
+- 공개 API freeze와 전체 migration guide
+- 실제 프로젝트 beta 적용
+- 지원 runtime, TypeScript와 SemVer 정책 확정
+- 라이선스와 보안 취약점 신고 정책
+- npm pre-release 자동화
+- API 문서와 예제 일치 검사
 
-- 공개 API 동결
-- 실제 프로젝트 베타 적용
-- 전체 마이그레이션 가이드
-- 지원 런타임과 TypeScript 버전 확정
-- SemVer 및 지원 정책
-- 라이선스 확정
-- 보안 취약점 신고 정책
-- npm 배포 자동화와 Pre-release 검증
-- API 문서와 예제의 일치 검사
+완료 조건:
 
-### 완료 조건
-
-- Release Candidate 기간에 중대한 공개 API 변경이 없어야 합니다.
-- 지원 런타임 전체에서 실제 패키지 설치 테스트가 통과해야 합니다.
+- RC 기간에 중대한 공개 API 변경이 없어야 합니다.
+- 지원 runtime 전체에서 실제 package 설치가 통과해야 합니다.
 - 알려진 공개 차단 이슈가 없어야 합니다.
 
 ## v1.0 — Stable Core
 
-v1.0은 기능 개수가 아니라 장기간 유지할 수 있는 계약으로 판단합니다.
+v1.0은 기능 개수가 아니라 장기간 유지 가능한 계약으로 판단합니다.
 
 - 기본 요청 문법을 SemVer 없이 변경하지 않습니다.
-- Buffered와 Streaming 응답 모두 메모리 안전성을 보장합니다.
-- Timeout, Retry, Abort의 생명주기 계약이 고정됩니다.
-- Cache, Deduplication, Feature의 격리 규칙이 고정됩니다.
-- 오류 코드와 Telemetry 이벤트 버전 정책을 제공합니다.
-- 지원 Browser, Node.js, Next.js, Workers/Edge 범위를 명시합니다.
-- npm 공개 패키지, 라이선스, 지원 및 보안 정책을 갖춥니다.
-- 하나 이상의 실제 서비스 적용 사례로 API를 검증합니다.
+- Buffered와 Streaming의 메모리 안전성을 보장합니다.
+- Timeout, Retry와 Abort lifecycle을 고정합니다.
+- Cache, Deduplication과 Feature 격리 규칙을 고정합니다.
+- 오류 code와 Telemetry event versioning을 제공합니다.
+- 지원 runtime과 framework 범위를 명시합니다.
+- 라이선스, npm 배포, 지원과 보안 정책을 갖춥니다.
+- 하나 이상의 실제 서비스 적용으로 API를 검증합니다.
 
-## 웹사이트와 플레이그라운드 단계
+## 웹사이트와 Playground
 
-웹사이트 작업은 v0.9 Release Candidate 이후에 시작합니다. 문서 사이트가 불안정한 API를 먼저 고정하는 수단이 되어서는 안 됩니다.
+문서 사이트와 Playground는 v0.9 RC 이후에 시작합니다. 불안정한 API를 시각적으로 먼저 고정하는 수단으로 사용하지 않습니다.
 
-- 안정된 공개 API에서 자동 생성한 Reference
-- 처음 사용하는 개발자를 위한 최소 예제
-- 안전한 Fixture Transport를 사용하는 브라우저 Playground
-- Timeout, Retry, Cache, Feature 생명주기 시각화
-- 런타임 호환성과 번들 크기 페이지
-- 복사 가능한 실전 Recipe
+- 안정된 공개 API에서 생성한 Reference
+- 최소 시작 예제와 실전 Recipe
+- 안전한 fixture Transport 기반 Browser Playground
+- Timeout, Retry, Cache와 Feature lifecycle 시각화
+- runtime 호환성과 bundle 페이지
 
-## 로드맵 변경 규칙
+## 변경 규칙
 
-- 현재 버전의 완료 조건을 먼저 충족한 뒤 다음 버전으로 이동합니다.
-- 버전 범위를 바꿀 때는 이 문서와 관련 RFC를 함께 갱신합니다.
-- 공개 API를 추가하기 전에 기존 메서드로 표현할 수 있는지 검토합니다.
+- 현재 단계의 완료 조건을 충족한 뒤 다음 단계로 이동합니다.
+- 버전 범위를 바꾸면 이 문서와 관련 RFC를 함께 갱신합니다.
+- API를 추가하기 전에 기존 method로 표현할 수 있는지 검토합니다.
 - 같은 동작을 표현하는 두 번째 공식 문법은 추가하지 않습니다.
-- 웹사이트와 플레이그라운드는 v0.9 이전의 코어 개발보다 우선하지 않습니다.
+- 문제의 근거는 `improvements.md`, 실행 순서는 이 문서에서 관리합니다.
