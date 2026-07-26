@@ -15,4 +15,4 @@ const user = await api
   .retry(3)
   .as("json");
 
-console.log(user.data.name);
+console.log(user.name);

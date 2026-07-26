@@ -45,7 +45,6 @@ export interface LResponse<T = unknown> {
   readonly redirected: boolean;
   readonly type: ResponseType;
   readonly request: Request;
-  readonly response: Response;
   readonly meta: RequestMeta;
 }
 

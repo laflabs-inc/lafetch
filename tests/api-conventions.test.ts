@@ -3,7 +3,6 @@ import * as publicApi from "../src/index.js";
 import {
   lafetch,
   type LRequest,
-  type LResponse,
   type LStreamResponse,
   type ResponseMode,
 } from "../src/index.js";
@@ -89,49 +88,49 @@ describe("public API conventions", () => {
       // @ts-expect-error One mapError() handles request and response failures.
       api.get("/users").mapDecodeError((error: Error) => error);
 
-      expectTypeOf(api.get("/users").as("text")).toEqualTypeOf<Promise<LResponse<string>>>();
+      expectTypeOf(api.get("/users").as("text")).toEqualTypeOf<Promise<string>>();
       expectTypeOf(api.get<{ id: string }>("/users").as("json"))
-        .toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.post<{ id: string }>("/users").as("json"))
-        .toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.put<{ id: string }>("/users/1").as("json"))
-        .toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.patch<{ id: string }>("/users/1").as("json"))
-        .toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.delete<{ id: string }>("/users/1").as("json"))
-        .toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.head<void>("/users").as("json"))
-        .toEqualTypeOf<Promise<LResponse<void>>>();
+        .toEqualTypeOf<Promise<void>>();
       expectTypeOf(api.request<{ id: string }>("QUERY", "/users").as("json"))
-        .toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.get("/users/1").validate({
         parse(value: unknown): { id: string } {
           return value as { id: string };
         },
-      }).as("json")).toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+      }).as("json")).toEqualTypeOf<Promise<{ id: string }>>();
       expectTypeOf(api.get("/users/1").validate({
         parse(value: unknown): { id: string } {
           return value as { id: string };
         },
-      }).as("text")).toEqualTypeOf<Promise<LResponse<{ id: string }>>>();
+      }).as("text")).toEqualTypeOf<Promise<{ id: string }>>();
       // @ts-expect-error A request has exactly one response Schema.
       api.get("/users").validate((value) => value).validate((value) => value);
       // @ts-expect-error Response data types are declared once on the HTTP method.
       api.get("/users").as<{ id: string }>("json");
       expectTypeOf(api.get("/binary").as("bytes"))
-        .toEqualTypeOf<Promise<LResponse<Uint8Array>>>();
+        .toEqualTypeOf<Promise<Uint8Array>>();
       expectTypeOf(api.get("/file").as("blob"))
-        .toEqualTypeOf<Promise<LResponse<Blob>>>();
+        .toEqualTypeOf<Promise<Blob>>();
       expectTypeOf(api.get("/form").as("formData"))
-        .toEqualTypeOf<Promise<LResponse<FormData>>>();
-      // @ts-expect-error Every buffered data path already returns LResponse.
+        .toEqualTypeOf<Promise<FormData>>();
+      // @ts-expect-error The unpublished result mode was removed.
       api.get<{ id: string }>("/users/1").as("result");
       expectTypeOf(api.get("/users").as("response")).toEqualTypeOf<Promise<Response>>();
       expectTypeOf(api.get("/events").as("stream"))
         .toEqualTypeOf<Promise<LStreamResponse>>();
       const responseMode: "json" | "text" = Math.random() > 0.5 ? "json" : "text";
       expectTypeOf(api.get<{ id: string }>("/users").as(responseMode))
-        .toEqualTypeOf<Promise<LResponse<string> | LResponse<{ id: string }>>>();
+        .toEqualTypeOf<Promise<string | { id: string }>>();
       const anyMode = responseMode as ResponseMode;
       api.get<{ id: string }>("/users").as(anyMode);
       // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.

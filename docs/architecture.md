@@ -22,7 +22,7 @@ Application requests have one public grammar:
 client.method(url).configure().policy() -> await LResponse
 ```
 
-Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting an `LRequest` returns an `LResponse` whose `data` is decoded from `Content-Type`. The single `as(mode)` method terminates configuration and returns a real Promise. Data modes explicitly force a decoder while preserving the `LResponse` envelope, `as("response")` returns a retained Fetch Response, and `as("stream")` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting an `LRequest` returns an `LResponse` whose `data` is decoded from `Content-Type`. The single `as(mode)` method terminates configuration and returns a real Promise. Data modes explicitly force a decoder and return its value directly, `as("response")` returns a retained Fetch Response, and `as("stream")` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
 
 ## Public naming
 
@@ -88,7 +88,7 @@ Buffered  = one memoized execution, multiple retained-response consumers
 Streaming = one live execution, one Body owner
 ```
 
-Buffered consumers decode clones of the retained response and receive independent `LResponse` envelopes, `Headers`, and native `Response` clones. The first `as("stream")` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable `LRequest` with a separate execution identity.
+Buffered consumers decode clones of the retained response. Direct `await` consumers receive independent `LResponse` envelopes and `Headers` without retaining another native Body clone, while explicit data modes receive only their decoded or validated value. `as("response")` is the sole Buffered native Response escape hatch. The first `as("stream")` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable `LRequest` with a separate execution identity.
 
 `LRequest` inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, schemas, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
 
@@ -181,7 +181,7 @@ Official Telemetry starts event delivery in lifecycle order but does not seriali
 
 ## Consumption scope
 
-Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding and returns `LResponse<T>`. `as("json" | "text" | "bytes" | "blob" | "formData")` selects one decoder and returns a real `Promise<LResponse<TMode>>`. When a Schema transforms data, its output drives `LResponse.data` at runtime and in TypeScript. Buffered `as("response")` remains outside decoding, validation, and the envelope.
+Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding and returns `LResponse<T>`. `as("json" | "text" | "bytes" | "blob" | "formData")` selects one decoder and returns a real `Promise<TDecoded>`. When a Schema transforms data, its output drives both direct `LResponse.data` and explicit data-mode return values at runtime and in TypeScript. Buffered `as("response")` remains outside decoding, validation, and the envelope.
 
 `as("stream")` selects a separate live execution path before dispatch. It returns `LStreamResponse`, which is the same standard Response instance with additive helpers rather than an envelope or replacement wrapper. It does not run whole-body decoding or Schema validation and maps Body read failures in the response phase. A unified `LRequest.mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
 

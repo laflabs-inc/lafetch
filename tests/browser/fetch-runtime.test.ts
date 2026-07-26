@@ -39,11 +39,11 @@ describe("browser Fetch runtime", () => {
     const api = lafetch.create();
 
     await expect(api.get("/__lafetch_fixture__/text").as("text"))
-      .resolves.toHaveProperty("data", "browser text");
+      .resolves.toBe("browser text");
     await expect(api.get("/__lafetch_fixture__/text").as("bytes"))
-      .resolves.toHaveProperty("data", new TextEncoder().encode("browser text"));
+      .resolves.toEqual(new TextEncoder().encode("browser text"));
     await expect(api.get("/__lafetch_fixture__/empty").as("text"))
-      .resolves.toHaveProperty("data", "");
+      .resolves.toBe("");
   });
 
   it("enforces actual buffered bytes in browser Fetch", async () => {

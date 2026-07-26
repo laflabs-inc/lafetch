@@ -64,7 +64,7 @@ const transport = mockTransport((request) => Response.json({
 }));
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 const result = await api.get("/probe").use(feature).as("json");
-if (result.data.packageProbe !== "yes" || transport.calls.length !== 1) {
+if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
 const streamed = await api.get("/stream").as("stream");
@@ -160,27 +160,27 @@ const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: 
 const client: LClient = api;
 const request: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").use(feature);
 const typedRequest: LRequest<User> = api.get<User>("https://api.example.com/users/1");
-const explicit: Promise<LResponse<User>> = api.get<User>("https://api.example.com/users/1").as("json");
-const methodResults: Promise<LResponse<User>>[] = [
+const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").as("json");
+const methodResults: Promise<User>[] = [
   api.post<User>("https://api.example.com/users").as("json"),
   api.put<User>("https://api.example.com/users/1").as("json"),
   api.patch<User>("https://api.example.com/users/1").as("json"),
   api.delete<User>("https://api.example.com/users/1").as("json"),
   api.request<User>("QUERY", "https://api.example.com/users").as("json"),
 ];
-const headResult: Promise<LResponse<void>> = api.head<void>("https://api.example.com/users").as("json");
+const headResult: Promise<void> = api.head<void>("https://api.example.com/users").as("json");
 const response: Promise<LResponse<User>> = Promise.resolve(
   api.get<User>("https://api.example.com/users/1"),
 );
-const bytes: Promise<LResponse<Uint8Array>> = api.get("https://api.example.com/binary").as("bytes");
+const bytes: Promise<Uint8Array> = api.get("https://api.example.com/binary").as("bytes");
 const bufferedResponse: Promise<Response> = api.get("https://api.example.com/response").as("response");
-const validatedText: Promise<LResponse<number>> = api.get("https://api.example.com/text").validate({
+const validatedText: Promise<number> = api.get("https://api.example.com/text").validate({
   parse(value: unknown): number { return String(value).length; },
 }).as("text");
 const limited: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
 const streaming: Promise<LStreamResponse> = api.get("https://api.example.com/events").as("stream");
 const dynamicMode: "json" | "text" = Math.random() > 0.5 ? "json" : "text";
-const dynamic: Promise<LResponse<User> | LResponse<string>> =
+const dynamic: Promise<User | string> =
   api.get<User>("https://api.example.com/users/1").as(dynamicMode);
 const publicMode: ResponseMode = dynamicMode;
 const consumeTextStream = (stream: LStream<string>): void => { void stream; };
@@ -189,7 +189,7 @@ if (false) {
   api.get("/users").as<User>("json");
   // @ts-expect-error Response modes are a closed public contract.
   api.get("/users").as("xml");
-  // @ts-expect-error Buffered data modes already return LResponse.
+  // @ts-expect-error The unpublished result mode was removed.
   api.get("/users").as("result");
   // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
   api.get("/users").asJson();

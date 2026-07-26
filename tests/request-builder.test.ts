@@ -45,16 +45,32 @@ describe("LRequest", () => {
     expect(first.data).toEqual({ id: "1", name: "Dohyun" });
     expect(second.data).toEqual(first.data);
     expect(first.headers).not.toBe(second.headers);
-    expect(first.response).not.toBe(second.response);
     first.headers.set("X-Consumer", "first");
     expect(second.headers.has("X-Consumer")).toBe(false);
-    const [firstBody, secondBody] = await Promise.all([
-      first.response.json(),
-      second.response.json(),
-    ]);
-    expect(firstBody).toEqual(first.data);
-    expect(secondBody).toEqual(second.data);
+    expect(first).not.toHaveProperty("raw");
+    expect(second).not.toHaveProperty("raw");
     expectTypeOf(first).toEqualTypeOf<LResponse<User>>();
+  });
+
+  it("shares one buffered execution between direct and explicit data consumers", async () => {
+    const transport = mockTransport(() => json({ id: "1", name: "Dohyun" }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+    const request = api.get<User>("/users/1");
+
+    const [response, user, nativeResponse] = await Promise.all([
+      request,
+      request.as("json"),
+      request.as("response"),
+    ]);
+
+    expect(transport.calls).toHaveLength(1);
+    expect(response.data).toEqual(user);
+    expect(await nativeResponse.json()).toEqual(user);
+    expect(response).not.toHaveProperty("raw");
+    expect(response).not.toHaveProperty("response");
+    expectTypeOf(response).toEqualTypeOf<LResponse<User>>();
+    expectTypeOf(user).toEqualTypeOf<User>();
+    expectTypeOf(nativeResponse).toEqualTypeOf<Response>();
   });
 
   it("supports then, catch, and finally like a Promise", async () => {
@@ -92,7 +108,8 @@ describe("LRequest", () => {
     });
     expect(user.headers).toBeInstanceOf(Headers);
     expect(user.request).toBeInstanceOf(Request);
-    expect(user.response).toBeInstanceOf(Response);
+    expect(user).not.toHaveProperty("raw");
+    expect(user).not.toHaveProperty("response");
     expect(user.meta.attempts).toBe(1);
     expect(Object.isFrozen(user)).toBe(true);
     expectTypeOf(user).toEqualTypeOf<LResponse<User>>();
@@ -127,8 +144,8 @@ describe("LRequest", () => {
     const user = await api.get<User>("/users/1").as("json");
 
     expect(automatic.data).toBe(payload);
-    expect(user.data.name).toBe("Dohyun");
-    expectTypeOf(user).toEqualTypeOf<LResponse<User>>();
+    expect(user.name).toBe("Dohyun");
+    expectTypeOf(user).toEqualTypeOf<User>();
   });
 
   it("exposes explicit as(mode) terminals as real Promises", async () => {
@@ -147,11 +164,11 @@ describe("LRequest", () => {
 
     const text = api.get("/text").as("text");
     expect(text).toBeInstanceOf(Promise);
-    expect((await text).data).toBe("hello");
+    expect(await text).toBe("hello");
 
-    expect([...(await api.get("/bytes").as("bytes")).data]).toEqual([1, 2, 3]);
-    expect(await (await api.get("/blob").as("blob")).data.text()).toBe("blob body");
-    expect((await api.get("/form").as("formData")).data.get("name")).toBe("Lafetch");
+    expect([...(await api.get("/bytes").as("bytes"))]).toEqual([1, 2, 3]);
+    expect(await (await api.get("/blob").as("blob")).text()).toBe("blob body");
+    expect((await api.get("/form").as("formData")).get("name")).toBe("Lafetch");
   });
 
   it("keeps fixed terminal return types for empty responses", async () => {
@@ -166,10 +183,10 @@ describe("LRequest", () => {
       transport: mockTransport(() => responses.shift()!),
     });
 
-    expect((await api.get("/empty-text").as("text")).data).toBe("");
-    expect((await api.get("/empty-bytes").as("bytes")).data.byteLength).toBe(0);
-    expect((await api.get("/empty-blob").as("blob")).data.size).toBe(0);
-    expect([...((await api.get("/empty-form").as("formData")).data.entries())]).toEqual([]);
+    expect(await api.get("/empty-text").as("text")).toBe("");
+    expect((await api.get("/empty-bytes").as("bytes")).byteLength).toBe(0);
+    expect((await api.get("/empty-blob").as("blob")).size).toBe(0);
+    expect([...((await api.get("/empty-form").as("formData")).entries())]).toEqual([]);
   });
 
   it("does not discard a body because of an incorrect Content-Length header", async () => {
@@ -181,7 +198,7 @@ describe("LRequest", () => {
     });
 
     await expect(api.get("/incorrect-length").as("text"))
-      .resolves.toHaveProperty("data", "present");
+      .resolves.toBe("present");
   });
 
   it("limits buffered responses using actual received bytes", async () => {
@@ -202,7 +219,7 @@ describe("LRequest", () => {
       receivedBytes: 5,
     });
     await expect(api.get("/exact").maxResponseBytes(5).as("bytes"))
-      .resolves.toHaveProperty("data.byteLength", 5);
+      .resolves.toHaveLength(5);
   });
 
   it("rejects a custom Transport response that violates the byte-stream contract", async () => {

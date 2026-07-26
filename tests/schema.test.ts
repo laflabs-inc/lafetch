@@ -31,8 +31,8 @@ describe("response schema", () => {
     const api = lafetch.create({ transport: mockTransport(() => new Response("hello")) });
     const resultPromise = api.get("https://api.example.com/text").validate(lengthSchema).as("text");
 
-    expectTypeOf(resultPromise).toEqualTypeOf<Promise<LResponse<number>>>();
-    await expect(resultPromise).resolves.toHaveProperty("data", 5);
+    expectTypeOf(resultPromise).toEqualTypeOf<Promise<number>>();
+    await expect(resultPromise).resolves.toBe(5);
   });
 
   it("snapshots an object schema when it is attached to an LRequest", async () => {

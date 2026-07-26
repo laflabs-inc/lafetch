@@ -16,7 +16,7 @@ Each immutable `LRequest` owns one memoized, size-limited raw execution. Every d
 2. optional `validate()` parsing, validation, or transformation;
 3. unified final `mapError()` handling when either execution or consumption fails.
 
-Direct `await` returns `LResponse<T>` with automatically decoded `data`. The single `as(mode)` terminal selects one decoder or response ownership model and returns a real Promise. Data modes return the same `LResponse` envelope with a forced decoder. `as("response")` returns a retained Response clone and bypasses decoding and validation. `as("stream")` selects the separate live single-owner path defined by the v0.3 RFC.
+Direct `await` returns `LResponse<T>` with automatically decoded `data`. The single `as(mode)` terminal selects one decoder or response ownership model and returns a real Promise. Data modes return their decoded or Schema-transformed value directly. `as("response")` returns a retained Response clone and bypasses decoding and validation. `as("stream")` selects the separate live single-owner path defined by the v0.3 RFC.
 
 Schemas may be functions, objects with `parse(value)`, or objects with `validate(value)`. They may return transformed values, booleans, or value/issues result objects. Schema failures become `HttpSchemaError` unless already represented by that type. A transformed Schema output also drives the terminal TypeScript return type; fixed decoder types are used only when no Schema is configured.
 
@@ -25,6 +25,7 @@ Explicit text, bytes, Blob, and FormData decoders preserve their fixed return ty
 ## Consequences
 
 - the common JSON path has no terminal decoder ceremony and always retains HTTP context;
+- an explicit data mode returns exactly the value whose format the caller selected;
 - invalid data is never retried as a network failure;
 - one error mapper can convert Transport, status, decoding, and schema failures;
 - multiple consumers remain isolated through Response clones;

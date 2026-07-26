@@ -115,9 +115,9 @@ const { data: user } = await api
 
 TypeScript에서 차단한 조합은 JavaScript에서도 요청 선언 시 `HttpConfigurationError`로 실패하며 Transport에 도달하지 않습니다. 세부 정책 충돌은 Feature Runtime이 실행 전에 검증하므로 고급 기능을 타입 상태로 과도하게 누적하지 않습니다.
 
-## 일관된 LResponse
+## 기본 LResponse
 
-모든 Buffered 데이터 소비는 `LResponse<T>`를 반환합니다.
+`LRequest`를 직접 `await`하면 `LResponse<T>`를 반환합니다.
 
 ```ts
 const response = await api
@@ -128,10 +128,9 @@ response.ok;
 response.status;
 response.headers;
 response.meta.attempts;
-response.response; // 독립적인 native Response clone
 ```
 
-`LResponse`는 Body가 이미 디코딩된 envelope이므로 native `Response`를 상속하지 않습니다. Fetch `Response`만 직접 필요하면 `as("response")`를 사용합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
+`LResponse`는 Body가 이미 디코딩된 envelope이므로 native `Response`를 상속하거나 원본 Body를 중복 보관하지 않습니다. Fetch `Response`가 필요하면 요청을 `as("response")`로 종료합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
 
 실시간 Body가 필요하면 `as("stream")`을 사용합니다.
 
@@ -162,26 +161,27 @@ await response.pipe("text").forEach((chunk) => {
 | 문법 | 동작 | 권장 사용처 |
 | --- | --- | --- |
 | `await request` | `Content-Type`으로 `.data`를 자동 디코딩한 `LResponse` | 일반 요청 |
-| `request.as("json")` | Header와 무관하게 JSON decoding을 강제한 `LResponse` | 잘못된 `Content-Type`을 보내는 API |
+| `request.as("json")` | Header와 무관하게 JSON decoding을 강제하고 값을 직접 반환 | 잘못된 `Content-Type`을 보내는 API |
+| `request.as(dataMode)` | 지정 형식의 값을 직접 반환 | text·bytes·blob·formData가 필요할 때 |
 | `request.as("response")` | Buffered Fetch `Response` | 표준 `Response`를 직접 다룰 때 |
 | `request.as("stream")` | live Fetch `Response` | Body를 실시간 소비할 때 |
 
 예를 들어 서버가 JSON Body를 `text/plain`으로 잘못 표시할 때만 decoder를 강제합니다.
 
 ```ts
-const { data: user } = await api.get<User>("/legacy/users/123").as("json");
-const { data: health } = await api.get("/health").as("text");
-const { data: bytes } = await api.get("/files/1").as("bytes");
-const { data: file } = await api.get("/files/1").as("blob");
+const user: User = await api.get<User>("/legacy/users/123").as("json");
+const health: string = await api.get("/health").as("text");
+const bytes: Uint8Array = await api.get("/files/1").as("bytes");
+const file: Blob = await api.get("/files/1").as("blob");
 ```
 
-`as(mode)`는 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실도 분명합니다.
+`as(mode)`는 결과 형식과 함께 반환 형태까지 명시하는 실제 `Promise` terminal입니다. 데이터 mode를 선택했다면 `.data`를 한 번 더 거치지 않습니다.
 
 응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `as<T>(mode)` 같은 타입 단언 문법은 제공하지 않으므로 서로 다른 타입을 중복 선언할 수 없습니다.
 
-`validate(schema)`가 값을 변환하면 이후 `LResponse.data`의 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
+`validate(schema)`가 값을 변환하면 직접 `await`의 `LResponse.data`와 data mode의 직접 반환 타입이 모두 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
 
-지원 모드는 `json`, `text`, `bytes`, `blob`, `formData`, `response`, `stream`입니다. 앞의 다섯 mode는 decoder를 강제한 `LResponse`를 반환하고, 뒤의 두 mode는 native Fetch 응답 소유권을 선택합니다. 알 수 없는 mode는 Transport 실행 전에 거부합니다.
+지원 모드는 `json`, `text`, `bytes`, `blob`, `formData`, `response`, `stream`입니다. 앞의 다섯 mode는 decoder 결과를 직접 반환하고, 뒤의 두 mode는 native Fetch 응답 소유권을 선택합니다. 알 수 없는 mode는 Transport 실행 전에 거부합니다.
 
 ## 주요 기능
 
