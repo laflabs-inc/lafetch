@@ -229,6 +229,7 @@ await api.get<User>("/users/123").retry(2, {
   statuses: [408, 429, 500, 502, 503, 504],
   networkErrors: true,
   respectRetryAfter: true,
+  maxRetryAfter: "1m",
   backoff: {
     type: "exponential",
     base: "200ms",
@@ -241,6 +242,10 @@ await api.get<User>("/users/123").retry(2, {
 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다. 전체 Timeout과 사용자 Abort는 최종 실패이며, 허용된 메서드의 개별 시도 Timeout은 재시도할 수 있습니다.
 
 Backoff `type`은 `"fixed"` 또는 `"exponential"`, `jitter`는 `"none"` 또는 `"full"`만 허용합니다. v0.1의 축약형 `backoff: "fixed"`는 더 이상 허용하지 않습니다. 잘못된 값과 객체 형태는 기본값으로 대체하지 않고 요청 선언 시 `HttpConfigurationError`를 발생시킵니다.
+
+`Retry-After`의 delay-seconds와 HTTP-date는 기본적으로 따르지만 일반 Backoff의 `max`와는 별도 정책입니다. `maxRetryAfter`의 기본값은 1분입니다. 서버가 이보다 긴 대기를 요구하면 상한만큼 기다렸다가 일찍 재시도하지 않고 해당 응답을 최종 결과로 처리합니다. 잘못된 `Retry-After`는 무시하고 일반 Backoff를 사용하며, `respectRetryAfter: false`로 server-directed delay를 끌 수 있습니다.
+
+RateLimit Header는 아직 active Internet-Draft이므로 자동 재시도 신호로 해석하지 않습니다. `X-RateLimit-*` 같은 비표준 Header도 core에서 자동 처리하지 않습니다. 현재 결정과 남은 custom predicate 범위는 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)에 정리합니다.
 
 기존 `ReadableStream`은 다시 재생할 수 없습니다. 재시도마다 새로운 본문을 만들 수 있을 때만 `bodyFactory()`를 사용합니다.
 

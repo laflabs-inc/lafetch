@@ -36,6 +36,7 @@ export interface RetryOptions {
   readonly statuses?: readonly number[];
   readonly networkErrors?: boolean;
   readonly respectRetryAfter?: boolean;
+  readonly maxRetryAfter?: Duration;
   readonly backoff?: BackoffOptions;
 }
 

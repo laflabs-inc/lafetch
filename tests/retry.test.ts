@@ -46,6 +46,146 @@ describe("retry", () => {
     expect(attempt).toBe(2);
   });
 
+  it("keeps Retry-After independent from the exponential backoff ceiling", async () => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", { status: 503, headers: { "Retry-After": "2" } })
+          : success();
+      }),
+      runtime: {
+        now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    const result = await api.get<{ ok: boolean }>("/health").retry(1, {
+      maxRetryAfter: "3s",
+      backoff: { type: "fixed", base: 10, max: 10, jitter: "none" },
+    });
+
+    expect(result.data.ok).toBe(true);
+    expect(delays).toEqual([2_000]);
+  });
+
+  it("does not retry earlier than a Retry-After value above the configured ceiling", async () => {
+    const delays: number[] = [];
+    const transport = mockTransport(() =>
+      new Response("unavailable", { status: 503, headers: { "Retry-After": "2" } }));
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+      runtime: {
+        now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await expect(api.get("/health").retry(2, {
+      maxRetryAfter: "1s",
+      backoff: { type: "fixed", base: 10, jitter: "none" },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(delays).toEqual([]);
+  });
+
+  it("uses HTTP-date Retry-After values relative to the runtime clock", async () => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const now = Date.parse("2026-07-26T10:00:00.000Z");
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", {
+            status: 503,
+            headers: { "Retry-After": "Sun, 26 Jul 2026 10:00:03 GMT" },
+          })
+          : success();
+      }),
+      runtime: {
+        now: () => now,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await api.get("/health").retry(1, { maxRetryAfter: "5s" });
+
+    expect(delays).toEqual([3_000]);
+  });
+
+  it("falls back to backoff for malformed Retry-After values", async () => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", { status: 503, headers: { "Retry-After": "-1" } })
+          : success();
+      }),
+      runtime: {
+        now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await api.get("/health").retry(1, {
+      maxRetryAfter: 0,
+      backoff: { type: "fixed", base: 25, jitter: "none" },
+    });
+
+    expect(delays).toEqual([25]);
+  });
+
+  it("can ignore Retry-After without changing the backoff policy", async () => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", { status: 503, headers: { "Retry-After": "2" } })
+          : success();
+      }),
+      runtime: {
+        now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await api.get("/health").retry(1, {
+      respectRetryAfter: false,
+      maxRetryAfter: 0,
+      backoff: { type: "fixed", base: 25, jitter: "none" },
+    });
+
+    expect(delays).toEqual([25]);
+  });
+
+  it("lets the total timeout cancel a server-directed retry delay", async () => {
+    const transport = mockTransport(() =>
+      new Response("unavailable", { status: 503, headers: { "Retry-After": "2" } }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").timeout("10ms").retry(1, { maxRetryAfter: "3s" }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "total" });
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("retries transport errors", async () => {
     let attempt = 0;
     const transport = mockTransport(() => {

@@ -38,6 +38,7 @@ interface NormalizedRetry {
   readonly statuses: ReadonlySet<number>;
   readonly networkErrors: boolean;
   readonly respectRetryAfter: boolean;
+  readonly maxRetryAfterMs: number;
   readonly backoffType: "fixed" | "exponential";
   readonly baseMs: number;
   readonly maxMs: number;
@@ -46,6 +47,7 @@ interface NormalizedRetry {
 
 const DEFAULT_RETRY_METHODS = ["GET", "HEAD", "OPTIONS"];
 const DEFAULT_RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
+const DEFAULT_MAX_RETRY_AFTER_MS = 60_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const INVALID_BODY_CHUNK = "The HTTP response body produced a non-byte chunk.";
 const MISSING_EXECUTION = "The HTTP request completed without an execution result.";
@@ -74,6 +76,9 @@ function normalizeRetry(
     statuses: new Set(options.statuses ?? DEFAULT_RETRY_STATUSES),
     networkErrors: options.networkErrors ?? true,
     respectRetryAfter: options.respectRetryAfter ?? true,
+    maxRetryAfterMs: options.maxRetryAfter === undefined
+      ? DEFAULT_MAX_RETRY_AFTER_MS
+      : durationToMs(options.maxRetryAfter, "retry.maxRetryAfter"),
     backoffType: backoff.type ?? "exponential",
     baseMs: backoff.base === undefined ? 200 : durationToMs(backoff.base, "retry.backoff.base"),
     maxMs: backoff.max === undefined ? 10_000 : durationToMs(backoff.max, "retry.backoff.max"),
@@ -104,8 +109,14 @@ function isAcceptedStatus(status: number, matcher: RequestConfiguration["acceptS
 function retryAfterMs(response: Response, now: number): number | undefined {
   const value = response.headers.get("retry-after");
   if (!value) return undefined;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  if (/^\d+$/.test(value)) {
+    const seconds = Number(value);
+    return Number.isFinite(seconds) ? seconds * 1_000 : undefined;
+  }
+  // All three HTTP-date formats contain a time component. This guard keeps
+  // permissive Date.parse implementations from treating values such as "-1"
+  // as a date while preserving IMF-fixdate and the two obsolete wire formats.
+  if (!value.includes(":") || !/[A-Za-z]/.test(value)) return undefined;
   const date = Date.parse(value);
   if (Number.isNaN(date)) return undefined;
   return Math.max(0, date - now);
@@ -117,10 +128,12 @@ function retryDelay(
   random: number,
   response?: Response,
   now = Date.now(),
-): number {
+): number | undefined {
   if (response && retry.respectRetryAfter) {
     const headerDelay = retryAfterMs(response, now);
-    if (headerDelay !== undefined) return Math.min(headerDelay, retry.maxMs);
+    if (headerDelay !== undefined) {
+      return headerDelay <= retry.maxRetryAfterMs ? headerDelay : undefined;
+    }
   }
   const raw = retry.backoffType === "fixed" ? retry.baseMs : retry.baseMs * 2 ** Math.max(0, failedAttempt - 1);
   const capped = Math.min(raw, retry.maxMs);
@@ -672,9 +685,15 @@ async function execute(
         }));
 
         const accepted = isAcceptedStatus(response.status, config.acceptStatus);
-        const willRetry = !accepted && retry.statuses.has(response.status) && canRetry(retry, attemptDraft.method, attempt);
+        const retryEligible =
+          !accepted
+          && retry.statuses.has(response.status)
+          && canRetry(retry, attemptDraft.method, attempt);
+        const delay = retryEligible
+          ? retryDelay(retry, attempt, config.runtime.random(), response, config.runtime.now())
+          : undefined;
+        const willRetry = retryEligible && delay !== undefined;
         if (willRetry) {
-          const delay = retryDelay(retry, attempt, config.runtime.random(), response, config.runtime.now());
           const statusError = new HttpStatusError(response, { request });
           await reportAttemptError(featureRuntime, config, {
             request,

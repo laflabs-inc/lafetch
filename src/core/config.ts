@@ -32,6 +32,7 @@ function snapshotRetryOptions(options: RetryOptions): RetryOptions {
     ...(options.statuses !== undefined ? { statuses: Object.freeze([...options.statuses]) } : {}),
     ...(options.networkErrors !== undefined ? { networkErrors: options.networkErrors } : {}),
     ...(options.respectRetryAfter !== undefined ? { respectRetryAfter: options.respectRetryAfter } : {}),
+    ...(options.maxRetryAfter !== undefined ? { maxRetryAfter: options.maxRetryAfter } : {}),
     ...(options.backoff !== undefined ? { backoff: Object.freeze({ ...options.backoff }) } : {}),
   });
 }
