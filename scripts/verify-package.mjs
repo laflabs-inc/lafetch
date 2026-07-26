@@ -47,12 +47,28 @@ try {
 
   const tarball = join(packageDirectory, packResult.filename);
   run("npm", ["init", "--yes"], consumerDirectory);
-  run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], consumerDirectory);
+  run("npm", [
+    "install",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--package-lock=false",
+    tarball,
+    join(root, "node_modules", "valibot"),
+    join(root, "node_modules", "zod"),
+  ], consumerDirectory);
 
   writeFileSync(join(consumerDirectory, "runtime.mjs"), `
-import { HttpConfigurationError, HttpResponseTooLargeError, lafetch } from "@laflabs/lafetch";
+import {
+  HttpConfigurationError,
+  HttpResponseTooLargeError,
+  isHttpError,
+  lafetch,
+} from "@laflabs/lafetch";
 import { defineFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
+import * as v from "valibot";
+import * as z from "zod";
 
 const feature = defineFeature({
   name: "package-probe",
@@ -77,6 +93,18 @@ if (JSON.parse(streamedText).packageProbe !== null || transport.calls.length !==
 if (typeof HttpResponseTooLargeError !== "function") {
   throw new Error("Packed response-size error export is missing.");
 }
+if (!isHttpError(new HttpResponseTooLargeError(1, 2), "ERR_HTTP_RESPONSE_TOO_LARGE")) {
+  throw new Error("Packed stable error guard did not recognize a Lafetch error.");
+}
+const zodResult = await api.get("/zod").validate(
+  z.object({ packageProbe: z.string().nullable() }),
+).as("json");
+const valibotResult = await api.get("/valibot").validate(
+  v.object({ packageProbe: v.nullable(v.string()) }),
+).as("json");
+if (zodResult.packageProbe !== null || valibotResult.packageProbe !== null) {
+  throw new Error("Packed Standard Schema validation did not execute correctly.");
+}
 try {
   await api.get("/invalid-mode").as("xml");
   throw new Error("Unknown packed-package response mode was accepted.");
@@ -89,7 +117,7 @@ try {
 } catch (error) {
   if (!(error instanceof HttpConfigurationError)) throw error;
 }
-if (transport.calls.length !== 2) {
+if (transport.calls.length !== 4) {
   throw new Error("Unknown response mode reached the packed Transport.");
 }
 
@@ -117,6 +145,8 @@ const invalidConfigurations = [
   () => api.get("/probe").signal(null),
   () => api.get("/probe").query(null),
   () => api.get("/probe").validate(null),
+  () => api.get("/probe").requestInit({ method: "POST" }),
+  () => api.get("/probe").requestInit({ cache: "only-if-cached" }),
   () => api.get("/probe").mapError(null),
   () => api.get("/probe").use(null),
   () => api.get("/probe").cache("1m", null),
@@ -136,12 +166,14 @@ for (const configure of invalidConfigurations) {
     if (!(error instanceof HttpConfigurationError)) throw error;
   }
 }
-if (transport.calls.length !== 2) throw new Error("Invalid configuration reached the packed Transport.");
+if (transport.calls.length !== 4) throw new Error("Invalid configuration reached the packed Transport.");
 `);
   run(process.execPath, ["runtime.mjs"], consumerDirectory);
 
   writeFileSync(join(consumerDirectory, "consumer.ts"), `
 import {
+  HttpTimeoutError,
+  isHttpError,
   lafetch,
   type LClient,
   type LRequest,
@@ -149,9 +181,12 @@ import {
   type LStream,
   type LStreamResponse,
   type ResponseMode,
+  type RequestSnapshot,
 } from "@laflabs/lafetch";
 import { defineFeature, type RequestFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
+import * as v from "valibot";
+import * as z from "zod";
 
 interface User { id: string }
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
@@ -176,13 +211,30 @@ const bufferedResponse: Promise<Response> = api.get("https://api.example.com/res
 const validatedText: Promise<number> = api.get("https://api.example.com/text").validate({
   parse(value: unknown): number { return String(value).length; },
 }).as("text");
+const zodValidated: Promise<User> = api
+  .get("https://api.example.com/user")
+  .validate(z.object({ id: z.string() }))
+  .as("json");
+const valibotValidated: Promise<User> = api
+  .get("https://api.example.com/user")
+  .validate(v.object({ id: v.string() }))
+  .as("json");
 const limited: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
+const advanced: PromiseLike<LResponse<User>> = api
+  .get<User>("https://api.example.com/users/1")
+  .requestInit({ redirect: "manual", priority: "high" });
 const streaming: Promise<LStreamResponse> = api.get("https://api.example.com/events").as("stream");
 const dynamicMode: "json" | "text" = Math.random() > 0.5 ? "json" : "text";
 const dynamic: Promise<User | string> =
   api.get<User>("https://api.example.com/users/1").as(dynamicMode);
 const publicMode: ResponseMode = dynamicMode;
 const consumeTextStream = (stream: LStream<string>): void => { void stream; };
+const inspectSnapshot = (value: LResponse<User>): RequestSnapshot => value.request;
+const caught: unknown = new HttpTimeoutError("total", 1_000);
+if (isHttpError(caught, "ERR_HTTP_TIMEOUT")) {
+  const timeoutMs: number = caught.timeoutMs;
+  void timeoutMs;
+}
 if (false) {
   // @ts-expect-error Response data types are declared on the HTTP method, not as().
   api.get("/users").as<User>("json");
@@ -210,6 +262,10 @@ if (false) {
   api.get("/users").credentials("cross-origin");
   // @ts-expect-error Client credentials use the Fetch standard values.
   lafetch.create({ credentials: "cross-origin" });
+  // @ts-expect-error Request method uses the LClient entry point.
+  api.get("/users").requestInit({ method: "POST" });
+  // @ts-expect-error Request signals use signal().
+  api.get("/users").requestInit({ signal: AbortSignal.timeout(1_000) });
   // @ts-expect-error Backoff types are a closed public contract.
   api.get("/users").retry(1, { backoff: { type: "linear" } });
   // @ts-expect-error Jitter types are a closed public contract.
@@ -231,11 +287,15 @@ void response;
 void bytes;
 void bufferedResponse;
 void validatedText;
+void zodValidated;
+void valibotValidated;
 void limited;
+void advanced;
 void streaming;
 void dynamic;
 void publicMode;
 void consumeTextStream;
+void inspectSnapshot;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
     compilerOptions: {
@@ -257,7 +317,7 @@ void consumeTextStream;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.3.0-alpha.0") {
+  if (installedPackage.version !== "0.3.1-alpha.0") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {

@@ -1,6 +1,7 @@
 import { HttpConfigurationError } from "./errors.js";
 import { durationToMs } from "./duration.js";
 import type {
+  AdvancedRequestInit,
   BackoffType,
   CapabilityMode,
   JitterType,
@@ -10,6 +11,31 @@ import type {
   StatusMatcher,
 } from "./types.js";
 
+const REQUEST_CACHE = ["default", "force-cache", "no-cache", "no-store", "only-if-cached", "reload"] as const;
+const REQUEST_MODE = ["cors", "no-cors", "same-origin"] as const;
+const REQUEST_PRIORITY = ["auto", "high", "low"] as const;
+const REQUEST_REDIRECT = ["error", "follow", "manual"] as const;
+const REFERRER_POLICY = [
+  "",
+  "no-referrer",
+  "no-referrer-when-downgrade",
+  "origin",
+  "origin-when-cross-origin",
+  "same-origin",
+  "strict-origin",
+  "strict-origin-when-cross-origin",
+  "unsafe-url",
+] as const;
+const ADVANCED_REQUEST_INIT_KEYS = new Set([
+  "cache",
+  "integrity",
+  "keepalive",
+  "mode",
+  "priority",
+  "redirect",
+  "referrer",
+  "referrerPolicy",
+]);
 const REQUEST_CREDENTIALS = ["omit", "same-origin", "include"] as const;
 const BACKOFF_TYPES = ["fixed", "exponential"] as const;
 const JITTER_TYPES = ["none", "full"] as const;
@@ -78,6 +104,63 @@ function isQueryPrimitive(value: unknown): value is QueryPrimitive {
 
 export function validateRequestCredentials(value: unknown, label: string): RequestCredentials {
   return closedString(value, REQUEST_CREDENTIALS, label);
+}
+
+export function validateAdvancedRequestInit(
+  value: unknown,
+  validateCombination = true,
+): AdvancedRequestInit {
+  if (!isOptionsObject(value)) {
+    configurationError("requestInit() value", "an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (!ADVANCED_REQUEST_INIT_KEYS.has(key)) {
+      throw new HttpConfigurationError(
+        `requestInit() does not allow "${key}". Use the dedicated Lafetch request method instead.`,
+      );
+    }
+  }
+
+  const cache = value.cache === undefined
+    ? undefined
+    : closedString(value.cache, REQUEST_CACHE, "requestInit.cache");
+  const mode = value.mode === undefined
+    ? undefined
+    : closedString(value.mode, REQUEST_MODE, "requestInit.mode");
+  const priority = value.priority === undefined
+    ? undefined
+    : closedString(value.priority, REQUEST_PRIORITY, "requestInit.priority");
+  const redirect = value.redirect === undefined
+    ? undefined
+    : closedString(value.redirect, REQUEST_REDIRECT, "requestInit.redirect");
+  const referrerPolicy = value.referrerPolicy === undefined
+    ? undefined
+    : closedString(value.referrerPolicy, REFERRER_POLICY, "requestInit.referrerPolicy");
+  if (value.integrity !== undefined && typeof value.integrity !== "string") {
+    configurationError("requestInit.integrity", "a string");
+  }
+  if (value.keepalive !== undefined) {
+    validateBoolean(value.keepalive, "requestInit.keepalive");
+  }
+  if (value.referrer !== undefined && typeof value.referrer !== "string") {
+    configurationError("requestInit.referrer", "a string");
+  }
+  if (validateCombination && cache === "only-if-cached" && mode !== "same-origin") {
+    throw new HttpConfigurationError(
+      'requestInit.cache "only-if-cached" requires requestInit.mode "same-origin".',
+    );
+  }
+
+  return Object.freeze({
+    ...(cache !== undefined ? { cache } : {}),
+    ...(value.integrity !== undefined ? { integrity: value.integrity } : {}),
+    ...(value.keepalive !== undefined ? { keepalive: value.keepalive } : {}),
+    ...(mode !== undefined ? { mode } : {}),
+    ...(priority !== undefined ? { priority } : {}),
+    ...(redirect !== undefined ? { redirect } : {}),
+    ...(value.referrer !== undefined ? { referrer: value.referrer } : {}),
+    ...(referrerPolicy !== undefined ? { referrerPolicy } : {}),
+  });
 }
 
 export function validateBackoffType(value: unknown): BackoffType {

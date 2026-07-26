@@ -15,6 +15,7 @@
 | [Cache와 Deduplication](cache-deduplication.md) | 키, Store, leader/follower 소유권 |
 | [런타임 호환성](runtime-compatibility.md) | 지원 환경과 자동 검증 범위 |
 | [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md) | Buffered/Streaming 응답 소유권의 확정 결정 |
+| [v0.3.1 공개 계약 보강 RFC](rfcs/v0.3.1-public-contract.md) | Error guard, Standard Schema, `RequestInit`과 요청 snapshot |
 
 ## 계획과 평가
 

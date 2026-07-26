@@ -1,6 +1,6 @@
 {
   "name": "@laflabs/lafetch",
-  "version": "0.3.0-alpha.0",
+  "version": "0.3.1-alpha.0",
   "description": "A data-first TypeScript HTTP client with readable reliability policies.",
   "type": "module",
   "packageManager": "pnpm@10.13.1",
@@ -54,6 +54,8 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "valibot": "^1.4.2",
+    "vitest": "4.1.10",
+    "zod": "^4.4.3"
   }
 }

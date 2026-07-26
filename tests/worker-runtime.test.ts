@@ -33,6 +33,8 @@ describe("Workers/Edge runtime", () => {
     expect(await response.json()).toEqual({
       calls: 2,
       processGlobal: false,
+      requestCache: "no-store",
+      requestRedirect: "manual",
       streamed: "worker stream",
     });
   });

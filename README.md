@@ -6,7 +6,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 소스 버전은 `0.3.0-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.3.1-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -127,10 +127,11 @@ response.data;
 response.ok;
 response.status;
 response.headers;
+response.request;       // redacted RequestSnapshot
 response.meta.attempts;
 ```
 
-`LResponse`는 Body가 이미 디코딩된 envelope이므로 native `Response`를 상속하거나 원본 Body를 중복 보관하지 않습니다. Fetch `Response`가 필요하면 요청을 `as("response")`로 종료합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
+`LResponse`는 Body가 이미 디코딩된 envelope이므로 native `Response`를 상속하거나 원본 Body를 중복 보관하지 않습니다. `response.request`도 upload Body와 원본 credential Header 대신 redacted `RequestSnapshot`을 제공합니다. Fetch `Response`가 필요하면 요청을 `as("response")`로 종료합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
 
 실시간 Body가 필요하면 `as("stream")`을 사용합니다.
 
@@ -179,7 +180,7 @@ const file: Blob = await api.get("/files/1").as("blob");
 
 응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `as<T>(mode)` 같은 타입 단언 문법은 제공하지 않으므로 서로 다른 타입을 중복 선언할 수 없습니다.
 
-`validate(schema)`가 값을 변환하면 직접 `await`의 `LResponse.data`와 data mode의 직접 반환 타입이 모두 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
+`validate(schema)`는 Standard Schema V1과 기존 function·`parse`·`validate` adapter를 지원합니다. Schema가 값을 변환하면 직접 `await`의 `LResponse.data`와 data mode의 직접 반환 타입이 모두 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
 
 지원 모드는 `json`, `text`, `bytes`, `blob`, `formData`, `response`, `stream`입니다. 앞의 다섯 mode는 decoder 결과를 직접 반환하고, 뒤의 두 mode는 native Fetch 응답 소유권을 선택합니다. 알 수 없는 mode는 Transport 실행 전에 거부합니다.
 
@@ -189,6 +190,7 @@ const file: Blob = await api.get("/files/1").as("blob");
 | --- | --- | --- |
 | Query | `.query({ page: 1 })` | URL 쿼리 구성 |
 | Headers | `.header("X-Key", value)` | 요청 헤더 구성 |
+| Native Fetch options | `.requestInit({ redirect: "manual" })` | 고급 `RequestInit` 전달 |
 | JSON Body | `.json(value)` | JSON 직렬화와 Content-Type 설정 |
 | Timeout | `.timeout("3s")` | 전체 요청 제한 시간 |
 | Attempt Timeout | `.attemptTimeout("1s")` | 개별 시도 제한 시간 |
@@ -236,6 +238,20 @@ const file: Blob = await api.get("/files/1").as("blob");
 
 하나의 `.mapError()`가 요청 실행과 응답 소비의 최종 실패를 모두 처리합니다. 재시도 판단이 끝난 뒤 오류를 변환하므로 도메인 오류 매핑이 재시도 안전성을 바꾸지 않습니다.
 
+`catch`의 `unknown` 오류는 하나의 stable guard로 좁힙니다.
+
+```ts
+import { isHttpError } from "@laflabs/lafetch";
+
+try {
+  await api.get("/users/1").timeout("1s");
+} catch (error) {
+  if (isHttpError(error, "ERR_HTTP_TIMEOUT")) {
+    console.log(error.scope, error.timeoutMs);
+  }
+}
+```
+
 ## 실행 환경
 
 | 환경 | 자동 검증 |
@@ -278,8 +294,8 @@ pnpm check:runtimes
 
 ## 현재 상태
 
-현재 소스 후보는 `0.3.0-alpha.0`입니다. 응답 terminal을 단일 `as(mode)` 문법으로 통합했고, `as("stream")`의 단일 소비, Body 종료까지 이어지는 Timeout·Abort·finalize, 노출 이후 Retry 금지, Cache·Deduplication 충돌 규칙을 구현했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 통과했습니다.
+현재 소스 후보는 `0.3.1-alpha.0`입니다. 응답 terminal과 Streaming lifecycle에 더해 stable error narrowing, Standard Schema V1, 고급 `requestInit()`과 redacted `RequestSnapshot`까지 구현했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 통과했습니다.
 
-다음 단계는 v0.3.1 공개 계약 보강입니다. Error narrowing, Standard Schema V1, 고급 `RequestInit` 전달 경로와 `LResponse.request`의 redacted snapshot 전환을 API 동결 전에 처리합니다.
+다음 단계는 v0.4 Reliability policy 강화입니다. Cache Store 적합성, revalidation, 높은 동시성의 Deduplication과 adaptive Retry 경계를 확정합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

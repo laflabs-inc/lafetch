@@ -107,7 +107,12 @@ describe("LRequest", () => {
       type: "default",
     });
     expect(user.headers).toBeInstanceOf(Headers);
-    expect(user.request).toBeInstanceOf(Request);
+    expect(user.request).toEqual({
+      method: "GET",
+      url: "https://api.example.com/users/1",
+      headers: {},
+    });
+    expect(user.request).not.toBeInstanceOf(Request);
     expect(user).not.toHaveProperty("raw");
     expect(user).not.toHaveProperty("response");
     expect(user.meta.attempts).toBe(1);
@@ -260,6 +265,91 @@ describe("LRequest", () => {
     expect(() => api.get("/invalid-limit").maxResponseBytes(-1)).toThrow(HttpConfigurationError);
     expect(() => api.get("/invalid-limit").maxResponseBytes(1.5)).toThrow(HttpConfigurationError);
     expect(transport.calls).toHaveLength(0);
+  });
+
+  it("passes advanced Fetch options through one immutable requestInit escape hatch", async () => {
+    const observed: Request[] = [];
+    const options: {
+      cache: RequestCache;
+      keepalive: boolean;
+      mode: Exclude<RequestMode, "navigate">;
+      redirect: RequestRedirect;
+      referrerPolicy: ReferrerPolicy;
+    } = {
+      cache: "no-store",
+      keepalive: true,
+      mode: "same-origin",
+      redirect: "manual",
+      referrerPolicy: "no-referrer",
+    };
+    const api = lafetch.create({
+      transport: mockTransport((request) => {
+        observed.push(request);
+        return new Response(null, { status: 204 });
+      }),
+    });
+    const request = api.get("https://api.example.com/options").requestInit(options);
+    options.redirect = "follow";
+
+    await request;
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      cache: "no-store",
+      keepalive: true,
+      mode: "same-origin",
+      redirect: "manual",
+      referrerPolicy: "no-referrer",
+    });
+  });
+
+  it("rejects invalid or Lafetch-owned RequestInit fields before Transport", () => {
+    const transport = mockTransport(() => new Response(null, { status: 204 }));
+    const api = lafetch.create({ transport });
+    const invalid = [
+      () => (api.get("/x") as any).requestInit(null),
+      () => (api.get("/x") as any).requestInit({ method: "POST" }),
+      () => (api.get("/x") as any).requestInit({ signal: new AbortController().signal }),
+      () => (api.get("/x") as any).requestInit({ mode: "navigate" }),
+      () => (api.get("/x") as any).requestInit({ redirect: "sometimes" }),
+      () => (api.get("/x") as any).requestInit({ keepalive: "yes" }),
+      () => (api.get("/x") as any).requestInit({ cache: "only-if-cached" }),
+    ];
+
+    for (const configure of invalid) {
+      expect(configure).toThrow(HttpConfigurationError);
+    }
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("does not combine native Fetch cache with Lafetch application caching", () => {
+    const api = lafetch.create({
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+    });
+
+    expect(() => api.get("/x").requestInit({ cache: "no-store" }).cache("1m"))
+      .toThrow("cannot be combined");
+    expect(() => api.get("/x").cache("1m").requestInit({ cache: "no-store" }))
+      .toThrow("cannot be combined");
+  });
+
+  it("merges repeated requestInit calls after snapshotting each value", async () => {
+    let observed: Request | undefined;
+    const api = lafetch.create({
+      transport: mockTransport((request) => {
+        observed = request;
+        return new Response(null, { status: 204 });
+      }),
+    });
+
+    await api.get("https://api.example.com/x")
+      .requestInit({ mode: "same-origin" })
+      .requestInit({ cache: "only-if-cached" });
+
+    expect(observed).toMatchObject({
+      mode: "same-origin",
+      cache: "only-if-cached",
+    });
   });
 
   it("normalizes invalid JavaScript configuration failures at declaration time", () => {

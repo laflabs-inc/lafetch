@@ -1,56 +1,36 @@
 import type { TimeoutScope } from "./types.js";
-import { isSensitiveHeaderName, isSensitiveName } from "./sensitive.js";
+import { snapshotRequest, type RequestSnapshot } from "./request-snapshot.js";
 
-export interface RequestSnapshot {
-  readonly method: string;
-  readonly url: string;
-  readonly headers: Readonly<Record<string, string>>;
-}
+const HTTP_ERROR_BRAND = Symbol.for("@laflabs/lafetch/HttpError");
+
+export type HttpErrorCode =
+  | "ERR_HTTP_CONFIGURATION"
+  | "ERR_HTTP_TRANSPORT"
+  | "ERR_HTTP_ABORTED"
+  | "ERR_HTTP_TIMEOUT"
+  | "ERR_HTTP_STATUS"
+  | "ERR_HTTP_DECODE"
+  | "ERR_HTTP_CONSUMPTION"
+  | "ERR_HTTP_SCHEMA"
+  | "ERR_HTTP_FEATURE_CONFLICT"
+  | "ERR_HTTP_FEATURE"
+  | "ERR_HTTP_NON_REPLAYABLE_BODY"
+  | "ERR_HTTP_RESPONSE_TOO_LARGE";
 
 export interface HttpErrorOptions {
   readonly cause?: unknown;
   readonly request?: Request | RequestSnapshot;
 }
 
-function redactHeader(name: string, value: string): string {
-  if (isSensitiveHeaderName(name)) {
-    return "[REDACTED]";
-  }
-  return value;
-}
-
-export function snapshotRequest(request: Request | RequestSnapshot): RequestSnapshot {
-  const headers: Record<string, string> = {};
-  if (request instanceof Request) {
-    request.headers.forEach((value, name) => {
-      headers[name] = redactHeader(name, value);
-    });
-  } else {
-    for (const [name, value] of Object.entries(request.headers)) {
-      headers[name.toLowerCase()] = redactHeader(name, value);
-    }
-  }
-
-  const url = new URL(request.url);
-  url.username = "";
-  url.password = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (isSensitiveName(key)) {
-      url.searchParams.set(key, "[REDACTED]");
-    }
-  }
-
-  return Object.freeze({ method: request.method, url: url.toString(), headers: Object.freeze(headers) });
-}
-
 export class HttpError extends Error {
-  readonly code: string;
+  readonly code: HttpErrorCode;
   readonly request?: RequestSnapshot;
 
-  constructor(message: string, code: string, options: HttpErrorOptions = {}) {
+  constructor(message: string, code: HttpErrorCode, options: HttpErrorOptions = {}) {
     super(message, { cause: options.cause });
     this.name = new.target.name;
     this.code = code;
+    Object.defineProperty(this, HTTP_ERROR_BRAND, { value: true });
     if (options.request) this.request = snapshotRequest(options.request);
   }
 }
@@ -167,5 +147,64 @@ export class HttpResponseTooLargeError extends HttpError {
     );
     this.limitBytes = limitBytes;
     this.receivedBytes = receivedBytes;
+  }
+}
+
+export interface HttpErrorByCode {
+  readonly ERR_HTTP_CONFIGURATION: HttpConfigurationError;
+  readonly ERR_HTTP_TRANSPORT: HttpTransportError;
+  readonly ERR_HTTP_ABORTED: HttpAbortError;
+  readonly ERR_HTTP_TIMEOUT: HttpTimeoutError;
+  readonly ERR_HTTP_STATUS: HttpStatusError;
+  readonly ERR_HTTP_DECODE: HttpDecodeError;
+  readonly ERR_HTTP_CONSUMPTION: HttpConsumptionError;
+  readonly ERR_HTTP_SCHEMA: HttpSchemaError;
+  readonly ERR_HTTP_FEATURE_CONFLICT: HttpFeatureConflictError;
+  readonly ERR_HTTP_FEATURE: HttpFeatureError;
+  readonly ERR_HTTP_NON_REPLAYABLE_BODY: HttpNonReplayableBodyError;
+  readonly ERR_HTTP_RESPONSE_TOO_LARGE: HttpResponseTooLargeError;
+}
+
+export type HttpErrorForCode<TCode extends HttpErrorCode> = HttpErrorByCode[TCode];
+
+function hasHttpErrorBrand(error: object): boolean {
+  return Reflect.get(error, HTTP_ERROR_BRAND) === true;
+}
+
+function isHttpErrorCode(code: unknown): code is HttpErrorCode {
+  switch (code) {
+    case "ERR_HTTP_CONFIGURATION":
+    case "ERR_HTTP_TRANSPORT":
+    case "ERR_HTTP_ABORTED":
+    case "ERR_HTTP_TIMEOUT":
+    case "ERR_HTTP_STATUS":
+    case "ERR_HTTP_DECODE":
+    case "ERR_HTTP_CONSUMPTION":
+    case "ERR_HTTP_SCHEMA":
+    case "ERR_HTTP_FEATURE_CONFLICT":
+    case "ERR_HTTP_FEATURE":
+    case "ERR_HTTP_NON_REPLAYABLE_BODY":
+    case "ERR_HTTP_RESPONSE_TOO_LARGE":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export function isHttpError(error: unknown): error is HttpError;
+export function isHttpError<TCode extends HttpErrorCode>(
+  error: unknown,
+  code: TCode,
+): error is HttpErrorForCode<TCode>;
+export function isHttpError(error: unknown, code?: HttpErrorCode): error is HttpError {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  try {
+    const errorCode = Reflect.get(error, "code");
+    if (!hasHttpErrorBrand(error) || !isHttpErrorCode(errorCode)) return false;
+    return code === undefined ? true : errorCode === code;
+  } catch {
+    return false;
   }
 }

@@ -17,19 +17,21 @@ Next.js fixture는 라이브러리 개발 환경의 TypeScript 7과 다른 TypeS
 
 ## 번들 회귀 기준
 
-Browser 대상 루트 export의 현재 v0.3 기준선:
+Browser 대상 현재 v0.3.1 기준선:
 
-- minified: `41,470 bytes`
-- gzip: `12,876 bytes`
+| 대상 | Minified | Gzip |
+| --- | ---: | ---: |
+| Complete root | `44,961 bytes` | `13,875 bytes` |
+| 대표 JSON 요청 | `44,104 bytes` | `13,641 bytes` |
 
-Hard ceiling:
+Complete root hard ceiling:
 
 - minified: `48 KiB`
 - gzip: `16 KiB`
 
 이 상한은 성능 목표나 배포 플랫폼 제한이 아니라 의도하지 않은 증가를 막는 회귀 경보입니다. 과거 버전별 수치는 보관 PR에서 확인하고 현행 문서에는 최신 기준선만 유지합니다.
 
-v0.3.1부터는 complete root bundle과 대표 JSON 요청 bundle을 별도로 측정해 사용하지 않는 정책 코드의 tree-shaking 상태도 확인합니다.
+Complete root와 대표 JSON 요청은 각각 `48/16 KiB`, `44/14 KiB` 예산으로 자동 검사합니다. 대표 요청의 minified 여유가 작으므로 새 기능은 core 포함보다 tree-shaking과 optional Feature 분리를 먼저 검토합니다.
 
 ## 지원 경계
 

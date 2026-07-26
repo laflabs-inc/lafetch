@@ -18,17 +18,33 @@ export default {
           }
           return context.attempt === 1
             ? new Response("retry", { status: 503 })
-            : Response.json({ calls, processGlobal: "process" in globalThis });
+            : Response.json({
+              calls,
+              processGlobal: "process" in globalThis,
+              requestCache: request.cache,
+              requestRedirect: request.redirect,
+            });
         },
       },
     });
     const result = await api
       .get("https://fixture.invalid/runtime")
       .maxResponseBytes(1_024)
+      .requestInit({ cache: "no-store", redirect: "manual" })
       .retry(1, { backoff: { type: "fixed", base: 0, jitter: "none" } })
       .validate({
-        parse(value: unknown): { calls: number; processGlobal: boolean } {
-          return value as { calls: number; processGlobal: boolean };
+        parse(value: unknown): {
+          calls: number;
+          processGlobal: boolean;
+          requestCache: RequestCache;
+          requestRedirect: RequestRedirect;
+        } {
+          return value as {
+            calls: number;
+            processGlobal: boolean;
+            requestCache: RequestCache;
+            requestRedirect: RequestRedirect;
+          };
         },
       });
     let streamed = "";

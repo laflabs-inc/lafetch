@@ -1,3 +1,5 @@
+import type { RequestSnapshot } from "./request-snapshot.js";
+
 export type Duration = number | `${number}ms` | `${number}s` | `${number}m`;
 
 export type QueryPrimitive = string | number | boolean | bigint | null | undefined;
@@ -7,6 +9,17 @@ export type QueryParams = Readonly<Record<string, QueryValue>>;
 export type StatusMatcher = readonly number[] | ((status: number) => boolean);
 
 export type TimeoutScope = "total" | "attempt";
+
+export interface AdvancedRequestInit {
+  readonly cache?: RequestCache;
+  readonly integrity?: string;
+  readonly keepalive?: boolean;
+  readonly mode?: Exclude<RequestMode, "navigate">;
+  readonly priority?: RequestPriority;
+  readonly redirect?: RequestRedirect;
+  readonly referrer?: string;
+  readonly referrerPolicy?: ReferrerPolicy;
+}
 
 export type BackoffType = "fixed" | "exponential";
 export type JitterType = "none" | "full";
@@ -44,7 +57,7 @@ export interface LResponse<T = unknown> {
   readonly url: string;
   readonly redirected: boolean;
   readonly type: ResponseType;
-  readonly request: Request;
+  readonly request: RequestSnapshot;
   readonly meta: RequestMeta;
 }
 
@@ -96,11 +109,7 @@ export type CapabilityMode = "exclusive" | "composable" | "observer";
 /** Mutable storage isolated to one Feature for the lifetime of one request. */
 export type FeatureState = Map<PropertyKey, unknown>;
 
-export interface RequestEventRequestSnapshot {
-  readonly method: string;
-  readonly url: string;
-  readonly headers: Readonly<Record<string, string>>;
-}
+export type RequestEventRequestSnapshot = RequestSnapshot;
 
 export interface RequestEventResponseSnapshot {
   readonly status: number;

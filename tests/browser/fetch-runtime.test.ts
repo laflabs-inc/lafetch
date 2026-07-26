@@ -17,6 +17,20 @@ describe("browser Fetch runtime", () => {
     expect(result.data).toEqual({ method: "GET", query: { page: "2" }, header: "browser" });
   });
 
+  it("constructs a real browser Request with advanced Fetch options", async () => {
+    const result = await lafetch
+      .create()
+      .get<{ method: string }>("/__lafetch_fixture__/echo")
+      .requestInit({
+        cache: "no-store",
+        mode: "same-origin",
+        redirect: "follow",
+        referrerPolicy: "no-referrer",
+      });
+
+    expect(result.data.method).toBe("GET");
+  });
+
   it("retries an HTTP response through browser fetch", async () => {
     const key = crypto.randomUUID();
     const result = await lafetch

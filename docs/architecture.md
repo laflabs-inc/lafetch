@@ -107,7 +107,7 @@ Buffered 실행은 최종 Response Body를 제한된 크기 안에서 보관합�
 
 첫 `as("stream")` 호출은 Streaming 소유권을 점유합니다. 같은 request의 반복 Streaming이나 Buffered와 Streaming 혼합 소비는 `HttpConsumptionError`로 실패합니다. Fluent method를 추가로 호출하면 기존 객체를 변경하지 않고 별도 실행 식별자를 가진 새 `LRequest`를 만듭니다.
 
-Web Platform이 허용하는 입력은 선언 시점에 snapshot합니다. URL, Query 배열, Status 목록, Retry 정책, Schema와 Feature descriptor는 호출자가 나중에 변경해도 기존 요청에 영향을 주지 않습니다. `Transport`, `CacheStore`, `AbortSignal`, Body 값과 callback처럼 상태를 가진 adapter는 호출자 소유 참조로 유지합니다.
+Web Platform이 허용하는 입력은 선언 시점에 snapshot합니다. URL, Query 배열, Status 목록, Retry 정책, Schema, advanced `RequestInit`과 Feature descriptor는 호출자가 나중에 변경해도 기존 요청에 영향을 주지 않습니다. `Transport`, `CacheStore`, `AbortSignal`, Body 값과 callback처럼 상태를 가진 adapter는 호출자 소유 참조로 유지합니다.
 
 ## Buffered와 Streaming
 
@@ -207,7 +207,9 @@ Buffered execution은 하나의 크기 제한 raw Response를 보관하고 각 �
 2. 선택한 `validate()` Schema 적용
 3. 최종 실패에 `mapError()` 적용
 
-직접 `await`는 자동 디코딩된 `LResponse<T>`를 반환합니다. `as("json" | "text" | "bytes" | "blob" | "formData")`는 decoder를 강제하고 값을 직접 반환합니다. Schema가 값을 변환하면 direct `LResponse.data`와 data mode의 런타임 값·TypeScript 반환 타입이 모두 Schema 출력을 따릅니다. `as("response")`는 decoding, validation과 envelope 밖에 있습니다.
+직접 `await`는 자동 디코딩된 `LResponse<T>`를 반환합니다. `as("json" | "text" | "bytes" | "blob" | "formData")`는 decoder를 강제하고 값을 직접 반환합니다. Standard Schema V1과 기존 adapter가 값을 변환하면 direct `LResponse.data`와 data mode의 런타임 값·TypeScript 반환 타입이 모두 Schema 출력을 따릅니다. `as("response")`는 decoding, validation과 envelope 밖에 있습니다.
+
+`LResponse.request`는 native `Request`가 아니라 오류·Telemetry와 같은 규칙으로 redaction한 immutable `RequestSnapshot`입니다. 성공 응답을 장기 보관해도 upload Body나 원본 credential Header에 도달할 수 없습니다.
 
 `as("stream")`은 전송 전에 별도 live execution을 선택합니다. 전체 Body decoding이나 Schema validation을 수행하지 않으며 Body read 실패를 response phase 오류로 매핑합니다. 이 분리로 잘못된 payload를 network failure로 Retry하지 않으면서 하나의 `mapError()` 경로를 유지합니다.
 
@@ -215,9 +217,6 @@ Buffered execution은 하나의 크기 제한 raw Response를 보관하고 각 �
 
 - 라이선스와 특허 조항
 - 첫 공개 버전의 Node.js LTS 범위
-- Standard Schema를 포함한 외부 validator 호환성
-- 고급 `RequestInit` 전달 경로
-- `LResponse.request`를 redacted snapshot으로 전환하는 계약
 - Next.js Cache와 Revalidation adapter의 소유권
 - 실제 사용자 프로젝트에서의 `LResponse` thenable 검증
 

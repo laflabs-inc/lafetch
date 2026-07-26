@@ -14,7 +14,7 @@
 
 ## 현재 상태
 
-소스 버전은 `0.3.0-alpha.0`입니다. Buffered/Streaming 응답 소유권, 단일 `as(mode)`, Stream DX와 runtime matrix를 구현했지만 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
+소스 버전은 `0.3.1-alpha.0`입니다. Buffered/Streaming 응답 소유권, 단일 `as(mode)`, Stream DX와 공개 계약 보강을 구현했지만 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
 
 | 영역 | 상태 |
 | --- | --- |
@@ -23,13 +23,13 @@
 | Streaming Body lifecycle | 구현 완료 |
 | Timeout, Retry, Abort | 구현 및 경쟁 상태 테스트 완료 |
 | Cache, Deduplication, Idempotency | 기본 구현과 격리 테스트 완료 |
-| Validation, Error Mapping, Telemetry | 기본 구현 완료 |
+| Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.3.1 공개 계약 보강 |
+| 다음 단계 | v0.4 Reliability policy 강화 |
 | 라이선스와 npm 배포 자동화 | 미완료 |
 
-현재 bundle 기준선은 `41,470 bytes` minified, `12,876 bytes` gzip이며 hard ceiling은 `48 KiB / 16 KiB gzip`입니다.
+현재 complete root bundle 기준선은 `44,961 / 13,875 bytes gzip`, 대표 JSON 요청은 `44,104 / 13,641 bytes gzip`입니다. Hard ceiling은 각각 `48/16 KiB`, `44/14 KiB`입니다.
 
 ## 완료된 기반
 
@@ -38,33 +38,9 @@
 | v0.2 | 명시적 client, immutable request, Timeout·Retry·Cache 정책, Feature Runtime | [보관된 v0.2 RFC](archive/rfc-v0.2-public-api.md) |
 | v0.2.1 | 제한형 Type-State, GET/HEAD Body 차단, Buffered 상한, package consumer 검증 | [보관된 v0.2.1 RFC](archive/rfc-v0.2.1-progressive-builder.md) |
 | v0.3 | 단일 `as(mode)`, `LResponse`, live Streaming, Body 종료까지 Timeout·Abort·finalize, Stream DX | [v0.3 RFC](rfcs/v0.3-streaming-body-safety.md) |
+| v0.3.1 | Stable error guard, Standard Schema V1, `requestInit()`, redacted `RequestSnapshot`, 이중 bundle budget | [v0.3.1 RFC](rfcs/v0.3.1-public-contract.md) |
 
 과거 버전의 세부 작업과 당시 bundle 수치는 보관 문서와 병합된 PR에 남기고 현행 로드맵에서는 반복하지 않습니다.
-
-## v0.3.1 — 공개 계약 보강
-
-목표: 새로운 policy를 늘리기 전에 공개 API 동결을 방해하는 계약 결함을 해결합니다.
-
-### 범위
-
-- `isHttpError(error, code?)`와 stable error code 기반 narrowing
-- Standard Schema V1 공식 호환
-- 함수, `parse`, `validate` adapter와 Standard Schema 우선순위 확정
-- 고급 `RequestInit`을 위한 단일 escape hatch RFC
-- native option과 기존 `credentials()`, `cache()`, `signal()` 충돌 규칙
-- `LResponse.request: Request`를 immutable redacted `RequestSnapshot`으로 전환
-- complete root와 대표 JSON 요청 bundle의 별도 측정
-
-### 완료 조건
-
-- package 중복과 realm 경계에서도 `unknown` 오류를 stable code로 안전하게 좁힐 수 있어야 합니다.
-- Standard Schema의 sync, async, success, issues와 output type을 실제 validator consumer로 검증해야 합니다.
-- 고급 `RequestInit` 경로가 두 번째 일반 요청 DSL을 만들지 않아야 합니다.
-- `LResponse`를 보관해도 raw upload Body와 원본 credential Header에 접근할 수 없어야 합니다.
-- 전체 runtime matrix와 packed consumer 검증을 유지해야 합니다.
-- complete root는 `48 KiB / 16 KiB gzip`, 대표 요청은 `44 KiB / 14 KiB gzip` 안에 있어야 합니다.
-
-상세 ID와 판단 근거: [COMP-01~04](improvements.md#p0--공개-계약-보강)
 
 ## v0.4 — Reliability policy 강화
 
