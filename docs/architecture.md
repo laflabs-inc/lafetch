@@ -4,8 +4,8 @@
 
 ```text
 lafetch.create()
-  -> LafetchClient.method(url)
-    -> immutable RequestBuilder
+  -> LClient.method(url)
+    -> immutable LRequest
       -> normalized RequestConfiguration
         -> Feature resolver
           -> request / attempt lifecycle
@@ -19,10 +19,23 @@ The public API has three strict roles. `lafetch` is only a client factory, each 
 Application requests have one public grammar:
 
 ```text
-client.method(url).configure().policy() -> await data
+client.method(url).configure().policy() -> await LResponse
 ```
 
-Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting a builder returns automatically decoded data directly. The single `as(mode)` method terminates configuration and returns a real Promise. `as("result")` opts into the decoded Lafetch response envelope, `as("response")` returns a retained Fetch Response, and `as("stream")` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
+Named HTTP methods accept only a URL. Request-specific query, headers, body, cancellation, execution policies, validation, and telemetry are expressed through immutable fluent methods. Awaiting an `LRequest` returns an `LResponse` whose `data` is decoded from `Content-Type`. The single `as(mode)` method terminates configuration and returns a real Promise. Data modes explicitly force a decoder while preserving the `LResponse` envelope, `as("response")` returns a retained Fetch Response, and `as("stream")` returns a live single-owner Fetch Response. The `request(method, url)` entry point exists only for custom HTTP methods.
+
+## Public naming
+
+Public names follow three rules.
+
+| Category | Rule | Current names |
+| --- | --- | --- |
+| Root brand | Keep the full product name | `Lafetch`, `lafetch` |
+| Lafetch runtime objects | Use one `L` prefix | `LClient`, `LRequest`, `LResponse`, `LStreamResponse`, `LStream` |
+| General contracts | Use the role without a brand prefix | `ClientOptions`, `RetryOptions`, `Transport`, `CacheStore` |
+| HTTP failures | Use the protocol prefix | `HttpError`, `HttpTimeoutError`, `HttpStatusError` |
+
+The package is still unpublished pre-release software, so the earlier long type names are removed instead of being retained as aliases. This avoids carrying duplicate vocabulary into the first public release.
 
 ## State isolation
 
@@ -30,7 +43,7 @@ Mutable policy resources have explicit owners:
 
 | State | Owner | Lifetime |
 | --- | --- | --- |
-| Builder execution Promise | one immutable builder | until its consumers settle |
+| `LRequest` execution Promise | one immutable request | until its consumers settle |
 | Feature `state` | one Feature in one execution | one request execution |
 | Feature `metadata` | all Features in one execution | one request execution |
 | Default memory cache | one client | client lifetime |
@@ -51,7 +64,7 @@ Request scope runs once:
 6. map a final error in reverse Feature order when necessary;
 7. run finalizers in reverse order and emit the final request event.
 
-Official policies participate at specific boundaries: cache and deduplication may intercept dispatch, idempotency mutates attempt drafts, Feature error mapping runs after the final attempt, and response validation runs later in response-consumption scope. Builder `mapError()` is applied after both execution and consumption have reached a final failure.
+Official policies participate at specific boundaries: cache and deduplication may intercept dispatch, idempotency mutates attempt drafts, Feature error mapping runs after the final attempt, and response validation runs later in response-consumption scope. `LRequest.mapError()` is applied after both execution and consumption have reached a final failure.
 
 Attempt scope runs for every retry:
 
@@ -68,16 +81,16 @@ Attempt scope runs for every retry:
 
 ## Promise-like invariant
 
-Every Builder selects one response ownership model.
+Every `LRequest` selects one response ownership model.
 
 ```text
 Buffered  = one memoized execution, multiple retained-response consumers
 Streaming = one live execution, one Body owner
 ```
 
-Buffered consumers decode clones of the retained response. The first `as("stream")` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable Builder with a separate execution identity.
+Buffered consumers decode clones of the retained response and receive independent `LResponse` envelopes, `Headers`, and native `Response` clones. The first `as("stream")` call claims Streaming ownership; repeated Streaming or mixed Buffered consumption fails with `HttpConsumptionError`. Calling another fluent method creates a new immutable `LRequest` with a separate execution identity.
 
-Builder inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
+`LRequest` inputs are snapshotted at declaration time where the Web Platform permits it: URLs, query arrays, status lists, retry policies, schemas, and Feature descriptors cannot be mutated later through caller-owned option objects. Stateful adapters such as `Transport`, `CacheStore`, `AbortSignal`, body values, and callback functions remain explicit caller-owned references.
 
 Buffered execution reads the final response before settling so total timeout includes response consumption and multiple terminal consumers can safely decode the same response. Buffered responses have a default 16 MiB actual-byte limit and may use an explicit request-specific `maxResponseBytes()` value. `Content-Length` is not trusted as the enforcement boundary.
 
@@ -168,9 +181,9 @@ Official Telemetry starts event delivery in lifecycle order but does not seriali
 
 ## Consumption scope
 
-Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding. `as("json" | "text" | "bytes" | "blob" | "formData")` selects one decoder and returns a real Promise. When a Schema transforms data, its output drives both runtime values and terminal return types. `as("result")` wraps automatically decoded data with status, headers, and metadata, while buffered `as("response")` remains outside decoding and validation.
+Buffered execution produces one size-limited retained raw Response. Each data consumer works on a clone and optionally validates or transforms it through `validate()`. Direct `await` selects automatic decoding and returns `LResponse<T>`. `as("json" | "text" | "bytes" | "blob" | "formData")` selects one decoder and returns a real `Promise<LResponse<TMode>>`. When a Schema transforms data, its output drives `LResponse.data` at runtime and in TypeScript. Buffered `as("response")` remains outside decoding, validation, and the envelope.
 
-`as("stream")` selects a separate live execution path before dispatch. It returns `LafetchStreamResponse`, which is the same standard Response instance with additive helpers rather than an envelope or replacement wrapper. It does not run whole-body decoding or Schema validation and maps Body read failures in the response phase. A unified Builder `mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
+`as("stream")` selects a separate live execution path before dispatch. It returns `LStreamResponse`, which is the same standard Response instance with additive helpers rather than an envelope or replacement wrapper. It does not run whole-body decoding or Schema validation and maps Body read failures in the response phase. A unified `LRequest.mapError()` therefore handles both pre-Response execution failures and post-Response Stream failures without making them retryable.
 
 This separation prevents an invalid payload from being retried as a network failure and leaves room for consumption-specific telemetry without changing Transport semantics.
 
@@ -180,4 +193,4 @@ This separation prevents an invalid payload from being retried as a network fail
 - supported Node.js LTS matrix at the first public release;
 - external schema ecosystem compatibility beyond the current `parse`/`validate` contract;
 - cache ownership and revalidation contracts for Next.js;
-- external user testing of the data-first thenable contract.
+- external user testing of the `LResponse` thenable contract.

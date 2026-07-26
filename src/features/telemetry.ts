@@ -1,5 +1,6 @@
 import { HttpConfigurationError } from "../core/errors.js";
 import type { FeatureEventContext, RequestEvent, RequestFeature } from "../core/types.js";
+import { validateOptionsObject } from "../core/validation.js";
 
 export type TelemetryHandler = (event: RequestEvent) => void | Promise<void>;
 
@@ -12,8 +13,11 @@ export function telemetry(handler: TelemetryHandler, options: TelemetryOptions =
   if (typeof handler !== "function") {
     throw new HttpConfigurationError("telemetry() requires an event handler.");
   }
+  validateOptionsObject(options, "telemetry() options");
   const name = options.name ?? "lafetch.telemetry";
-  if (!name.trim()) throw new HttpConfigurationError("telemetry.name cannot be empty.");
+  if (typeof name !== "string" || !name.trim()) {
+    throw new HttpConfigurationError("telemetry.name must be a non-empty string.");
+  }
 
   return Object.freeze({
     name,

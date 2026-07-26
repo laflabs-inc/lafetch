@@ -1,4 +1,4 @@
-import type { RequestMeta, TimeoutScope } from "./types.js";
+import type { TimeoutScope } from "./types.js";
 import { isSensitiveHeaderName, isSensitiveName } from "./sensitive.js";
 
 export interface RequestSnapshot {
@@ -10,7 +10,6 @@ export interface RequestSnapshot {
 export interface HttpErrorOptions {
   readonly cause?: unknown;
   readonly request?: Request | RequestSnapshot;
-  readonly meta?: RequestMeta;
 }
 
 function redactHeader(name: string, value: string): string {
@@ -47,14 +46,12 @@ export function snapshotRequest(request: Request | RequestSnapshot): RequestSnap
 export class HttpError extends Error {
   readonly code: string;
   readonly request?: RequestSnapshot;
-  readonly meta?: RequestMeta;
 
   constructor(message: string, code: string, options: HttpErrorOptions = {}) {
     super(message, { cause: options.cause });
     this.name = new.target.name;
     this.code = code;
     if (options.request) this.request = snapshotRequest(options.request);
-    if (options.meta) this.meta = options.meta;
   }
 }
 

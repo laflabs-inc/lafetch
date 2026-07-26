@@ -1,3 +1,4 @@
+import { HttpConfigurationError } from "./errors.js";
 import type { RuntimeAdapter } from "./types.js";
 import { scheduleTimer } from "./timer.js";
 
@@ -29,7 +30,7 @@ function requestId(): string {
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-export const defaultRuntime: RuntimeAdapter = Object.freeze({
+const defaultRuntime: RuntimeAdapter = Object.freeze({
   now: () => Date.now(),
   random: () => Math.random(),
   sleep,
@@ -37,5 +38,13 @@ export const defaultRuntime: RuntimeAdapter = Object.freeze({
 });
 
 export function createRuntime(overrides: Partial<RuntimeAdapter> = {}): RuntimeAdapter {
+  if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) {
+    throw new HttpConfigurationError("lafetch.create() runtime must be an object.");
+  }
+  for (const name of ["now", "random", "sleep", "requestId"] as const) {
+    if (overrides[name] !== undefined && typeof overrides[name] !== "function") {
+      throw new HttpConfigurationError(`lafetch.create() runtime.${name} must be a function.`);
+    }
+  }
   return Object.freeze({ ...defaultRuntime, ...overrides });
 }

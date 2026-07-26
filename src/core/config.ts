@@ -1,10 +1,14 @@
 import { HttpConfigurationError } from "./errors.js";
 import { MemoryCacheStore } from "./cache-store.js";
+import { durationToMs } from "./duration.js";
 import { mergeQuery } from "./query.js";
 import {
+  validateAbortSignal,
   validateCapabilityMode,
+  validateQueryParams,
   validateRequestCredentials,
   validateRetryOptions,
+  validateStatusMatcher,
 } from "./validation.js";
 import type {
   BodyFactory,
@@ -31,6 +35,15 @@ function snapshotRetryOptions(options: RetryOptions): RetryOptions {
 }
 
 function snapshotFeature(feature: RequestFeature): RequestFeature {
+  if (
+    typeof feature !== "object"
+    || feature === null
+    || typeof feature.name !== "string"
+    || feature.name.trim() === ""
+  ) {
+    throw new HttpConfigurationError("use() Feature name must be a non-empty string.");
+  }
+
   const capabilities = feature.capabilities === undefined
     ? undefined
     : Object.freeze({
@@ -86,7 +99,7 @@ export interface ClientConfiguration {
   readonly scope: ClientPolicyScope;
 }
 
-/** Internal mutable resources isolated to one LafetchClient instance. */
+/** Internal mutable resources isolated to one LClient instance. */
 export interface ClientPolicyScope {
   getCacheStore(): MemoryCacheStore;
   getDedupeExecutions(): Map<string, unknown>;
@@ -115,8 +128,8 @@ export interface RequestConfiguration {
   readonly query: ReadonlyMap<string, QueryValue>;
   readonly body: BodySource;
   readonly signal?: AbortSignal;
-  readonly timeout?: Duration;
-  readonly attemptTimeout?: Duration;
+  readonly timeoutMs?: number;
+  readonly attemptTimeoutMs?: number;
   readonly retry?: {
     readonly retries: number;
     readonly options: RetryOptions;
@@ -181,6 +194,7 @@ export function createRequestConfiguration(
 }
 
 export function withQuery(config: RequestConfiguration, params: QueryParams): RequestConfiguration {
+  validateQueryParams(params);
   return { ...config, query: mergeQuery(config.query, params) };
 }
 
@@ -226,15 +240,16 @@ export function withBodyFactory(config: RequestConfiguration, create: BodyFactor
 }
 
 export function withSignal(config: RequestConfiguration, signal: AbortSignal): RequestConfiguration {
+  validateAbortSignal(signal);
   return { ...config, signal };
 }
 
 export function withTimeout(config: RequestConfiguration, timeout: Duration): RequestConfiguration {
-  return { ...config, timeout };
+  return { ...config, timeoutMs: durationToMs(timeout, "timeout") };
 }
 
 export function withAttemptTimeout(config: RequestConfiguration, attemptTimeout: Duration): RequestConfiguration {
-  return { ...config, attemptTimeout };
+  return { ...config, attemptTimeoutMs: durationToMs(attemptTimeout, "attemptTimeout") };
 }
 
 export function withMaxResponseBytes(config: RequestConfiguration, maxResponseBytes: number): RequestConfiguration {
@@ -256,6 +271,7 @@ export function withRetry(
 }
 
 export function withAcceptedStatus(config: RequestConfiguration, acceptStatus: StatusMatcher): RequestConfiguration {
+  validateStatusMatcher(acceptStatus);
   return {
     ...config,
     acceptStatus: typeof acceptStatus === "function" ? acceptStatus : Object.freeze([...acceptStatus]),

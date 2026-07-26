@@ -1,4 +1,4 @@
-import { HttpSchemaError } from "../core/errors.js";
+import { HttpConfigurationError, HttpSchemaError } from "../core/errors.js";
 
 export type SchemaResult<T> =
   | boolean
@@ -18,6 +18,24 @@ export type InferSchema<TSchema> =
   TSchema extends (value: unknown) => infer TResult ?
     Awaited<TResult> extends boolean ? unknown : Awaited<TResult> extends { value: infer TValue } ? TValue : Awaited<TResult> :
   unknown;
+
+export function snapshotResponseSchema<T>(schema: ResponseSchema<T>): ResponseSchema<T> {
+  if (typeof schema === "function") return schema;
+  if (typeof schema !== "object" || schema === null) {
+    throw new HttpConfigurationError(
+      "validate() requires a function or an object with parse() or validate().",
+    );
+  }
+  if ("parse" in schema && typeof schema.parse === "function") {
+    return Object.freeze({ parse: schema.parse.bind(schema) });
+  }
+  if ("validate" in schema && typeof schema.validate === "function") {
+    return Object.freeze({ validate: schema.validate.bind(schema) });
+  }
+  throw new HttpConfigurationError(
+    "validate() requires a function or an object with parse() or validate().",
+  );
+}
 
 export async function applySchema<T>(schema: ResponseSchema<T>, value: unknown): Promise<T> {
   try {

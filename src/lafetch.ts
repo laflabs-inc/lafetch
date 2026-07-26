@@ -1,8 +1,8 @@
-import { createClient, type LafetchClient } from "./client.js";
+import { createClient, type LClient } from "./client.js";
 import type { ClientOptions } from "./core/types.js";
 
 export interface Lafetch {
-  readonly create: (options?: ClientOptions) => LafetchClient;
+  readonly create: (options?: ClientOptions) => LClient;
 }
 
 /**

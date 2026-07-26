@@ -88,8 +88,7 @@ describe("telemetry", () => {
       .telemetry((event) => {
         eventTypes.push(event.type);
         throw new Error("telemetry backend is unavailable");
-      })
-      .as("result");
+      });
 
     expect(result.status).toBe(204);
     expect(eventTypes).toEqual([

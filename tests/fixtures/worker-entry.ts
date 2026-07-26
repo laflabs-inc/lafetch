@@ -39,6 +39,6 @@ export default {
       .forEach((chunk) => {
         streamed += chunk;
       });
-    return Response.json({ ...result, streamed });
+    return Response.json({ ...result.data, streamed });
   },
 };

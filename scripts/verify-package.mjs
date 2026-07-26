@@ -64,7 +64,7 @@ const transport = mockTransport((request) => Response.json({
 }));
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 const result = await api.get("/probe").use(feature).as("json");
-if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
+if (result.data.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
 }
 const streamed = await api.get("/stream").as("stream");
@@ -81,6 +81,12 @@ if (typeof HttpResponseTooLargeError !== "function") {
 try {
   await api.get("/invalid-mode").as("xml");
   throw new Error("Unknown packed-package response mode was accepted.");
+} catch (error) {
+  if (!(error instanceof HttpConfigurationError)) throw error;
+}
+try {
+  await api.get("/removed-result-mode").as("result");
+  throw new Error("Removed packed-package result mode was accepted.");
 } catch (error) {
   if (!(error instanceof HttpConfigurationError)) throw error;
 }
@@ -103,9 +109,25 @@ const invalidConfigurations = [
   () => api.get("/probe").retry(1, { backoff: { type: null } }),
   () => api.get("/probe").retry(1, { backoff: { jitter: "equal" } }),
   () => api.get("/probe").retry(1, { backoff: { jitter: null } }),
+  () => api.get("/probe").retry(1, { methods: null }),
+  () => api.get("/probe").retry(1, { statuses: "500" }),
+  () => api.get("/probe").retry(1, { networkErrors: "yes" }),
   () => api.get("/probe").maxResponseBytes(-1),
+  () => api.get("/probe").timeout("later"),
+  () => api.get("/probe").attemptTimeout(-1),
+  () => api.get("/probe").signal(null),
+  () => api.get("/probe").query(null),
+  () => api.get("/probe").validate(null),
+  () => api.get("/probe").mapError(null),
+  () => api.get("/probe").use(null),
+  () => api.get("/probe").cache("1m", null),
+  () => api.get("/probe").dedupe(null),
   () => api.post("/probe").body("one").body("two"),
+  () => api.post("/probe").idempotency(null),
   () => api.post("/probe").cache("1m"),
+  () => lafetch.create(null),
+  () => lafetch.create({ runtime: { sleep: null } }),
+  () => lafetch.create({ transport: null }),
 ];
 for (const configure of invalidConfigurations) {
   try {
@@ -122,8 +144,11 @@ if (transport.calls.length !== 2) throw new Error("Invalid configuration reached
   writeFileSync(join(consumerDirectory, "consumer.ts"), `
 import {
   lafetch,
-  type LafetchResponse,
-  type LafetchStreamResponse,
+  type LClient,
+  type LRequest,
+  type LResponse,
+  type LStream,
+  type LStreamResponse,
   type ResponseMode,
 } from "@laflabs/lafetch";
 import { defineFeature, type RequestFeature } from "@laflabs/lafetch/feature";
@@ -132,32 +157,40 @@ import { mockTransport } from "@laflabs/lafetch/testing";
 interface User { id: string }
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
-const request: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").use(feature);
-const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").as("json");
-const methodResults: Promise<User>[] = [
+const client: LClient = api;
+const request: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").use(feature);
+const typedRequest: LRequest<User> = api.get<User>("https://api.example.com/users/1");
+const explicit: Promise<LResponse<User>> = api.get<User>("https://api.example.com/users/1").as("json");
+const methodResults: Promise<LResponse<User>>[] = [
   api.post<User>("https://api.example.com/users").as("json"),
   api.put<User>("https://api.example.com/users/1").as("json"),
   api.patch<User>("https://api.example.com/users/1").as("json"),
   api.delete<User>("https://api.example.com/users/1").as("json"),
   api.request<User>("QUERY", "https://api.example.com/users").as("json"),
 ];
-const headResult: Promise<void> = api.head<void>("https://api.example.com/users").as("json");
-const response: Promise<LafetchResponse<User>> = api.get<User>("https://api.example.com/users/1").as("result");
-const bytes: Promise<Uint8Array> = api.get("https://api.example.com/binary").as("bytes");
+const headResult: Promise<LResponse<void>> = api.head<void>("https://api.example.com/users").as("json");
+const response: Promise<LResponse<User>> = Promise.resolve(
+  api.get<User>("https://api.example.com/users/1"),
+);
+const bytes: Promise<LResponse<Uint8Array>> = api.get("https://api.example.com/binary").as("bytes");
 const bufferedResponse: Promise<Response> = api.get("https://api.example.com/response").as("response");
-const validatedText: Promise<number> = api.get("https://api.example.com/text").validate({
+const validatedText: Promise<LResponse<number>> = api.get("https://api.example.com/text").validate({
   parse(value: unknown): number { return String(value).length; },
 }).as("text");
-const limited: PromiseLike<User> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
-const streaming: Promise<LafetchStreamResponse> = api.get("https://api.example.com/events").as("stream");
+const limited: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
+const streaming: Promise<LStreamResponse> = api.get("https://api.example.com/events").as("stream");
 const dynamicMode: "json" | "text" = Math.random() > 0.5 ? "json" : "text";
-const dynamic: Promise<User | string> = api.get<User>("https://api.example.com/users/1").as(dynamicMode);
+const dynamic: Promise<LResponse<User> | LResponse<string>> =
+  api.get<User>("https://api.example.com/users/1").as(dynamicMode);
 const publicMode: ResponseMode = dynamicMode;
+const consumeTextStream = (stream: LStream<string>): void => { void stream; };
 if (false) {
   // @ts-expect-error Response data types are declared on the HTTP method, not as().
   api.get("/users").as<User>("json");
   // @ts-expect-error Response modes are a closed public contract.
   api.get("/users").as("xml");
+  // @ts-expect-error Buffered data modes already return LResponse.
+  api.get("/users").as("result");
   // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
   api.get("/users").asJson();
   // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
@@ -190,6 +223,8 @@ if (false) {
   api.get("/events").dedupe().as("stream");
 }
 void request;
+void client;
+void typedRequest;
 void explicit;
 void methodResults;
 void headResult;
@@ -201,6 +236,7 @@ void limited;
 void streaming;
 void dynamic;
 void publicMode;
+void consumeTextStream;
 `);
   writeFileSync(join(consumerDirectory, "tsconfig.json"), JSON.stringify({
     compilerOptions: {

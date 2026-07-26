@@ -8,22 +8,22 @@
 
 - Lafetch는 특정 백엔드나 Laf ID에 의존하지 않는 범용 TypeScript HTTP 클라이언트입니다.
 - 하나의 동작에는 하나의 공식 표현만 제공합니다.
-- 일반 요청은 데이터 우선으로 단순하게 유지하고, 실패 정책은 체인에서 명시합니다.
+- 일반 요청은 일관된 `LResponse`로 단순하게 유지하고, 실패 정책은 체인에서 명시합니다.
 - Fetch와 Web Platform 타입을 불필요하게 다시 추상화하지 않습니다.
 - Browser, Node.js, Next.js, Workers/Edge에서 같은 요청 계약을 유지합니다.
 - React와 Next.js 연동은 코어와 분리된 선택 모듈로 제공합니다.
 - 새로운 기능보다 기존 계약의 예측 가능성, 격리, 메모리 안전성을 우선합니다.
 
-## 현재 기준: v0.3 terminal 통합 완료, 통합 검증 대기
+## 현재 기준: v0.3 terminal·Stream DX 통합 완료
 
-현재 소스 후보는 `0.3.0-alpha.0`이며 **Buffered와 Streaming 응답 계약 및 단일 `as(mode)` terminal을 구현**했습니다. 로컬 검증을 마쳤고 Node.js 버전 매트릭스와 Chromium 통합 검증이 남아 있습니다. 이 검증을 통과한 뒤 v0.4 Cache와 Deduplication 프로덕션 강화로 이동합니다. 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
+현재 소스 후보는 `0.3.0-alpha.0`이며 **Buffered와 Streaming 응답 계약, 단일 `as(mode)` terminal, 호환 가능한 Stream DX 계층을 구현**했습니다. Node.js 버전 매트릭스, Chromium, Workers/Edge, Next.js 통합 검증을 통과했습니다. 현재 공개 API 명명·오류 경계·불필요 코드 정리 단계이며, 이후 작은 DX utility를 별도 변경으로 추가합니다. 외부 Feature 호환성, 라이선스와 공개 배포 정책이 남아 있으므로 아직 프로덕션 안정 버전으로 간주하지 않습니다.
 
 | 영역 | 현재 상태 |
 | --- | --- |
 | v0.2.1 공개 API | 구현과 hardening 완료 |
-| v0.3 Streaming | 단일 `as(mode)`, Body lifecycle, 정책 충돌 구현; 통합 CI 대기 |
-| 다음 개발 단계 | v0.3 통합 검증 후 v0.4 Cache와 Deduplication 강화 |
-| 데이터 우선 RequestBuilder | 구현 및 테스트 완료 |
+| v0.3 Streaming | 단일 `as(mode)`, Body lifecycle, Stream DX, 통합 CI 완료 |
+| 다음 개발 단계 | API polish 후 작은 DX utility, 이어서 v0.4 Cache·Deduplication 강화 |
+| `LRequest` → `LResponse` 계약 | 자동·강제 decoder와 metadata envelope 통합 |
 | 제한된 Type-State와 `as(mode)` terminal | v0.3 구현 및 계약 테스트 |
 | Timeout, Retry, Backoff, Abort | 구현 및 경쟁 상태 테스트 |
 | Cache와 Deduplication | 최종 Request 키, unsafe method, 클라이언트 격리 계약 테스트 |
@@ -72,7 +72,7 @@ const user = await api
 ### v0.2.0 이후 확인된 보강점
 
 - 문자열 기반 응답 형식과 소비 메서드의 역할이 시각적으로 분리되지 않았습니다.
-- 모든 요청이 같은 Builder 표면을 사용해 GET과 HEAD에서도 요청 본문 메서드가 IDE에 나타났습니다.
+- 모든 요청이 같은 request 표면을 사용해 GET과 HEAD에서도 요청 본문 메서드가 IDE에 나타났습니다.
 - HTTP와 Feature의 모든 조합을 Type-State로 표현하면 공개 타입과 오류가 과도하게 복잡해질 위험이 확인되었습니다.
 
 이 항목은 v0.2.1에서 기능을 제거하지 않는 제한형 Type-State와 명시적 terminal로 보강했고, v0.3에서 단일 `as(mode)` 문법으로 정리했습니다.
@@ -105,7 +105,7 @@ const created = await api
 
 ### 작업 범위
 
-- GET과 HEAD Builder에서 `json()`, `body()`, `bodyFactory()` 제거
+- GET과 HEAD `LRequest`에서 `json()`, `body()`, `bodyFactory()` 제거
 - 같은 JavaScript 호출을 선언 시점의 `HttpConfigurationError`로 거부
 - Request body 허용 여부, buffered 여부, Schema 출력만 내부에서 추적하는 제한형 Type-State
 - 당시 `asJson()`, `asText()`, `asArrayBuffer()`, `asBlob()`, `asFormData()` terminal 도입
@@ -114,7 +114,7 @@ const created = await api
 - 이 개별 이름은 v0.3의 단일 `as(mode)`로 대체
 - 직접 `await`와 Promise 호환성 유지
 - TypeScript, JavaScript, 실제 tarball 소비 계약 테스트
-- 공개 `RequestBuilder<TData>`에서 내부 Type-State 제네릭 숨김
+- 공개 `LRequest<TData>`에서 내부 Type-State 제네릭 숨김
 - Schema 변환 이후 terminal 반환 타입 일치
 - Cache와 Deduplication 키를 `beforeAttempt` 이후 최종 Request에서 계산
 - unsafe method Cache와 Deduplication에 caller-owned key 강제
@@ -151,7 +151,8 @@ const created = await api
 ### 작업 범위
 
 - Streaming 응답 공개 API RFC
-- 개별 `as*()` terminal을 `as("json" | "text" | "bytes" | "blob" | "formData" | "result" | "response" | "stream")`으로 통합
+- 개별 `as*()` terminal을 `as("json" | "text" | "bytes" | "blob" | "formData" | "response" | "stream")`으로 통합
+- direct `await`와 모든 Buffered data mode를 `LResponse<T>`로 통일
 - `bytes`와 자동 binary decoding을 `Uint8Array`로 통일
 - 기존 buffered `as("response")`와 새로운 streaming 실행 경로의 책임 분리
 - Streaming terminal 이름과 반환 타입 확정
@@ -182,16 +183,16 @@ const created = await api
 ### 완료 근거
 
 - 닫힌 generic `as(mode)`와 mode-dependent 반환 타입, JavaScript mode 검증 구현
-- `as("stream"): Promise<LafetchStreamResponse>`와 Builder 단일 소비 소유권 구현
+- `as("stream"): Promise<LStreamResponse>`와 `LRequest` 단일 소비 소유권 구현
 - 실제 Response·ReadableStream을 유지하는 `pipe()`, text/custom transform, 순차 `forEach()` 구현
 - accepted Body 노출 전 Status Retry, 노출 후 Body 오류 Retry 금지
 - 전체 Timeout, 시도 Timeout, Abort, finalizer를 Body 종료까지 유지
 - 실제 전달 chunk 기준 선택적 `maxResponseBytes()` 적용
 - Schema, Cache, Deduplication 충돌을 TypeScript와 Runtime에서 거부
-- 16개 test file, 119개 core test와 Node.js 20, 22, 24 검증
+- 16개 test file, 122개 core test와 Node.js 20, 22, 24 검증
 - Workers/Edge, Next.js App Router, npm tarball 소비 로컬 검증
 - Chromium Browser Mode와 Next.js App Router 통합 CI 검증
-- 전체 브라우저 공개 API `37,318 bytes` minified, `11,895 bytes` gzip
+- 전체 브라우저 공개 API `41,512 bytes` minified, `12,878 bytes` gzip
 - 회귀 예산 `48 KiB` minified, `16 KiB` gzip
 
 ## v0.4 — Cache와 Deduplication 프로덕션 강화

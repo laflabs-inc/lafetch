@@ -1,10 +1,10 @@
-export type { LafetchClient } from "./client.js";
+export type { LClient } from "./client.js";
 export { lafetch } from "./lafetch.js";
 export type { Lafetch } from "./lafetch.js";
-export type { RequestBuilder, ResponseMode } from "./request-builder.js";
+export type { LRequest, ResponseMode } from "./request-builder.js";
 export type {
-  LafetchReadableStream,
-  LafetchStreamResponse,
+  LStream,
+  LStreamResponse,
 } from "./core/stream-response.js";
 
 export { fetchTransport } from "./transports/fetch.js";
@@ -48,7 +48,7 @@ export type {
   BodyFactory,
   ClientOptions,
   Duration,
-  LafetchResponse,
+  LResponse,
   QueryParams,
   QueryPrimitive,
   QueryValue,

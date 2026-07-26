@@ -3,7 +3,7 @@ import { lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("deduplication", () => {
-  it("shares concurrent executions across builders", async () => {
+  it("shares concurrent executions across requests", async () => {
     let calls = 0;
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
@@ -19,8 +19,8 @@ describe("deduplication", () => {
       api.get<{ ok: boolean }>("/dedupe/basic").dedupe(),
     ]);
 
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
+    expect(first.data.ok).toBe(true);
+    expect(second.data.ok).toBe(true);
     expect(calls).toBe(1);
   });
 
@@ -38,29 +38,47 @@ describe("deduplication", () => {
     setTimeout(() => controller.abort("follower cancelled"), 5);
 
     await expect(follower).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
-    await expect(leader).resolves.toEqual({ ok: true });
+    await expect(leader).resolves.toHaveProperty("data.ok", true);
   });
 
-  it("falls back when the leader is aborted", async () => {
+  it("elects one replacement leader when an aborted leader has multiple followers", async () => {
     const leaderController = new AbortController();
     let calls = 0;
+    let markLeaderStarted!: () => void;
+    const leaderStarted = new Promise<void>((resolve) => { markLeaderStarted = resolve; });
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport((_request, context) => {
         calls += 1;
         if (calls === 2) return Response.json({ fallback: true });
+        markLeaderStarted();
         return new Promise((_resolve, reject) => {
           context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
         });
       }),
     });
 
-    const leader = api.get("/dedupe/fallback").signal(leaderController.signal).dedupe();
-    const follower = api.get<{ fallback: boolean }>("/dedupe/fallback").dedupe();
-    setTimeout(() => leaderController.abort("leader cancelled"), 5);
+    const leader = api.get("/dedupe/fallback")
+      .signal(leaderController.signal)
+      .dedupe()
+      .then((value) => value);
+    await leaderStarted;
+    const followers = [
+      api.get<{ fallback: boolean }>("/dedupe/fallback").dedupe().then((value) => value.data),
+      api.get<{ fallback: boolean }>("/dedupe/fallback").dedupe().then((value) => value.data),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    leaderController.abort("leader cancelled");
 
-    await expect(leader).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
-    await expect(follower).resolves.toEqual({ fallback: true });
+    const [leaderResult, ...followerResults] = await Promise.allSettled([leader, ...followers]);
+    expect(leaderResult).toMatchObject({
+      status: "rejected",
+      reason: { code: "ERR_HTTP_ABORTED" },
+    });
+    expect(followerResults).toEqual([
+      { status: "fulfilled", value: { fallback: true } },
+      { status: "fulfilled", value: { fallback: true } },
+    ]);
     expect(calls).toBe(2);
   });
 
@@ -85,8 +103,8 @@ describe("deduplication", () => {
       secondApi.get<{ tenant: string }>("/dedupe/isolated").dedupe(),
     ]);
 
-    expect(first.tenant).toBe("first");
-    expect(second.tenant).toBe("second");
+    expect(first.data.tenant).toBe("first");
+    expect(second.data.tenant).toBe("second");
   });
 
   it("does not merge concurrent requests with different tenant headers", async () => {
@@ -105,8 +123,8 @@ describe("deduplication", () => {
       api.get<{ tenant: string }>("/dedupe/tenant").header("X-Tenant", "second").dedupe(),
     ]);
 
-    expect(first.tenant).toBe("first");
-    expect(second.tenant).toBe("second");
+    expect(first.data.tenant).toBe("first");
+    expect(second.data.tenant).toBe("second");
     expect(calls).toBe(2);
   });
 
@@ -134,8 +152,8 @@ describe("deduplication", () => {
       api.get<{ tenant: string }>("/dedupe/final-request").dedupe().use(tenant("second")),
     ]);
 
-    expect(first.tenant).toBe("first");
-    expect(second.tenant).toBe("second");
+    expect(first.data.tenant).toBe("first");
+    expect(second.data.tenant).toBe("second");
     expect(calls).toBe(2);
   });
 
@@ -196,7 +214,7 @@ describe("deduplication", () => {
         .dedupe({ key: async (request) => `keyed-write:${await request.text()}` }),
     ]);
 
-    expect(results.map((result) => result.body)).toEqual(["same", "same"]);
+    expect(results.map((result) => result.data.body)).toEqual(["same", "same"]);
     expect(calls).toBe(1);
   });
 
@@ -215,7 +233,7 @@ describe("deduplication", () => {
       .dedupe()
       .retry(1, { backoff: { base: 0, max: 0, jitter: "none" } });
 
-    expect(result.ok).toBe(true);
+    expect(result.data.ok).toBe(true);
     expect(calls).toBe(2);
   });
 

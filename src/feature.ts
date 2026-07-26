@@ -2,7 +2,7 @@ import type { RequestFeature } from "./core/types.js";
 
 /**
  * Preserves literal inference for an advanced request Feature.
- * Official Lafetch policies use dedicated RequestBuilder methods instead.
+ * Official Lafetch policies use dedicated LRequest methods instead.
  */
 export function defineFeature<TFeature extends RequestFeature>(feature: TFeature): TFeature {
   return feature;

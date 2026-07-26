@@ -1,5 +1,6 @@
 import { HttpConfigurationError } from "../core/errors.js";
 import type { RequestFeature } from "../core/types.js";
+import { validateOptionsObject } from "../core/validation.js";
 
 export interface IdempotencyOptions {
   readonly header?: string;
@@ -13,8 +14,26 @@ function randomKey(): string {
 }
 
 export function idempotency(options: IdempotencyOptions = {}): RequestFeature {
+  validateOptionsObject(options, "idempotency() options");
   const header = options.header ?? "Idempotency-Key";
   const configuredKey = options.key;
+  if (typeof header !== "string" || header.trim() === "") {
+    throw new HttpConfigurationError("idempotency.header must be a non-empty string.");
+  }
+  try {
+    new Headers([[header, "probe"]]);
+  } catch (cause) {
+    throw new HttpConfigurationError("idempotency.header must be a valid HTTP header name.", { cause });
+  }
+  if (
+    configuredKey !== undefined
+    && typeof configuredKey !== "function"
+    && (typeof configuredKey !== "string" || configuredKey.trim() === "")
+  ) {
+    throw new HttpConfigurationError(
+      "idempotency.key must be a non-empty string or a function.",
+    );
+  }
   return {
     name: "idempotency",
     capabilities: { provides: [{ name: "idempotency", mode: "exclusive" }] },

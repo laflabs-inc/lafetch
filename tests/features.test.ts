@@ -73,7 +73,7 @@ describe("request features", () => {
     expect(feature.name).toBe("typed-feature");
   });
 
-  it("snapshots a custom Feature when it is attached to a builder", async () => {
+  it("snapshots a custom Feature when it is attached to an LRequest", async () => {
     const originalHook = vi.fn();
     const mutatedHook = vi.fn();
     const feature: RequestFeature = {
@@ -198,8 +198,7 @@ describe("request features", () => {
             return Response.json({ value: data.value + 1 });
           },
         },
-      })
-      .as("result");
+      });
 
     expect(result.data).toEqual({ value: 2 });
     expect(result.meta.transport).toBe("feature:fixture");
@@ -247,7 +246,7 @@ describe("request features", () => {
     await expect(api.get("/optional").use({
       name: "optional",
       ordering: { optionalBefore: ["missing"] },
-    }).as("result")).resolves.toMatchObject({ status: 204 });
+    })).resolves.toMatchObject({ status: 204 });
   });
 
   it("isolates finalizer response bodies", async () => {

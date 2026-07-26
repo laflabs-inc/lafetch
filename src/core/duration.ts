@@ -1,9 +1,8 @@
 import { HttpConfigurationError } from "./errors.js";
-import type { Duration } from "./types.js";
 
 const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m)$/;
 
-export function durationToMs(value: Duration, label = "duration"): number {
+export function durationToMs(value: unknown, label = "duration"): number {
   if (typeof value === "number") {
     if (!Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
       throw new HttpConfigurationError(`${label} must be a finite, non-negative safe number.`);
@@ -11,6 +10,9 @@ export function durationToMs(value: Duration, label = "duration"): number {
     return value;
   }
 
+  if (typeof value !== "string") {
+    throw new HttpConfigurationError(`${label} must use the form "250ms", "3s", or "1m".`);
+  }
   const match = DURATION_PATTERN.exec(value);
   if (!match) {
     throw new HttpConfigurationError(`${label} must use the form "250ms", "3s", or "1m".`);
