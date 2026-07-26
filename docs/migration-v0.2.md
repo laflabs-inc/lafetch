@@ -5,10 +5,10 @@ v0.2 계열은 호환 별칭을 추가하는 버전이 아니라 요청 문법�
 ## 가장 빠른 전환 순서
 
 1. 모든 요청을 `lafetch.create()`로 만든 명시적 클라이언트에 연결합니다.
-2. 직접 `await`의 반환값을 `HttpResult<T>`에서 데이터 `T`로 변경합니다.
+2. 직접 `await`의 반환값을 `HttpResult<T>`에서 `LResponse<T>`로 변경합니다.
 3. JSON 본문, 응답 형식, 검증 메서드의 이름을 교체합니다.
 4. Timeout, Retry, Cache, Telemetry 시그니처를 v0.2 형식으로 바꿉니다.
-5. 응답 소비를 `as("json" | "text" | "result" | "response" | "stream")` terminal로 변경합니다.
+5. 응답 소비를 직접 `await` 또는 `as("json" | "text" | "response" | "stream")` terminal로 변경합니다.
 6. 사용자 Feature 타입과 Helper import를 `@laflabs/lafetch/feature`로 이동합니다.
 
 ## 전체 요청 비교
@@ -30,32 +30,24 @@ result.status;
 현재 v0.3:
 
 ```ts
-const user = await api
+const response = await api
   .post<User>("/users")
   .json({ name: "Dohyun" })
   .timeout("10s")
   .attemptTimeout("3s")
   .retry(2);
-```
 
-상태 코드와 헤더가 필요할 때만 `as("result")`를 사용합니다.
-
-```ts
-const result = await api
-  .post<User>("/users")
-  .json({ name: "Dohyun" })
-  .as("result");
-
-result.data;
-result.status;
+response.data;
+response.status;
+response.meta.attempts;
 ```
 
 ## API 변경표
 
 | v0.1 | 현재 v0.3 | 비고 |
 | --- | --- | --- |
-| `await request` → `HttpResult<T>` | `await request` → `T` | 데이터 우선 반환 |
-| `request.send()` | `request.as("result")` | 전체 응답이 필요할 때만 사용 |
+| `await request` → `HttpResult<T>` | `await request` → `LResponse<T>` | 일관된 data·HTTP metadata envelope |
+| `request.send()` | `await request` | 별도 전송 terminal 제거 |
 | `request.jsonBody(value)` | `request.json(value)` | JSON 요청 본문 |
 | `request.json<T>()` | `await api.get<T>(url)` 또는 `api.get<T>(url).as("json")` | 응답 타입은 HTTP 메서드에서 한 번만 선언 |
 | `request.text()` | `request.as("text")` | 모든 명시적 소비는 `as(mode)`로 통일 |
@@ -104,13 +96,13 @@ request.retry(2);               // v0.2
 | Credentials | `omit`, `same-origin`, `include` |
 | Backoff `type` | `fixed`, `exponential` |
 | Backoff `jitter` | `none`, `full` |
-| Response mode | `json`, `text`, `bytes`, `blob`, `formData`, `result`, `response`, `stream` |
+| Response mode | `json`, `text`, `bytes`, `blob`, `formData`, `response`, `stream` |
 
 `bytes`와 Content-Type 기반 자동 binary 소비는 모두 `Uint8Array`를 반환합니다. 문자열 축약형 `backoff: "fixed"`나 알 수 없는 response mode는 기본 동작으로 대체되지 않고 Transport 실행 전에 `HttpConfigurationError`를 발생시킵니다.
 
 ## 마이그레이션 확인 목록
 
-- 직접 `await`한 값에서 `.data`를 읽는 코드가 남아 있지 않은지 확인합니다.
+- 직접 `await`한 값의 디코딩 결과를 `.data`에서 읽는지 확인합니다.
 - `send`, `jsonBody`, `schema`, `mapDecodeError`, `extend` 호출을 제거합니다.
 - `retry()`의 숫자를 전체 시도 횟수에서 추가 재시도 횟수로 변환합니다.
 - 모든 `cache()` 호출에 TTL을 명시합니다.

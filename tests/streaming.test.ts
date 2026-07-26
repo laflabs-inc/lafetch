@@ -116,7 +116,7 @@ describe("Streaming responses", () => {
     expect(sizes).toEqual([2, 1]);
   });
 
-  it("owns one consumption mode per Builder", async () => {
+  it("owns one consumption mode per LRequest", async () => {
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
       transport: mockTransport(() => new Response("payload")),

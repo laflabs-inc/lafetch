@@ -18,13 +18,13 @@ import { applyQuery, resolveUrl } from "./query.js";
 import { cancellationError, composeSignals, createDeadlineSignal } from "./signals.js";
 import {
   withStreamConvenience,
-  type LafetchStreamResponse,
+  type LStreamResponse,
 } from "./stream-response.js";
 import type { RequestConfiguration } from "./config.js";
 import type {
   BodySource,
   MutableRequestDraft,
-  RawExecution,
+  ExecutionResult,
   RequestEventErrorSnapshot,
   RequestEventResponseSnapshot,
   RequestMeta,
@@ -55,15 +55,6 @@ type StreamingBodyErrorMapper = (
   request: Request,
   response: Response,
 ) => Promise<never>;
-
-function normalizeTimeout(config: RequestConfiguration): { totalMs?: number; attemptMs?: number } {
-  return {
-    ...(config.timeout !== undefined ? { totalMs: durationToMs(config.timeout, "timeout") } : {}),
-    ...(config.attemptTimeout !== undefined
-      ? { attemptMs: durationToMs(config.attemptTimeout, "attemptTimeout") }
-      : {}),
-  };
-}
 
 function normalizeRetry(
   input: RequestConfiguration["retry"],
@@ -211,6 +202,12 @@ async function bufferResponse(
   maxResponseBytes: number,
   request: Request,
 ): Promise<Response> {
+  if (response.bodyUsed || response.body?.locked) {
+    throw new HttpConsumptionError(
+      "The buffered response body was already consumed or locked by a Feature.",
+      { request },
+    );
+  }
   const retained = response.clone();
   const reader = response.body?.getReader();
   if (signal.aborted) {
@@ -319,12 +316,12 @@ function assertStreamingCompatible(features: readonly RequestFeature[]): void {
 }
 
 function responseWithBody(source: Response, body: BodyInit | null): Response;
-function responseWithBody(source: Response, body: BodyInit | null, streaming: true): LafetchStreamResponse;
+function responseWithBody(source: Response, body: BodyInit | null, streaming: true): LStreamResponse;
 function responseWithBody(
   source: Response,
   body: BodyInit | null,
   streaming = false,
-): Response | LafetchStreamResponse {
+): Response | LStreamResponse {
   const response = new Response(body, source);
   for (const key of ["url", "redirected", "type"] as const) {
     Object.defineProperty(response, key, { value: source[key] });
@@ -418,7 +415,7 @@ function createStreamingResponse(
   request: Request,
   settle: (error?: Error) => Promise<void>,
   mapBodyError?: StreamingBodyErrorMapper,
-): LafetchStreamResponse {
+): LStreamResponse {
   const body = response.body;
   if (!body) return responseWithBody(response, null, true);
   if (response.bodyUsed || body.locked) {
@@ -549,22 +546,21 @@ async function execute(
   config: RequestConfiguration,
   streaming: boolean,
   mapBodyError?: StreamingBodyErrorMapper,
-): Promise<RawExecution | Response> {
+): Promise<ExecutionResult | Response> {
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
-  const timeout = normalizeTimeout(config);
   const resolvedFeatures = resolveFeatures(config.features);
   if (streaming) assertStreamingCompatible(resolvedFeatures);
   const retry = normalizeRetry(config.retry, config.method, resolvedFeatures);
   const featureRuntime = new FeatureRuntime(resolvedFeatures, requestId);
-  const totalDeadline = createDeadlineSignal("total", timeout.totalMs);
+  const totalDeadline = createDeadlineSignal("total", config.timeoutMs);
   const requestSignal = composeSignals([config.signal, totalDeadline.signal]);
   let attempts = 0;
   let finalRequest: Request | undefined;
   let finalResponse: Response | undefined;
   let finalSource: string | undefined;
   let finalError: Error | undefined;
-  let execution: RawExecution | undefined;
+  let execution: ExecutionResult | undefined;
   let endedAt: number | undefined;
   let finalAttemptCleanup: (() => void) | undefined;
   let completion: Promise<void> | undefined;
@@ -619,7 +615,7 @@ async function execute(
 
     for (let attempt = 1; attempt <= retry.attempts; attempt += 1) {
       attempts = attempt;
-      const attemptDeadline = createDeadlineSignal("attempt", timeout.attemptMs);
+      const attemptDeadline = createDeadlineSignal("attempt", config.attemptTimeoutMs);
       const attemptSignal = composeSignals([requestSignal.signal, attemptDeadline.signal]);
       const attemptDraft = cloneDraft(baseDraft);
       let request: Request | undefined;
@@ -799,13 +795,13 @@ async function execute(
   return execution;
 }
 
-export async function executeRequest(config: RequestConfiguration): Promise<RawExecution> {
-  return await execute(config, false) as RawExecution;
+export async function executeRequest(config: RequestConfiguration): Promise<ExecutionResult> {
+  return await execute(config, false) as ExecutionResult;
 }
 
 export async function executeStreamingRequest(
   config: RequestConfiguration,
   mapBodyError?: StreamingBodyErrorMapper,
-): Promise<LafetchStreamResponse> {
-  return await execute(config, true, mapBodyError) as LafetchStreamResponse;
+): Promise<LStreamResponse> {
+  return await execute(config, true, mapBodyError) as LStreamResponse;
 }

@@ -11,6 +11,12 @@ export type RequestErrorMapper = (
   context: RequestErrorContext,
 ) => Error | void | Promise<Error | void>;
 
+export function validateRequestErrorMapper(value: unknown): asserts value is RequestErrorMapper {
+  if (typeof value !== "function") {
+    throw new HttpConfigurationError("mapError() requires an error-mapping function.");
+  }
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error
     ? error
@@ -32,3 +38,4 @@ export async function mapRequestError(
   }
   throw current;
 }
+import { HttpConfigurationError } from "../core/errors.js";

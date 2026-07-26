@@ -1,5 +1,5 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
-import { HttpSchemaError, lafetch } from "../src/index.js";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { lafetch, type LResponse } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 interface User { id: string }
@@ -17,8 +17,8 @@ describe("response schema", () => {
   it("validates, transforms, and infers the result", async () => {
     const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
     const result = await api.get("https://api.example.com/user").validate(userSchema);
-    expect(result.id).toBe("1");
-    expectTypeOf(result).toEqualTypeOf<User>();
+    expect(result.data.id).toBe("1");
+    expectTypeOf(result).toEqualTypeOf<LResponse<User>>();
   });
 
   it("returns the schema output type after an explicit decoder", async () => {
@@ -31,8 +31,23 @@ describe("response schema", () => {
     const api = lafetch.create({ transport: mockTransport(() => new Response("hello")) });
     const resultPromise = api.get("https://api.example.com/text").validate(lengthSchema).as("text");
 
-    expectTypeOf(resultPromise).toEqualTypeOf<Promise<number>>();
-    await expect(resultPromise).resolves.toBe(5);
+    expectTypeOf(resultPromise).toEqualTypeOf<Promise<LResponse<number>>>();
+    await expect(resultPromise).resolves.toHaveProperty("data", 5);
+  });
+
+  it("snapshots an object schema when it is attached to an LRequest", async () => {
+    const original = vi.fn((value: unknown) => value as User);
+    const replacement = vi.fn(() => {
+      throw new Error("mutated schema");
+    });
+    const schema = { parse: original };
+    const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
+    const request = api.get("https://api.example.com/user").validate(schema);
+    schema.parse = replacement;
+
+    await expect(request).resolves.toHaveProperty("data.id", "1");
+    expect(original).toHaveBeenCalledOnce();
+    expect(replacement).not.toHaveBeenCalled();
   });
 
   it("maps response validation failures through the unified error mapper", async () => {

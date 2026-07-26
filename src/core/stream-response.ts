@@ -1,4 +1,4 @@
-export interface LafetchReadableStream<T> extends ReadableStream<T> {
+export interface LStream<T> extends ReadableStream<T> {
   /**
    * Consume chunks sequentially while preserving Web Stream backpressure.
    * The returned Promise settles when the Stream completes or fails.
@@ -8,17 +8,17 @@ export interface LafetchReadableStream<T> extends ReadableStream<T> {
   ): Promise<void>;
 }
 
-export interface LafetchStreamResponse extends Response {
+export interface LStreamResponse extends Response {
   /** Access the live byte Stream without nullable body handling. */
-  pipe(): LafetchReadableStream<Uint8Array>;
+  pipe(): LStream<Uint8Array>;
   /** Decode the live byte Stream as text. */
-  pipe(mode: "text", options?: StreamPipeOptions): LafetchReadableStream<string>;
+  pipe(mode: "text", options?: StreamPipeOptions): LStream<string>;
   /** Pass the live byte Stream through a standard Web Stream transform. */
   pipe<T>(
     transform: ReadableWritablePair<T, Uint8Array>,
     options?: StreamPipeOptions,
-  ): LafetchReadableStream<T>;
-  clone(): LafetchStreamResponse;
+  ): LStream<T>;
+  clone(): LStreamResponse;
 }
 
 async function consumeStream<T>(
@@ -46,11 +46,11 @@ async function consumeStream<T>(
   }
 }
 
-function withConsumer<T>(stream: ReadableStream<T>): LafetchReadableStream<T> {
-  if (!Object.hasOwn(stream, "forEach")) {
+function withConsumer<T>(stream: ReadableStream<T>): LStream<T> {
+  if (typeof (stream as Partial<LStream<T>>).forEach !== "function") {
     Object.defineProperty(stream, "forEach", { value: consumeStream });
   }
-  return stream as LafetchReadableStream<T>;
+  return stream as LStream<T>;
 }
 
 function emptyByteStream(): ReadableStream<Uint8Array> {
@@ -65,7 +65,7 @@ function pipeStream(
   this: Response,
   transform?: "text" | ReadableWritablePair<unknown, Uint8Array>,
   options?: StreamPipeOptions,
-): LafetchReadableStream<unknown> {
+): LStream<unknown> {
   const body = this.body ?? emptyByteStream();
   if (transform === undefined) return withConsumer(body);
   if (transform === "text") {
@@ -78,7 +78,7 @@ function pipeStream(
 }
 
 /** @internal */
-export function withStreamConvenience(response: Response): LafetchStreamResponse {
+export function withStreamConvenience(response: Response): LStreamResponse {
   Object.defineProperty(response, "pipe", { value: pipeStream });
-  return response as LafetchStreamResponse;
+  return response as LStreamResponse;
 }

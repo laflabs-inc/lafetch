@@ -1,6 +1,11 @@
 import { HttpConfigurationError } from "../core/errors.js";
 import type { RequestFeature } from "../core/types.js";
 import { cancellationError } from "../core/signals.js";
+import {
+  validateHttpMethods,
+  validateOptionalKey,
+  validateOptionsObject,
+} from "../core/validation.js";
 import { hasSensitiveRequest, resolveRequestKey, type RequestKey } from "./request-key.js";
 
 export interface DedupeOptions {
@@ -43,6 +48,9 @@ export function createDedupeFeature(
   options: DedupeOptions = {},
   sharedExecutions: Map<string, unknown> = new Map(),
 ): RequestFeature {
+  validateOptionsObject(options, "dedupe() options");
+  if (options.methods !== undefined) validateHttpMethods(options.methods, "dedupe.methods");
+  validateOptionalKey(options.key, "dedupe.key");
   const executions = sharedExecutions as Map<string, SharedExecution>;
   const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
   const configuredKey = options.key;
@@ -69,28 +77,32 @@ export function createDedupeFeature(
           return;
         }
         state.set(keyState, key);
-        const existing = executions.get(key);
-        if (existing) {
+        while (true) {
+          const existing = executions.get(key);
+          if (!existing) {
+            const entry = deferred();
+            executions.set(key, entry);
+            state.set(entryState, entry);
+            state.set(leaderState, true);
+            return;
+          }
           state.set(entryState, existing);
           try {
             return (await withAbort(existing.promise, signal)).clone();
           } catch (error) {
             const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
-            if (!signal.aborted && (code === "ERR_HTTP_ABORTED" || code === "ERR_HTTP_TIMEOUT")) {
+            if (signal.aborted || (code !== "ERR_HTTP_ABORTED" && code !== "ERR_HTTP_TIMEOUT")) {
+              throw error;
+            }
+            if (executions.get(key) === existing) {
               const replacement = deferred();
               executions.set(key, replacement);
               state.set(entryState, replacement);
               state.set(leaderState, true);
               return;
             }
-            throw error;
           }
         }
-        const entry = deferred();
-        executions.set(key, entry);
-        state.set(entryState, entry);
-        state.set(leaderState, true);
-        return;
       },
       finalize({ response, error, state }) {
         if (!state.get(leaderState)) return;
@@ -103,8 +115,4 @@ export function createDedupeFeature(
       },
     },
   };
-}
-
-export function dedupe(options: DedupeOptions = {}): RequestFeature {
-  return createDedupeFeature(options);
 }

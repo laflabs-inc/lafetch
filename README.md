@@ -1,6 +1,6 @@
 # Lafetch
 
-> 데이터는 바로 받고, 실패 정책은 읽기 쉽게.
+> 데이터와 HTTP 문맥은 함께 받고, 실패 정책은 읽기 쉽게.
 
 Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트입니다. 평범한 요청은 짧게 작성하고, Timeout·Retry·Cache처럼 실패 상황을 다루는 정책은 요청 코드 안에서 명확하게 선언합니다.
 
@@ -25,23 +25,29 @@ const api = lafetch.create({
   baseUrl: "https://api.example.com",
 });
 
-const user = await api.get<User>("/users/123");
+const response = await api.get<User>("/users/123");
+
+response.data;    // User
+response.status;  // number
+response.headers; // Headers
 ```
 
-응답 데이터가 바로 반환되므로 `.data`를 꺼내거나 별도의 JSON 종결 메서드를 호출할 필요가 없습니다.
+기본 반환값은 `LResponse<User>`입니다. 서버의 `Content-Type`에 따라 디코딩된 값은 항상 `response.data`에 있고, HTTP 상태와 실행 메타데이터도 같은 응답에서 확인할 수 있습니다. JSON API에 별도의 종결 메서드를 반복할 필요는 없습니다.
 
 ## JSON 보내기
 
 ```ts
-const user = await api
+const response = await api
   .post<User>("/users")
   .json({ name: "Dohyun" });
+
+response.data;
 ```
 
 ## 실패 정책 추가하기
 
 ```ts
-const users = await api
+const { data: users } = await api
   .get<User[]>("/users")
   .timeout("3s")
   .retry(2);
@@ -54,7 +60,7 @@ const users = await api
 ### 편의성
 
 - 생성, 요청, 설정, 실행이 한 방향으로 이어집니다.
-- 직접 `await`하면 자동 디코딩된 데이터가 반환됩니다.
+- 직접 `await`하면 자동 디코딩된 `.data`와 HTTP metadata를 담은 `LResponse`가 반환됩니다.
 - JSON 본문은 `.json(value)`, 응답 검증은 `.validate(schema)`처럼 이름만으로 역할을 알 수 있습니다.
 - `await`, `then`, `catch`, `finally`를 일반 Promise처럼 사용할 수 있습니다.
 - 단순한 사용법과 고급 사용법이 서로 다른 API 규칙으로 갈라지지 않습니다.
@@ -67,7 +73,7 @@ const users = await api
 - Cache와 진행 중 요청 Deduplication은 클라이언트별로 격리됩니다.
 - 인증 정보가 포함된 요청은 기본 Cache와 Deduplication을 우회합니다.
 - Transport, HTTP 상태, 디코딩, 스키마 오류를 구조적으로 구분합니다.
-- 잘못된 Credentials, Backoff, Jitter 설정은 요청 전에 `HttpConfigurationError`로 거부합니다.
+- 잘못된 요청 옵션은 선언 시점에 `HttpConfigurationError`로 정규화합니다.
 - Browser, Node.js, Next.js, Workers/Edge에서 같은 계약을 검증합니다.
 
 ## 하나의 사용 규칙
@@ -80,18 +86,18 @@ lafetch.create() → api.method(url) → body/config/policy → await
 - `create()`는 공통 환경 설정과 상태 격리 경계를 만듭니다.
 - `get()`, `post()` 같은 HTTP 메서드는 URL만 받습니다.
 - 헤더, 쿼리, 본문, 정책은 체이닝 메서드로 설정합니다.
-- Builder를 직접 `await`하면 데이터가 반환됩니다.
+- `LRequest`를 직접 `await`하면 `Content-Type` 기반 자동 디코딩 결과를 담은 `LResponse`가 반환됩니다.
 - 사용자 정의 HTTP 메서드는 `request(method, url)`을 사용합니다.
 - 사용자 정의 Feature만 `.use(feature)`를 사용합니다.
 
 같은 동작을 여러 방식으로 표현하지 않아 팀마다 사용법이 달라지는 문제를 줄입니다.
 
-## 필요한 만큼만 드러나는 Builder
+## 필요한 만큼만 드러나는 LRequest
 
 Lafetch는 기능을 줄이는 대신, 확실히 사용할 수 없는 메서드를 현재 요청의 IDE 자동완성에서 제외합니다. Fetch가 요청 본문을 허용하지 않는 GET과 HEAD에서는 `json()`, `body()`, `bodyFactory()`가 나타나지 않습니다.
 
 ```ts
-const users = await api
+const { data: users } = await api
   .get<User[]>("/users")
   .query({ active: true })
   .cache("30s");
@@ -100,7 +106,7 @@ const users = await api
 JSON 요청 본문이 필요한 메서드에서는 같은 기능을 그대로 사용합니다.
 
 ```ts
-const user = await api
+const { data: user } = await api
   .post<User>("/users")
   .json({ name: "Dohyun" })
   .idempotency({ key: requestId })
@@ -109,22 +115,23 @@ const user = await api
 
 TypeScript에서 차단한 조합은 JavaScript에서도 요청 선언 시 `HttpConfigurationError`로 실패하며 Transport에 도달하지 않습니다. 세부 정책 충돌은 Feature Runtime이 실행 전에 검증하므로 고급 기능을 타입 상태로 과도하게 누적하지 않습니다.
 
-## 전체 응답이 필요할 때
+## 일관된 LResponse
 
-상태 코드, 헤더, 요청 메타데이터가 필요하면 `as("result")`를 명시합니다.
+모든 Buffered 데이터 소비는 `LResponse<T>`를 반환합니다.
 
 ```ts
 const response = await api
-  .get<User>("/users/123")
-  .as("result");
+  .get<User>("/users/123");
 
 response.data;
+response.ok;
 response.status;
 response.headers;
 response.meta.attempts;
+response.response; // 독립적인 native Response clone
 ```
 
-Fetch `Response`가 직접 필요하면 `as("response")`를 사용합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
+`LResponse`는 Body가 이미 디코딩된 envelope이므로 native `Response`를 상속하지 않습니다. Fetch `Response`만 직접 필요하면 `as("response")`를 사용합니다. 이 모드도 안전한 다중 소비를 위해 기본 16 MiB 안에서 전체 Body를 버퍼링합니다.
 
 실시간 Body가 필요하면 `as("stream")`을 사용합니다.
 
@@ -139,31 +146,42 @@ await response.pipe("text").forEach((chunk) => {
 });
 ```
 
-`as("stream")`은 Header가 확정되면 실제 Fetch `Response`에 얇은 편의 인터페이스를 더한 `LafetchStreamResponse`를 반환합니다. `status`, `headers`, `body`, `text()`, `clone()`과 `body.pipeThrough()` 같은 표준 기능은 그대로 유지됩니다.
+`as("stream")`은 Header가 확정되면 실제 Fetch `Response`에 얇은 편의 인터페이스를 더한 `LStreamResponse`를 반환합니다. `status`, `headers`, `body`, `text()`, `clone()`과 `body.pipeThrough()` 같은 표준 기능은 그대로 유지됩니다.
 
 - `response.pipe()`는 nullable Body 처리가 필요 없는 byte Stream을 반환합니다.
 - `response.pipe("text")`는 text Stream을 반환합니다.
 - `response.pipe(transform)`은 표준 `ReadableWritablePair`를 적용합니다.
 - 반환된 Stream의 `forEach()`는 각 callback을 순서대로 기다려 backpressure를 유지합니다.
 
-같은 Builder에서는 Streaming을 한 번만 시작할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
+같은 `LRequest`에서는 Streaming을 한 번만 시작할 수 있고, Body 노출 뒤에는 Retry하지 않습니다. Cache, Deduplication, 전체 Body Schema validation과는 함께 사용할 수 없습니다.
 
-## 응답 형식 지정하기
+## 자동 디코딩과 형식 강제
 
-기본적으로 `Content-Type`에 따라 JSON, 문자열, `Uint8Array`를 자동 선택합니다. 형식을 강제하거나 응답 소유권을 선택할 때만 단일 `as(mode)` 종결 메서드를 사용합니다. 이 메서드는 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실이 분명합니다.
+일반 요청의 기본 문법은 direct `await`입니다. 서버의 `Content-Type`이 정확하다면 JSON API에서도 `as("json")`을 반복할 필요가 없습니다.
+
+| 문법 | 동작 | 권장 사용처 |
+| --- | --- | --- |
+| `await request` | `Content-Type`으로 `.data`를 자동 디코딩한 `LResponse` | 일반 요청 |
+| `request.as("json")` | Header와 무관하게 JSON decoding을 강제한 `LResponse` | 잘못된 `Content-Type`을 보내는 API |
+| `request.as("response")` | Buffered Fetch `Response` | 표준 `Response`를 직접 다룰 때 |
+| `request.as("stream")` | live Fetch `Response` | Body를 실시간 소비할 때 |
+
+예를 들어 서버가 JSON Body를 `text/plain`으로 잘못 표시할 때만 decoder를 강제합니다.
 
 ```ts
-const user = await api.get<User>("/users/123").as("json");
-const health = await api.get("/health").as("text");
-const bytes = await api.get("/files/1").as("bytes");
-const file = await api.get("/files/1").as("blob");
+const { data: user } = await api.get<User>("/legacy/users/123").as("json");
+const { data: health } = await api.get("/health").as("text");
+const { data: bytes } = await api.get("/files/1").as("bytes");
+const { data: file } = await api.get("/files/1").as("blob");
 ```
+
+`as(mode)`는 실제 `Promise`를 반환하므로 요청 설정 체인이 끝났다는 사실도 분명합니다.
 
 응답 데이터 타입은 `get<T>()`, `post<T>()` 같은 HTTP 메서드에서 한 번만 선언합니다. `as<T>(mode)` 같은 타입 단언 문법은 제공하지 않으므로 서로 다른 타입을 중복 선언할 수 없습니다.
 
-`validate(schema)`가 값을 변환하면 이후 소비 메서드의 반환 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
+`validate(schema)`가 값을 변환하면 이후 `LResponse.data`의 타입도 Schema 출력 타입을 따릅니다. 타입 선언만으로 런타임 데이터가 검증되는 것은 아니며, 실제 보장이 필요할 때 `validate(schema)`를 사용합니다.
 
-지원 모드는 `json`, `text`, `bytes`, `blob`, `formData`, `result`, `response`, `stream`입니다. `result`는 Lafetch 데이터와 실행 메타데이터를, `response`는 Buffered Fetch `Response`를, `stream`은 live Fetch `Response`를 반환합니다. 알 수 없는 모드는 Transport 실행 전에 거부합니다.
+지원 모드는 `json`, `text`, `bytes`, `blob`, `formData`, `response`, `stream`입니다. 앞의 다섯 mode는 decoder를 강제한 `LResponse`를 반환하고, 뒤의 두 mode는 native Fetch 응답 소유권을 선택합니다. 알 수 없는 mode는 Transport 실행 전에 거부합니다.
 
 ## 주요 기능
 
@@ -250,6 +268,7 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 - [Cache와 Deduplication 설계](docs/cache-deduplication.md)
 - [응답 소비 RFC](docs/rfcs/response-consumption.md)
 - [런타임 호환성](docs/runtime-compatibility.md)
+- [v0.3 API polish 감사 보고서](docs/reports/v0.3-api-polish.md)
 - [개발 로드맵](docs/roadmap.md)
 
 ## 개발

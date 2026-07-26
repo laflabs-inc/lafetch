@@ -19,7 +19,7 @@ describe("retry", () => {
     });
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    const result = await api.get<{ ok: boolean }>("/health").retry(2, noDelay).as("result");
+    const result = await api.get<{ ok: boolean }>("/health").retry(2, noDelay);
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(3);
@@ -42,7 +42,7 @@ describe("retry", () => {
     statuses.length = 0;
     options.backoff.base = 10_000;
 
-    await expect(request).resolves.toEqual({ ok: true });
+    await expect(request).resolves.toHaveProperty("data.ok", true);
     expect(attempt).toBe(2);
   });
 
@@ -55,7 +55,7 @@ describe("retry", () => {
     });
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 
-    const result = await api.get<{ ok: boolean }>("/health").retry(1, noDelay).as("result");
+    const result = await api.get<{ ok: boolean }>("/health").retry(1, noDelay);
 
     expect(result.meta.attempts).toBe(2);
   });
@@ -126,8 +126,7 @@ describe("retry", () => {
       .get<{ ok: boolean }>("/health")
       .timeout("200ms")
       .attemptTimeout("10ms")
-      .retry(1, noDelay)
-      .as("result");
+      .retry(1, noDelay);
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(2);
@@ -146,8 +145,7 @@ describe("retry", () => {
       .get<{ ok: boolean }>("/health")
       .timeout("200ms")
       .attemptTimeout("10ms")
-      .retry(1, noDelay)
-      .as("result");
+      .retry(1, noDelay);
 
     expect(result.data.ok).toBe(true);
     expect(result.meta.attempts).toBe(2);

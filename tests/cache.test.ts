@@ -3,7 +3,7 @@ import { lafetch, MemoryCacheStore } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("cache", () => {
-  it("reuses a successful response across builders", async () => {
+  it("reuses a successful response across requests", async () => {
     let calls = 0;
     const store = new MemoryCacheStore();
     const api = lafetch.create({
@@ -14,8 +14,8 @@ describe("cache", () => {
     const first = await api.get<{ call: number }>("/cache/basic").cache("1m", { store });
     const second = await api.get<{ call: number }>("/cache/basic").cache("1m", { store });
 
-    expect(first.call).toBe(1);
-    expect(second.call).toBe(1);
+    expect(first.data.call).toBe(1);
+    expect(second.data.call).toBe(1);
     expect(calls).toBe(1);
   });
 
@@ -65,8 +65,8 @@ describe("cache", () => {
     const first = await firstApi.get<{ tenant: string }>("/cache/isolated").cache("30s");
     const second = await secondApi.get<{ tenant: string }>("/cache/isolated").cache("30s");
 
-    expect(first.tenant).toBe("first");
-    expect(second.tenant).toBe("second");
+    expect(first.data.tenant).toBe("first");
+    expect(second.data.tenant).toBe("second");
   });
 
   it("includes tenant and representation headers in the default key", async () => {
@@ -82,8 +82,8 @@ describe("cache", () => {
     const first = await api.get<{ tenant: string }>("/cache/tenant").header("X-Tenant", "first").cache("30s");
     const second = await api.get<{ tenant: string }>("/cache/tenant").header("X-Tenant", "second").cache("30s");
 
-    expect(first.tenant).toBe("first");
-    expect(second.tenant).toBe("second");
+    expect(first.data.tenant).toBe("first");
+    expect(second.data.tenant).toBe("second");
     expect(calls).toBe(2);
   });
 
@@ -112,8 +112,8 @@ describe("cache", () => {
       .cache("30s")
       .use(tenant("second"));
 
-    expect(first.tenant).toBe("first");
-    expect(second.tenant).toBe("second");
+    expect(first.data.tenant).toBe("first");
+    expect(second.data.tenant).toBe("second");
     expect(calls).toBe(2);
   });
 
@@ -164,9 +164,9 @@ describe("cache", () => {
       .body("same")
       .cache("30s", { key: async (request) => `keyed-write:${await request.text()}` });
 
-    expect(first.call).toBe(1);
-    expect(second.call).toBe(1);
-    expect(first.body).toBe("same");
+    expect(first.data.call).toBe(1);
+    expect(second.data.call).toBe(1);
+    expect(first.data.body).toBe("same");
     expect(calls).toBe(1);
   });
 
@@ -180,8 +180,8 @@ describe("cache", () => {
       )),
     });
 
-    expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).call).toBe(1);
-    expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).call).toBe(2);
+    expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).data.call).toBe(1);
+    expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).data.call).toBe(2);
   });
 
   it("does not store a response that fails the buffer limit", async () => {
@@ -198,7 +198,7 @@ describe("cache", () => {
     await expect(api.get("/cache/oversized").cache("1m").maxResponseBytes(2))
       .rejects.toMatchObject({ code: "ERR_HTTP_RESPONSE_TOO_LARGE" });
     await expect(api.get<string>("/cache/oversized").cache("1m").maxResponseBytes(2))
-      .resolves.toBe("ok");
+      .resolves.toHaveProperty("data", "ok");
     expect(calls).toBe(2);
   });
 

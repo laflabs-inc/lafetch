@@ -14,7 +14,7 @@ describe("browser Fetch runtime", () => {
       .query({ page: 2 })
       .header("X-Lafetch-Test", "browser");
 
-    expect(result).toEqual({ method: "GET", query: { page: "2" }, header: "browser" });
+    expect(result.data).toEqual({ method: "GET", query: { page: "2" }, header: "browser" });
   });
 
   it("retries an HTTP response through browser fetch", async () => {
@@ -25,7 +25,7 @@ describe("browser Fetch runtime", () => {
       .query({ key })
       .retry(1, { backoff: { type: "fixed", base: 0, jitter: "none" } });
 
-    expect(result.attempt).toBe(2);
+    expect(result.data.attempt).toBe(2);
   });
 
   it("maps browser AbortSignal cancellation", async () => {
@@ -38,10 +38,12 @@ describe("browser Fetch runtime", () => {
   it("keeps explicit as(mode) contracts in browser Fetch", async () => {
     const api = lafetch.create();
 
-    await expect(api.get("/__lafetch_fixture__/text").as("text")).resolves.toBe("browser text");
+    await expect(api.get("/__lafetch_fixture__/text").as("text"))
+      .resolves.toHaveProperty("data", "browser text");
     await expect(api.get("/__lafetch_fixture__/text").as("bytes"))
-      .resolves.toEqual(new TextEncoder().encode("browser text"));
-    await expect(api.get("/__lafetch_fixture__/empty").as("text")).resolves.toBe("");
+      .resolves.toHaveProperty("data", new TextEncoder().encode("browser text"));
+    await expect(api.get("/__lafetch_fixture__/empty").as("text"))
+      .resolves.toHaveProperty("data", "");
   });
 
   it("enforces actual buffered bytes in browser Fetch", async () => {

@@ -2,33 +2,29 @@
 
 이 문서는 Lafetch v0.3의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
 
-## 데이터, 전체 응답, 원본 응답
+## LResponse, 원본 응답, Streaming 응답
 
-### 데이터
+### LResponse
 
-Builder를 직접 `await`하면 `Content-Type`에 따라 자동 디코딩된 데이터가 반환됩니다.
-
-```ts
-const user = await api.get<User>("/users/123");
-```
-
-### 전체 응답
-
-`as("result")`는 데이터와 HTTP 및 실행 메타데이터를 함께 반환합니다.
+`LRequest`를 직접 `await`하면 `Content-Type`에 따라 자동 디코딩된 `data`와 HTTP 및 실행 메타데이터를 담은 `LResponse<T>`가 반환됩니다.
 
 ```ts
-const result = await api
-  .get<User>("/users/123")
-  .as("result");
+const result = await api.get<User>("/users/123");
 
 result.data;
+result.ok;
 result.status;
 result.statusText;
 result.headers;
+result.url;
+result.redirected;
+result.type;
 result.request;
 result.response;
 result.meta.attempts;
 ```
+
+`LResponse` 객체는 shallow freeze되며 소비자마다 독립적인 `Headers`와 Buffered `Response` clone을 받습니다. `Headers`와 native `Response` 자체의 표준 동작까지 얼리지는 않습니다.
 
 ### 원본 Response
 
@@ -51,12 +47,12 @@ await response.pipe("text").forEach(async (chunk, index) => {
 });
 ```
 
-`as("stream")`은 Status와 Header가 확정되면 실제 Fetch `Response`를 확장한 `LafetchStreamResponse`를 반환합니다. 별도 envelope로 감싸지 않으므로 `status`, `headers`, `body`, `text()`, `arrayBuffer()`, `clone()`과 표준 `ReadableStream` API를 그대로 사용할 수 있습니다.
+`as("stream")`은 Status와 Header가 확정되면 실제 Fetch `Response`를 확장한 `LStreamResponse`를 반환합니다. 별도 envelope로 감싸지 않으므로 `status`, `headers`, `body`, `text()`, `arrayBuffer()`, `clone()`과 표준 `ReadableStream` API를 그대로 사용할 수 있습니다.
 
 ```ts
-response.pipe();                // LafetchReadableStream<Uint8Array>
-response.pipe("text");          // LafetchReadableStream<string>
-response.pipe(customTransform); // LafetchReadableStream<T>
+response.pipe();                // LStream<Uint8Array>
+response.pipe("text");          // LStream<string>
+response.pipe(customTransform); // LStream<T>
 
 await response.pipe().pipeTo(writable);
 ```
@@ -71,7 +67,7 @@ const reader = response.body
   .getReader();
 ```
 
-Lafetch는 전체 Body를 보관하지 않으며 Body는 한 소비자만 소유합니다. 같은 Builder에서 Streaming 소비를 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
+Lafetch는 전체 Body를 보관하지 않으며 Body는 한 소비자만 소유합니다. 같은 `LRequest`에서 Streaming 소비를 반복하거나 Buffered terminal과 혼합하면 `HttpConsumptionError`가 발생합니다.
 
 Streaming은 기본 총량 제한이 없습니다. 제한이 필요한 요청만 `maxResponseBytes()`를 명시합니다.
 
@@ -84,55 +80,55 @@ const response = await api
 
 `validate()`, `cache()`, `dedupe()` 뒤에는 `as("stream")` overload가 TypeScript 자동완성에서 제거되며 JavaScript 우회도 Transport 실행 전에 실패합니다. accepted Body를 노출한 뒤 발생한 오류와 Timeout은 Stream을 실패시키지만 새 시도로 교체하지 않습니다. Body를 끝까지 읽지 않을 때는 `response.body?.cancel()`로 lifecycle을 종료해야 합니다.
 
-## 응답 형식
+## 자동 디코딩과 강제 decoder
 
 기본 자동 소비는 JSON 계열 Content-Type을 객체로, text·XML·form-urlencoded를 문자열로, 그 외 응답을 `Uint8Array`로 디코딩합니다. 빈 JSON과 자동 소비, `HEAD`, `204`, `205`의 데이터는 `undefined`가 될 수 있습니다. 명시적 `text`, `bytes`, `blob`, `formData` 모드는 각각 빈 문자열, 빈 `Uint8Array`, 빈 Blob, 빈 FormData를 반환해 선언된 타입을 유지합니다.
 
-서버의 Content-Type을 신뢰할 수 없거나 특정 형식이 필요하면 명시적인 `as(mode)` 종결 메서드를 사용합니다.
+direct `await`가 일반 경로입니다. 서버의 `Content-Type`을 신뢰할 수 없거나 특정 형식이 반드시 필요할 때만 `as("json" | "text" | "bytes" | "blob" | "formData")`로 decoder를 강제합니다.
 
 ```ts
-const json = await api.get<User>("/user").as("json");
-const text = await api.get("/health").as("text");
-const bytes = await api.get("/binary").as("bytes");
-const blob = await api.get("/file").as("blob");
-const form = await api.get("/form").as("formData");
+const { data: json } = await api.get<User>("/legacy-user").as("json"); // text/plain으로 잘못 표시된 JSON
+const { data: text } = await api.get("/health").as("text");
+const { data: bytes } = await api.get("/binary").as("bytes");
+const { data: blob } = await api.get("/file").as("blob");
+const { data: form } = await api.get("/form").as("formData");
 ```
 
 응답 데이터 타입은 모든 HTTP 진입 메서드의 제네릭으로 한 번만 선언합니다. `as<T>(mode)`처럼 terminal에서 타입을 다시 지정하는 문법은 제공하지 않습니다.
 
-`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `as("text")` 같은 명시적 decoder를 사용하더라도 최종 반환 타입과 값은 Schema 출력입니다.
+`validate(schema)`는 decoder 이후에 실행됩니다. Schema가 값을 변환했다면 `as("text")` 같은 명시적 decoder를 사용하더라도 최종 `LResponse.data` 타입과 값은 Schema 출력입니다.
 
-`as(mode)`는 실제 `Promise`를 반환합니다. 모드는 닫힌 literal union이며 JavaScript의 알 수 없는 값도 기본 동작으로 처리하지 않고 `HttpConfigurationError`로 거부합니다. terminal 뒤에는 Builder 설정을 연결할 수 없고, `stream`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
+`as(mode)`는 실제 `Promise`를 반환합니다. 모드는 닫힌 literal union이며 JavaScript의 알 수 없는 값도 기본 동작으로 처리하지 않고 `HttpConfigurationError`로 거부합니다. terminal 뒤에는 `LRequest` 설정을 연결할 수 없고, `stream`도 실행 전에 소비 전략을 확정하는 같은 규칙을 사용합니다.
 
 ## Promise 호환성과 실행 불변식
 
-`RequestBuilder<T>`는 지연 실행되는 `PromiseLike<T>`입니다. 공개 타입에는 데이터 타입 하나만 보이며, 요청 본문 허용 여부, 향후 Streaming 선택, Schema 출력 보존에 필요한 상태는 내부에서만 추적합니다.
+`LRequest<T>`는 지연 실행되는 `PromiseLike<LResponse<T>>`입니다. 공개 generic에는 데이터 타입 하나만 보이며, 요청 본문 허용 여부, 향후 Streaming 선택, Schema 출력 보존에 필요한 상태는 내부에서만 추적합니다.
 
 ```ts
 api
   .get<User>("/users/123")
-  .then((user) => render(user))
+  .then((response) => render(response.data))
   .catch(handleError)
   .finally(stopLoading);
 ```
 
-Buffered Builder를 여러 소비자가 사용해도 Transport 실행은 한 번만 일어납니다. 각 소비자는 보관된 응답의 독립적인 복제본을 디코딩합니다. Streaming Builder는 한 번만 소비할 수 있으며 반환된 Promise 자체를 공유해야 합니다.
+Buffered `LRequest`를 여러 소비자가 사용해도 Transport 실행은 한 번만 일어납니다. 각 소비자는 보관된 응답의 독립적인 복제본을 디코딩합니다. Streaming `LRequest`는 한 번만 소비할 수 있으며 반환된 Promise 자체를 공유해야 합니다.
 
 ```ts
 const request = api.get<User>("/users/123");
 
-const name = request.then((user) => user.name);
-const email = request.then((user) => user.email);
+const name = request.then((response) => response.data.name);
+const email = request.then((response) => response.data.email);
 
 await Promise.all([name, email]);
 ```
 
-체이닝 메서드를 호출하면 기존 Builder를 변경하지 않고 별도의 실행 식별자를 가진 Builder를 만듭니다.
+체이닝 메서드를 호출하면 기존 `LRequest`를 변경하지 않고 별도의 실행 식별자를 가진 `LRequest`를 만듭니다.
 
 ## 요청 구성
 
 ```ts
-const user = await api
+const { data: user } = await api
   .post<User>("/users")
   .query({ notify: true, tag: ["new", "member"] })
   .header("X-Request-Source", "admin")
@@ -149,7 +145,7 @@ await api
 
 하나의 요청에는 `json()`, `body()`, `bodyFactory()` 중 하나만 설정할 수 있습니다. 이미 설정한 본문을 다른 메서드로 조용히 덮어쓰지 않고 선언 시점에 `HttpConfigurationError`를 발생시킵니다.
 
-`query()`는 모든 HTTP 메서드에서 사용할 수 있습니다. 반면 Fetch는 GET과 HEAD 요청 본문을 허용하지 않으므로 해당 Builder에서는 `json()`, `body()`, `bodyFactory()`가 노출되지 않습니다. JavaScript에서 같은 메서드를 호출하면 Transport 실행 전에 `HttpConfigurationError`가 발생합니다.
+`query()`는 모든 HTTP 메서드에서 사용할 수 있습니다. 반면 Fetch는 GET과 HEAD 요청 본문을 허용하지 않으므로 해당 `LRequest`에서는 `json()`, `body()`, `bodyFactory()`가 노출되지 않습니다. JavaScript에서 같은 메서드를 호출하면 Transport 실행 전에 `HttpConfigurationError`가 발생합니다.
 
 ```ts
 await api
@@ -253,7 +249,7 @@ controller.abort();
 Cache는 완료된 응답을 재사용하고, Deduplication은 동시에 진행 중인 동일 요청만 공유합니다.
 
 ```ts
-const users = await api
+const { data: users } = await api
   .get<User[]>("/users")
   .cache("30s")
   .dedupe();
@@ -309,7 +305,7 @@ const userSchema = {
   },
 };
 
-const user = await api
+const { data: user } = await api
   .get("/users/123")
   .validate(userSchema);
 ```
@@ -335,7 +331,7 @@ await api
 기본 성공 범위는 HTTP `200–299`입니다. 다른 상태를 정상 응답으로 처리해야 한다면 요청에 명시합니다.
 
 ```ts
-const job = await api
+const { data: job } = await api
   .get<Job>("/jobs/123")
   .acceptStatus((status) => status === 200 || status === 404);
 ```
@@ -380,7 +376,7 @@ const api = lafetch.create({ transport });
 
 ## 사용자 정의 Feature
 
-공식 정책은 전용 Builder 메서드를 사용하고 외부 기능만 `.use()`로 설치합니다.
+공식 정책은 전용 `LRequest` 메서드를 사용하고 외부 기능만 `.use()`로 설치합니다.
 
 ```ts
 import { defineFeature } from "@laflabs/lafetch/feature";

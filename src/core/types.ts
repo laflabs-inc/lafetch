@@ -35,11 +35,15 @@ export interface RequestMeta {
   readonly transport: string;
 }
 
-export interface LafetchResponse<T> {
+export interface LResponse<T = unknown> {
   readonly data: T;
+  readonly ok: boolean;
   readonly status: number;
   readonly statusText: string;
   readonly headers: Headers;
+  readonly url: string;
+  readonly redirected: boolean;
+  readonly type: ResponseType;
   readonly request: Request;
   readonly response: Response;
   readonly meta: RequestMeta;
@@ -267,7 +271,7 @@ export interface RequestFeature {
   readonly hooks?: RequestFeatureHooks;
 }
 
-export interface RawExecution {
+export interface ExecutionResult {
   readonly request: Request;
   readonly response: Response;
   readonly meta: RequestMeta;
