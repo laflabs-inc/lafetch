@@ -140,7 +140,7 @@ const created = await api
 
 ## v0.3 — Streaming과 본문 안전성
 
-상태: 구현 완료, Stream DX 보강 CI 검증 대기 (`2026-07-26`)
+상태: 완료 (`2026-07-26`)
 
 확정 계약: [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md)
 
@@ -188,9 +188,9 @@ const created = await api
 - 전체 Timeout, 시도 Timeout, Abort, finalizer를 Body 종료까지 유지
 - 실제 전달 chunk 기준 선택적 `maxResponseBytes()` 적용
 - Schema, Cache, Deduplication 충돌을 TypeScript와 Runtime에서 거부
-- 16개 test file과 Node.js 24 로컬 검증
+- 16개 test file, 119개 core test와 Node.js 20, 22, 24 검증
 - Workers/Edge, Next.js App Router, npm tarball 소비 로컬 검증
-- Node.js 20/22와 Chromium은 PR CI 검증 대기
+- Chromium Browser Mode와 Next.js App Router 통합 CI 검증
 - 전체 브라우저 공개 API `37,318 bytes` minified, `11,895 bytes` gzip
 - 회귀 예산 `48 KiB` minified, `16 KiB` gzip
 
