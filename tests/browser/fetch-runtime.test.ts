@@ -57,13 +57,14 @@ describe("browser Fetch runtime", () => {
       .create()
       .get("/__lafetch_fixture__/stream")
       .as("stream");
-    const reader = response.body!
-      .pipeThrough(new TextDecoderStream())
-      .getReader();
+    const chunks: string[] = [];
 
-    expect(await reader.read()).toEqual({ done: false, value: "first" });
-    expect(await reader.read()).toEqual({ done: false, value: "second" });
-    expect(await reader.read()).toEqual({ done: true, value: undefined });
+    expect(typeof response.body?.pipeThrough).toBe("function");
+    await response.pipe("text").forEach((chunk) => {
+      chunks.push(chunk);
+    });
+
+    expect(chunks).toEqual(["first", "second"]);
   });
 
   it("rejects guarded configuration before Fetch", () => {

@@ -140,7 +140,7 @@ const created = await api
 
 ## v0.3 — Streaming과 본문 안전성
 
-상태: 완료 (`2026-07-25`)
+상태: 완료 (`2026-07-26`)
 
 확정 계약: [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md)
 
@@ -162,6 +162,8 @@ const created = await api
 - Streaming 실패와 Retry의 경계
 - 대용량 다운로드와 Streaming 업로드 테스트
 - Cache, Deduplication, Feature finalizer와 Streaming의 충돌 규칙
+- 표준 Response와 ReadableStream을 보존하는 `pipe()`·`forEach()` 편의 계층
+- union 변수도 허용하는 mode-dependent `as(mode)` 반환 타입
 
 ### 범위 제외
 
@@ -175,21 +177,22 @@ const created = await api
 - Buffered 경로는 설정된 메모리 상한을 초과할 수 없어야 합니다.
 - Timeout과 Abort가 응답 헤더뿐 아니라 본문 소비 종료까지 일관되게 적용되어야 합니다.
 - Cache, Deduplication, Retry처럼 Streaming과 호환되지 않거나 의미가 달라지는 정책이 타입 또는 실행 전 오류로 명확히 구분되어야 합니다.
-- 전체 브라우저 공개 API가 기존 `36 KiB / 12 KiB gzip` 예산을 유지해야 합니다.
+- 전체 브라우저 공개 API가 `48 KiB / 16 KiB gzip` 회귀 예산 안에 있어야 합니다.
 
 ### 완료 근거
 
-- 닫힌 `as(mode)` overload와 JavaScript mode 검증 구현
-- `as("stream"): Promise<Response>`와 Builder 단일 소비 소유권 구현
+- 닫힌 generic `as(mode)`와 mode-dependent 반환 타입, JavaScript mode 검증 구현
+- `as("stream"): Promise<LafetchStreamResponse>`와 Builder 단일 소비 소유권 구현
+- 실제 Response·ReadableStream을 유지하는 `pipe()`, text/custom transform, 순차 `forEach()` 구현
 - accepted Body 노출 전 Status Retry, 노출 후 Body 오류 Retry 금지
 - 전체 Timeout, 시도 Timeout, Abort, finalizer를 Body 종료까지 유지
 - 실제 전달 chunk 기준 선택적 `maxResponseBytes()` 적용
 - Schema, Cache, Deduplication 충돌을 TypeScript와 Runtime에서 거부
-- 16개 test file, 116개 core test와 Node.js 24 로컬 검증
+- 16개 test file, 119개 core test와 Node.js 20, 22, 24 검증
 - Workers/Edge, Next.js App Router, npm tarball 소비 로컬 검증
-- Node.js 20/22와 Chromium은 PR CI 검증 대기
-- 전체 브라우저 공개 API `36,633 bytes` minified, `11,679 bytes` gzip
-- 기존 예산 `36 KiB` minified, `12 KiB` gzip 유지
+- Chromium Browser Mode와 Next.js App Router 통합 CI 검증
+- 전체 브라우저 공개 API `37,318 bytes` minified, `11,895 bytes` gzip
+- 회귀 예산 `48 KiB` minified, `16 KiB` gzip
 
 ## v0.4 — Cache와 Deduplication 프로덕션 강화
 

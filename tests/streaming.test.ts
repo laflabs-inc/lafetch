@@ -51,13 +51,69 @@ describe("Streaming responses", () => {
     const api = lafetch.create();
     const response = await api.get("data:text/plain,hello").as("stream");
     const clone = response.clone();
+    const cloneChunks: string[] = [];
 
     expect(response.url).toBe("data:text/plain,hello");
     expect(clone.url).toBe(response.url);
     expect(clone.redirected).toBe(response.redirected);
     expect(clone.type).toBe(response.type);
+    expect(response).toBeInstanceOf(Response);
+    expect(typeof response.body?.pipeThrough).toBe("function");
+    expect(response.pipe()).toBe(response.body);
     expect(await response.text()).toBe("hello");
-    expect(await clone.text()).toBe("hello");
+    await clone.pipe("text").forEach((chunk) => {
+      cloneChunks.push(chunk);
+    });
+    expect(cloneChunks.join("")).toBe("hello");
+  });
+
+  it("decodes split text chunks and awaits forEach handlers sequentially", async () => {
+    const encoded = new TextEncoder().encode("가나다");
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(byteStream(
+        [...encoded.slice(0, 1)],
+        [...encoded.slice(1, 4)],
+        [...encoded.slice(4)],
+      ))),
+    });
+    const response = await api.get("/text").as("stream");
+    const chunks: string[] = [];
+    let active = false;
+    const completed = vi.fn();
+
+    const consumption = response.pipe("text").forEach(async (chunk, index) => {
+      expect(active).toBe(false);
+      active = true;
+      await Promise.resolve();
+      chunks[index] = chunk;
+      active = false;
+    });
+    expect(consumption).toBeInstanceOf(Promise);
+    await consumption.finally(completed);
+
+    expect(chunks.join("")).toBe("가나다");
+    expect(completed).toHaveBeenCalledOnce();
+  });
+
+  it("accepts standard transforms and keeps the enhanced consumer", async () => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(byteStream([1, 2], [3]))),
+    });
+    const response = await api.get("/sizes").as("stream");
+    const sizes: number[] = [];
+    const transform = new TransformStream<Uint8Array, number>({
+      transform(chunk, controller) {
+        controller.enqueue(chunk.byteLength);
+      },
+    });
+
+    await response.pipe(transform).forEach((size) => {
+      sizes.push(size);
+    });
+
+    expect(sizes).toEqual([2, 1]);
   });
 
   it("owns one consumption mode per Builder", async () => {
@@ -306,6 +362,9 @@ describe("Streaming responses", () => {
     expect(response.status).toBe(204);
     expect(response.body).toBeNull();
     expect(finalize).toHaveBeenCalledOnce();
+    const consume = vi.fn();
+    await response.pipe().forEach(consume);
+    expect(consume).not.toHaveBeenCalled();
   });
 
   it("settles consumer cancellation without leaking lifecycle state", async () => {
@@ -341,5 +400,23 @@ describe("Streaming responses", () => {
     }).as("stream");
 
     await expect(response.text()).rejects.toThrow("Feature \"broken-finalizer\" failed in the finalize hook.");
+  });
+
+  it("cancels and finalizes when a forEach handler fails", async () => {
+    const finalize = vi.fn();
+    const handlerError = new Error("handler failed");
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(byteStream([1], [2]))),
+    });
+    const response = await api.get("/events").use({
+      name: "lifecycle",
+      hooks: { finalize },
+    }).as("stream");
+
+    await expect(response.pipe().forEach(() => {
+      throw handlerError;
+    })).rejects.toBe(handlerError);
+    expect(finalize).toHaveBeenCalledOnce();
   });
 });

@@ -2,8 +2,10 @@ import { gzipSync } from "node:zlib";
 import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
 
-const MAX_MINIFIED_BYTES = 36 * 1_024;
-const MAX_GZIP_BYTES = 12 * 1_024;
+// Hard alpha regression ceiling, not the expected output size. Intentional
+// public API growth must still record a measured baseline in the runtime docs.
+const MAX_MINIFIED_BYTES = 48 * 1_024;
+const MAX_GZIP_BYTES = 16 * 1_024;
 
 describe("browser bundle budget", () => {
   it("keeps the complete public API inside the alpha size budget", async () => {

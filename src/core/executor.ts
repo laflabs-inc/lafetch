@@ -16,6 +16,10 @@ import { FeatureRuntime, type AttemptErrorInput } from "./feature-runtime.js";
 import { resolveFeatures } from "./features.js";
 import { applyQuery, resolveUrl } from "./query.js";
 import { cancellationError, composeSignals, createDeadlineSignal } from "./signals.js";
+import {
+  withStreamConvenience,
+  type LafetchStreamResponse,
+} from "./stream-response.js";
 import type { RequestConfiguration } from "./config.js";
 import type {
   BodySource,
@@ -314,15 +318,26 @@ function assertStreamingCompatible(features: readonly RequestFeature[]): void {
   );
 }
 
-function responseWithBody(source: Response, body: BodyInit | null): Response {
+function responseWithBody(source: Response, body: BodyInit | null): Response;
+function responseWithBody(source: Response, body: BodyInit | null, streaming: true): LafetchStreamResponse;
+function responseWithBody(
+  source: Response,
+  body: BodyInit | null,
+  streaming = false,
+): Response | LafetchStreamResponse {
   const response = new Response(body, source);
   for (const key of ["url", "redirected", "type"] as const) {
     Object.defineProperty(response, key, { value: source[key] });
   }
   Object.defineProperty(response, "clone", {
-    value: () => responseWithBody(source, Response.prototype.clone.call(response).body),
+    value: () => {
+      const clonedBody = Response.prototype.clone.call(response).body;
+      return streaming
+        ? responseWithBody(source, clonedBody, true)
+        : responseWithBody(source, clonedBody);
+    },
   });
-  return response;
+  return streaming ? withStreamConvenience(response) : response;
 }
 
 async function completeLifecycle(
@@ -403,9 +418,9 @@ function createStreamingResponse(
   request: Request,
   settle: (error?: Error) => Promise<void>,
   mapBodyError?: StreamingBodyErrorMapper,
-): Response {
+): LafetchStreamResponse {
   const body = response.body;
-  if (!body) return responseWithBody(response, null);
+  if (!body) return responseWithBody(response, null, true);
   if (response.bodyUsed || body.locked) {
     throw new HttpConsumptionError(
       "The Streaming response body was already consumed or locked by a Feature.",
@@ -527,7 +542,7 @@ function createStreamingResponse(
     },
   });
 
-  return responseWithBody(response, wrapped);
+  return responseWithBody(response, wrapped, true);
 }
 
 async function execute(
@@ -683,7 +698,7 @@ async function execute(
             endedAt = config.runtime.now();
             streamingLifecycleCompleted = true;
             await settle();
-            return responseWithBody(response, null);
+            return responseWithBody(response, null, true);
           }
 
           const settleStream = async (error?: Error) => {
@@ -791,6 +806,6 @@ export async function executeRequest(config: RequestConfiguration): Promise<RawE
 export async function executeStreamingRequest(
   config: RequestConfiguration,
   mapBodyError?: StreamingBodyErrorMapper,
-): Promise<Response> {
-  return await execute(config, true, mapBodyError) as Response;
+): Promise<LafetchStreamResponse> {
+  return await execute(config, true, mapBodyError) as LafetchStreamResponse;
 }
