@@ -42,6 +42,26 @@ describe("browser Fetch runtime", () => {
     expect(result.data.attempt).toBe(2);
   });
 
+  it("loads optional Cache and Deduplication policies in the browser", async () => {
+    const api = lafetch.create();
+    const key = crypto.randomUUID();
+    const [first, second] = await Promise.all([
+      api.get<{ method: string }>("/__lafetch_fixture__/echo")
+        .query({ key })
+        .dedupe(),
+      api.get<{ method: string }>("/__lafetch_fixture__/echo")
+        .query({ key })
+        .dedupe(),
+    ]);
+    const cached = await api.get<{ method: string }>("/__lafetch_fixture__/echo")
+      .query({ key: `${key}-cache` })
+      .cache("1m");
+
+    expect(first.data.method).toBe("GET");
+    expect(second.data.method).toBe("GET");
+    expect(cached.data.method).toBe("GET");
+  });
+
   it("maps browser AbortSignal cancellation", async () => {
     const controller = new AbortController();
     const request = lafetch.create().get("/__lafetch_fixture__/slow").signal(controller.signal);

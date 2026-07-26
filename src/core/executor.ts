@@ -1,4 +1,5 @@
 import { durationToMs } from "./duration.js";
+import { loadDeferredFeatures } from "./deferred-feature.js";
 import {
   HttpAbortError,
   HttpConfigurationError,
@@ -51,6 +52,9 @@ const DEFAULT_MAX_RETRY_AFTER_MS = 60_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const INVALID_BODY_CHUNK = "The HTTP response body produced a non-byte chunk.";
 const MISSING_EXECUTION = "The HTTP request completed without an execution result.";
+const IMF_FIXDATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+const RFC850_DATE = /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/;
+const ASCTIME_DATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:\d{2}| \d) \d{2}:\d{2}:\d{2} \d{4}$/;
 
 type StreamingBodyErrorMapper = (
   error: Error,
@@ -113,11 +117,14 @@ function retryAfterMs(response: Response, now: number): number | undefined {
     const seconds = Number(value);
     return Number.isFinite(seconds) ? seconds * 1_000 : undefined;
   }
-  // All three HTTP-date formats contain a time component. This guard keeps
-  // permissive Date.parse implementations from treating values such as "-1"
-  // as a date while preserving IMF-fixdate and the two obsolete wire formats.
-  if (!value.includes(":") || !/[A-Za-z]/.test(value)) return undefined;
-  const date = Date.parse(value);
+  // Date.parse accepts non-HTTP formats such as ISO 8601. Match the three
+  // case-sensitive HTTP-date wire grammars before delegating calendar parsing.
+  const asctime = ASCTIME_DATE.test(value);
+  if (!asctime && !IMF_FIXDATE.test(value) && !RFC850_DATE.test(value)) return undefined;
+  const leapSecond = value.includes(":60");
+  const normalized = leapSecond ? value.replace(":60", ":59") : value;
+  const parsed = Date.parse(asctime ? `${normalized} GMT` : normalized);
+  const date = parsed + (leapSecond ? 1_000 : 0);
   if (Number.isNaN(date)) return undefined;
   return Math.max(0, date - now);
 }
@@ -567,12 +574,24 @@ async function execute(
 ): Promise<ExecutionResult | Response> {
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
-  const resolvedFeatures = resolveFeatures(config.features);
-  if (streaming) assertStreamingCompatible(resolvedFeatures);
-  const retry = normalizeRetry(config.retry, config.method, resolvedFeatures);
-  const featureRuntime = new FeatureRuntime(resolvedFeatures, requestId);
+  if (streaming) assertStreamingCompatible(config.features);
   const totalDeadline = createDeadlineSignal("total", config.timeoutMs);
   const requestSignal = composeSignals([config.signal, totalDeadline.signal]);
+  let resolvedFeatures: readonly RequestFeature[];
+  try {
+    resolvedFeatures = resolveFeatures(await withCancellation(
+      () => loadDeferredFeatures(config.features),
+      requestSignal.signal,
+    ));
+  } catch (caught) {
+    requestSignal.cleanup();
+    totalDeadline.cleanup();
+    throw requestSignal.signal.aborted
+      ? cancellationError(requestSignal.signal, caught)
+      : caught;
+  }
+  const retry = normalizeRetry(config.retry, config.method, resolvedFeatures);
+  const featureRuntime = new FeatureRuntime(resolvedFeatures, requestId);
   let attempts = 0;
   let finalRequest: Request | undefined;
   let finalResponse: Response | undefined;

@@ -16,6 +16,8 @@ lafetch.create()
 
 Fluent chain은 실행 순서를 감싼 middleware가 아니라 선언적 설정입니다. 실제 순서는 요청을 전송하기 전에 Feature 의존성과 Capability를 해석해 한 번 결정합니다.
 
+Cache와 Deduplication은 선택 정책입니다. `.cache()`와 `.dedupe()` 호출 시 옵션·Capability를 동기적으로 검증하고 immutable declaration을 저장하지만, 실제 hook과 기본 memory store 구현은 요청 실행 시 별도 ESM chunk에서 불러옵니다. 사용하지 않는 정책 비용이 일반 JSON 요청의 초기 graph에 포함되지 않으면서 기존 fluent 문법과 타입 상태를 유지하기 위한 경계입니다. `MemoryCacheStore`의 명시적 value export도 `@laflabs/lafetch/cache`로 분리합니다.
+
 공개 API의 역할은 세 가지로 제한합니다.
 
 - `lafetch`는 격리된 `LClient`를 만드는 factory입니다.

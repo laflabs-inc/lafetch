@@ -123,6 +123,59 @@ describe("retry", () => {
     expect(delays).toEqual([3_000]);
   });
 
+  it.each([
+    "Sunday, 06-Nov-94 08:49:40 GMT",
+    "Sun Nov  6 08:49:40 1994",
+  ])("accepts obsolete HTTP-date Retry-After format: %s", async (retryAfter) => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const now = Date.parse("Sun, 06 Nov 1994 08:49:37 GMT");
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", { status: 503, headers: { "Retry-After": retryAfter } })
+          : success();
+      }),
+      runtime: {
+        now: () => now,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await api.get("/health").retry(1, { maxRetryAfter: "5s" });
+
+    expect(delays).toEqual([3_000]);
+  });
+
+  it("accepts an HTTP-date leap second", async () => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", {
+            status: 503,
+            headers: { "Retry-After": "Sun, 06 Nov 1994 08:49:60 GMT" },
+          })
+          : success();
+      }),
+      runtime: {
+        now: () => Date.parse("Sun, 06 Nov 1994 08:49:59 GMT"),
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await api.get("/health").retry(1, { maxRetryAfter: "2s" });
+
+    expect(delays).toEqual([1_000]);
+  });
+
   it("falls back to backoff for malformed Retry-After values", async () => {
     const delays: number[] = [];
     let attempt = 0;
@@ -136,6 +189,35 @@ describe("retry", () => {
       }),
       runtime: {
         now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await api.get("/health").retry(1, {
+      maxRetryAfter: 0,
+      backoff: { type: "fixed", base: 25, jitter: "none" },
+    });
+
+    expect(delays).toEqual([25]);
+  });
+
+  it("does not accept an ISO date as an HTTP-date Retry-After value", async () => {
+    const delays: number[] = [];
+    let attempt = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        attempt += 1;
+        return attempt === 1
+          ? new Response("unavailable", {
+            status: 503,
+            headers: { "Retry-After": "2026-07-26T10:00:03Z" },
+          })
+          : success();
+      }),
+      runtime: {
+        now: () => Date.parse("2026-07-26T10:00:00Z"),
         random: () => 1,
         sleep: async (ms) => { delays.push(ms); },
       },

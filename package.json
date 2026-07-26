@@ -26,6 +26,10 @@
       "types": "./dist/feature.d.ts",
       "import": "./dist/feature.js"
     },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "import": "./dist/cache.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"

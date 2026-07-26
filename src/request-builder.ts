@@ -18,6 +18,7 @@ import {
   type RequestConfiguration,
 } from "./core/config.js";
 import { decodeResponse, type ResponseMode as DecodeResponseMode } from "./core/decode.js";
+import { deferredFeature } from "./core/deferred-feature.js";
 import { executeRequest, executeStreamingRequest } from "./core/executor.js";
 import type { LStreamResponse } from "./core/stream-response.js";
 import {
@@ -25,8 +26,16 @@ import {
   type TelemetryHandler,
   type TelemetryOptions,
 } from "./features/telemetry.js";
-import { createCacheFeature, type CacheOptions } from "./features/cache.js";
-import { createDedupeFeature, type DedupeOptions } from "./features/dedupe.js";
+import {
+  cacheFeatureDescriptor,
+  snapshotCacheDeclaration,
+  type CacheOptions,
+} from "./features/cache-options.js";
+import {
+  dedupeFeatureDescriptor,
+  snapshotDedupeDeclaration,
+  type DedupeOptions,
+} from "./features/dedupe-options.js";
 import { idempotency as createIdempotencyFeature, type IdempotencyOptions } from "./features/idempotency.js";
 import {
   applySchema,
@@ -367,17 +376,25 @@ class RequestImplementation<TData = unknown> {
   }
 
   cache(ttl: Duration, options: CacheOptions = {}): RequestImplementation<TData> {
-    requireCallerOwnedKey("cache", this.configuration.method, options?.key);
-    const feature = createCacheFeature(ttl, options, {
-      store: this.configuration.scope.getCacheStore(),
-      now: this.configuration.runtime.now,
+    const declaration = snapshotCacheDeclaration(ttl, options);
+    requireCallerOwnedKey("cache", this.configuration.method, declaration.key);
+    const feature = deferredFeature(cacheFeatureDescriptor, async () => {
+      const { createCacheFeature } = await import("./features/cache.js");
+      return createCacheFeature(declaration, {
+        scope: this.configuration.scope,
+        now: this.configuration.runtime.now,
+      });
     });
     return this.#next(withFeature(this.configuration, feature));
   }
 
   dedupe(options?: DedupeOptions): RequestImplementation<TData> {
-    requireCallerOwnedKey("dedupe", this.configuration.method, options?.key);
-    const feature = createDedupeFeature(options, this.configuration.scope.getDedupeExecutions());
+    const declaration = snapshotDedupeDeclaration(options);
+    requireCallerOwnedKey("dedupe", this.configuration.method, declaration.key);
+    const feature = deferredFeature(dedupeFeatureDescriptor, async () => {
+      const { createDedupeFeature } = await import("./features/dedupe.js");
+      return createDedupeFeature(declaration, this.configuration.scope);
+    });
     return this.#next(withFeature(this.configuration, feature));
   }
 

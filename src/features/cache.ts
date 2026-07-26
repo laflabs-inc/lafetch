@@ -1,21 +1,8 @@
 import { MemoryCacheStore, type CacheStore } from "../core/cache-store.js";
-import { durationToMs } from "../core/duration.js";
-import { HttpConfigurationError } from "../core/errors.js";
-import type { Duration, RequestFeature } from "../core/types.js";
-import {
-  validateHttpMethods,
-  validateHttpStatuses,
-  validateOptionalKey,
-  validateOptionsObject,
-} from "../core/validation.js";
-import { hasSensitiveRequest, resolveRequestKey, type RequestKey } from "./request-key.js";
-
-export interface CacheOptions {
-  readonly store?: CacheStore;
-  readonly methods?: readonly string[];
-  readonly statuses?: readonly number[];
-  readonly key?: RequestKey;
-}
+import type { ClientPolicyScope } from "../core/config.js";
+import type { RequestFeature } from "../core/types.js";
+import type { CacheDeclaration } from "./cache-options.js";
+import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
@@ -41,47 +28,26 @@ function responseTtl(response: Response, configuredTtlMs: number): number {
 }
 
 interface CacheRuntime {
-  readonly store: CacheStore;
+  readonly scope: ClientPolicyScope;
   readonly now: () => number;
 }
 
+const defaultStoreState = Symbol("cache.defaultStore");
+
 /** @internal */
 export function createCacheFeature(
-  ttl: Duration,
-  options: CacheOptions = {},
-  runtime?: Partial<CacheRuntime>,
+  declaration: CacheDeclaration,
+  runtime: CacheRuntime,
 ): RequestFeature {
-  validateOptionsObject(options, "cache() options");
-  if (options.methods !== undefined) validateHttpMethods(options.methods, "cache.methods");
-  if (options.statuses !== undefined) validateHttpStatuses(options.statuses, "cache.statuses");
-  validateOptionalKey(options.key, "cache.key");
-  if (
-    options.store !== undefined
-    && (
-      typeof options.store !== "object"
-      || options.store === null
-      || typeof options.store.get !== "function"
-      || typeof options.store.set !== "function"
-      || (options.store.delete !== undefined && typeof options.store.delete !== "function")
-    )
-  ) {
-    throw new HttpConfigurationError(
-      "cache.store must provide get() and set() functions and an optional delete() function.",
-    );
-  }
-  const ttlMs = durationToMs(ttl, "cache.ttl");
-  const store = options.store ?? runtime?.store ?? new MemoryCacheStore();
-  const now = runtime?.now ?? Date.now;
-  const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
-  const statuses = new Set(options.statuses ?? [200]);
-  const key = options.key;
+  const now = runtime.now;
+  const store: CacheStore = declaration.store
+    ?? runtime.scope.get(defaultStoreState, () => new MemoryCacheStore(500, now));
+  const methods = new Set(declaration.methods.map((method) => method.toUpperCase()));
+  const statuses = new Set(declaration.statuses);
+  const key = declaration.key;
 
   return {
     name: "cache",
-    capabilities: { provides: [{ name: "cache", mode: "exclusive" }] },
-    // Dedupe intercepts first, so reverse-order finalization commits Cache
-    // before followers are settled.
-    ordering: { optionalAfter: ["dedupe"] },
     hooks: {
       async intercept({ request, state }) {
         state.delete(keyState);
@@ -107,7 +73,7 @@ export function createCacheFeature(
         ) return;
         const key = state.get(keyState);
         if (typeof key !== "string") return;
-        const effectiveTtlMs = responseTtl(response, ttlMs);
+        const effectiveTtlMs = responseTtl(response, declaration.ttlMs);
         if (effectiveTtlMs <= 0) return;
         await store.set(key, { response: response.clone(), expiresAt: now() + effectiveTtlMs });
       },

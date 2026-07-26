@@ -3,6 +3,22 @@ import { lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("deduplication", () => {
+  it("snapshots policy methods before the implementation is loaded", async () => {
+    const methods = ["GET"];
+    const transport = mockTransport(async () => {
+      await Promise.resolve();
+      return Response.json({ ok: true });
+    });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+    const first = api.get("/dedupe/snapshot").dedupe({ methods });
+    const second = api.get("/dedupe/snapshot").dedupe({ methods });
+
+    methods.length = 0;
+    await Promise.all([first, second]);
+
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("shares concurrent executions across requests", async () => {
     let calls = 0;
     const api = lafetch.create({

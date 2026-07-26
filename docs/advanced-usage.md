@@ -291,7 +291,7 @@ await api
 호출자가 같은 Store를 전달한 경우에만 여러 클라이언트가 Cache를 공유합니다.
 
 ```ts
-import { MemoryCacheStore } from "@laflabs/lafetch";
+import { MemoryCacheStore } from "@laflabs/lafetch/cache";
 
 const store = new MemoryCacheStore(1_000);
 

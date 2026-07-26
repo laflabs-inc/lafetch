@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryCacheStore } from "../src/index.js";
+import { MemoryCacheStore } from "../src/cache.js";
 import { runCacheStoreConformance } from "../src/testing/index.js";
 
 describe("CacheStore conformance", () => {
