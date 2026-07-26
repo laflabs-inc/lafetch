@@ -11,27 +11,30 @@ Lafetch는 Fetch와 Web Platform primitive를 기준으로 구현합니다. 지�
 | Workers/Edge | Miniflare/workerd 격리 fixture | Browser target bundle, Retry, Schema, Web Stream |
 | Next.js App Router | Next.js 16 production build | Server, Client, Route Handler의 공개 package 소비 |
 
-`pnpm check`는 일반 테스트 외에도 배포 대상 파일을 tarball로 만들고 빈 프로젝트에 설치합니다. 이 독립 소비자에서 JavaScript 실행, TypeScript declaration과 `.`, `./feature`, `./testing` 공개 export를 검증합니다.
+`pnpm check`는 일반 테스트 외에도 배포 대상 파일을 tarball로 만들고 빈 프로젝트에 설치합니다. 이 독립 소비자에서 JavaScript 실행, TypeScript declaration과 `.`, `./cache`, `./feature`, `./testing` 공개 export를 검증합니다.
 
 Next.js fixture는 라이브러리 개발 환경의 TypeScript 7과 다른 TypeScript 5.9를 사용합니다. 내부에서는 compile되지만 안정 버전 소비자에서 깨지는 declaration을 찾기 위한 의도적인 차이입니다.
 
 ## 번들 회귀 기준
 
-Browser 대상 현재 v0.3.1 기준선:
+Browser 대상 현재 기준선:
 
 | 대상 | Minified | Gzip |
 | --- | ---: | ---: |
-| Complete root | `44,961 bytes` | `13,875 bytes` |
-| 대표 JSON 요청 | `44,104 bytes` | `13,641 bytes` |
+| Complete root 단일 bundle | `47,718 bytes` | `14,778 bytes` |
+| 대표 JSON 요청 초기 graph | `42,474 bytes` | `13,628 bytes` |
+| Cache policy | `3,620 bytes` | `1,722 bytes` |
+| Deduplication policy | `3,730 bytes` | `1,743 bytes` |
 
-Complete root hard ceiling:
+Hard ceiling:
 
-- minified: `48 KiB`
-- gzip: `16 KiB`
+- Complete root: `52 KiB / 17 KiB gzip`
+- 대표 JSON 요청: `44 KiB / 14 KiB gzip`
+- Cache·Deduplication 각각: `4 KiB / 2.5 KiB gzip`
 
-이 상한은 성능 목표나 배포 플랫폼 제한이 아니라 의도하지 않은 증가를 막는 회귀 경보입니다. 과거 버전별 수치는 보관 PR에서 확인하고 현행 문서에는 최신 기준선만 유지합니다.
+Complete root는 dynamic chunk까지 한 파일로 강제 합쳐 전체 기능 비용을 감시합니다. 대표 요청은 code splitting 후 최초 요청에 필요한 정적 output만 합산하며, Cache·Deduplication 구현과 `MemoryCacheStore`가 포함되지 않는지도 검사합니다.
 
-Complete root와 대표 JSON 요청은 각각 `48/16 KiB`, `44/14 KiB` 예산으로 자동 검사합니다. 대표 요청의 minified 여유가 작으므로 새 기능은 core 포함보다 tree-shaking과 optional Feature 분리를 먼저 검토합니다.
+이 상한은 성능 목표나 배포 플랫폼 제한이 아니라 의도하지 않은 증가를 막는 회귀 경보입니다. 새 기능은 complete root 상한만 보고 core에 추가하지 않으며 대표 요청과 해당 optional policy 예산을 함께 통과해야 합니다.
 
 ## 지원 경계
 

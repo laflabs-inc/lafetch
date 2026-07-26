@@ -33,6 +33,8 @@ try {
   for (const requiredFile of [
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/cache.js",
+    "dist/cache.d.ts",
     "dist/feature.js",
     "dist/feature.d.ts",
     "dist/testing/index.js",
@@ -65,6 +67,7 @@ import {
   isHttpError,
   lafetch,
 } from "@laflabs/lafetch";
+import { MemoryCacheStore } from "@laflabs/lafetch/cache";
 import { defineFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 import * as v from "valibot";
@@ -78,6 +81,23 @@ const transport = mockTransport((request) => Response.json({
   packageProbe: request.headers.get("x-package-probe"),
 }));
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+if (!(new MemoryCacheStore() instanceof MemoryCacheStore)) {
+  throw new Error("Packed Cache entrypoint did not execute correctly.");
+}
+let policyCalls = 0;
+const policyApi = lafetch.create({
+  baseUrl: "https://api.example.com",
+  transport: mockTransport(() => Response.json({ call: ++policyCalls })),
+});
+await Promise.all([
+  policyApi.get("/dedupe").dedupe(),
+  policyApi.get("/dedupe").dedupe(),
+]);
+await policyApi.get("/cache").cache("1m");
+await policyApi.get("/cache").cache("1m");
+if (policyCalls !== 2) {
+  throw new Error("Packed optional policy chunks did not execute correctly.");
+}
 const result = await api.get("/probe").use(feature).as("json");
 if (result.packageProbe !== "yes" || transport.calls.length !== 1) {
   throw new Error("Packed runtime exports did not execute correctly.");
@@ -183,12 +203,15 @@ import {
   type ResponseMode,
   type RequestSnapshot,
 } from "@laflabs/lafetch";
+import { MemoryCacheStore, type CacheStore } from "@laflabs/lafetch/cache";
 import { defineFeature, type RequestFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 import * as v from "valibot";
 import * as z from "zod";
 
 interface User { id: string }
+const cacheStore: CacheStore = new MemoryCacheStore();
+void cacheStore;
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const client: LClient = api;

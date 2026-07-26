@@ -29,7 +29,7 @@
 | 다음 단계 | v0.4 Reliability policy 강화 진행 중 |
 | 라이선스와 npm 배포 자동화 | 미완료 |
 
-현재 complete root bundle 기준선은 `45,433 / 14,022 bytes gzip`, 대표 JSON 요청은 `44,428 / 13,742 bytes gzip`입니다. Hard ceiling은 각각 `48/16 KiB`, `44/14 KiB`입니다.
+현재 complete root bundle 기준선은 `47,718 / 14,778 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `42,474 / 13,628 bytes gzip`입니다. Hard ceiling은 각각 `52/17 KiB`, `44/14 KiB`입니다. Cache와 Deduplication 구현은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다.
 
 ## 완료된 기반
 
@@ -48,7 +48,7 @@
 
 현재 `Retry-After` 상한을 일반 Backoff에서 분리하고, 상한 초과 시 서버 지시보다 일찍 재시도하지 않는 계약까지 구현했습니다. RateLimit과 비표준 Header는 자동 해석하지 않습니다. 상세 결정은 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)를 기준으로 합니다.
 
-대표 JSON 요청은 minified 상한까지 628 bytes만 남았습니다. Custom Retry predicate를 더 넣기 전에 단순 요청에 포함되는 optional policy module 비용을 줄이는 작업을 v0.8에서 이 단계로 앞당깁니다.
+대표 JSON 요청에서 Cache·Deduplication 구현과 `MemoryCacheStore`를 분리했습니다. 기존 fluent API와 동기식 옵션 검증은 유지하며 실제 hook만 실행 시 dynamic import합니다. 대표 요청의 `44/14 KiB` 상한은 완화하지 않았고 complete root와 두 optional policy에 별도 예산을 적용합니다.
 
 ### 범위
 
@@ -59,7 +59,7 @@
 - 사용자 key의 tenant·인증 경계 문서화
 - server-directed Retry delay 별도 상한 — 구현 완료
 - `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙 — 구현 완료
-- 대표 요청 module graph 분석과 optional policy 비용 분리
+- 대표 요청 module graph 분석과 Cache·Deduplication 비용 분리 — 구현 완료
 - custom Retry predicate와 forced Retry의 method·idempotency gate
 
 ### 완료 조건

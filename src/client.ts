@@ -114,7 +114,7 @@ export function createClient(options: ClientOptions = {}): LClient {
     transport,
     runtime,
     credentials,
-    scope: createClientPolicyScope(runtime.now),
+    scope: createClientPolicyScope(),
   });
   return new ClientImplementation(configuration);
 }

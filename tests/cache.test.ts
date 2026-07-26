@@ -1,8 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { lafetch, MemoryCacheStore } from "../src/index.js";
+import { MemoryCacheStore } from "../src/cache.js";
+import { lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("cache", () => {
+  it("snapshots policy arrays before the implementation is loaded", async () => {
+    let writes = 0;
+    const methods = ["GET"];
+    const statuses = [200];
+    const store = {
+      get() { return undefined; },
+      set() { writes += 1; },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ ok: true })),
+    });
+    const request = api.get("/cache/snapshot").cache("1m", { methods, statuses, store });
+
+    methods.length = 0;
+    statuses.length = 0;
+    await request;
+
+    expect(writes).toBe(1);
+  });
+
   it("reuses a successful response across requests", async () => {
     let calls = 0;
     const store = new MemoryCacheStore();

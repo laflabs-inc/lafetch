@@ -1,17 +1,9 @@
 import { HttpConfigurationError } from "../core/errors.js";
+import type { ClientPolicyScope } from "../core/config.js";
 import type { RequestFeature } from "../core/types.js";
 import { cancellationError } from "../core/signals.js";
-import {
-  validateHttpMethods,
-  validateOptionalKey,
-  validateOptionsObject,
-} from "../core/validation.js";
-import { hasSensitiveRequest, resolveRequestKey, type RequestKey } from "./request-key.js";
-
-export interface DedupeOptions {
-  readonly key?: RequestKey;
-  readonly methods?: readonly string[];
-}
+import type { DedupeDeclaration } from "./dedupe-options.js";
+import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 interface SharedExecution {
   readonly promise: Promise<Response>;
@@ -22,6 +14,7 @@ interface SharedExecution {
 const keyState = Symbol("dedupe.key");
 const entryState = Symbol("dedupe.entry");
 const leaderState = Symbol("dedupe.leader");
+const sharedExecutionsState = Symbol("dedupe.sharedExecutions");
 
 function deferred(): SharedExecution {
   let resolve!: (response: Response) => void;
@@ -45,18 +38,17 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 
 /** @internal */
 export function createDedupeFeature(
-  options: DedupeOptions = {},
-  sharedExecutions: Map<string, unknown> = new Map(),
+  declaration: DedupeDeclaration,
+  scope: ClientPolicyScope,
 ): RequestFeature {
-  validateOptionsObject(options, "dedupe() options");
-  if (options.methods !== undefined) validateHttpMethods(options.methods, "dedupe.methods");
-  validateOptionalKey(options.key, "dedupe.key");
-  const executions = sharedExecutions as Map<string, SharedExecution>;
-  const methods = new Set((options.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
-  const configuredKey = options.key;
+  const executions = scope.get(
+    sharedExecutionsState,
+    () => new Map<string, SharedExecution>(),
+  );
+  const methods = new Set(declaration.methods.map((method) => method.toUpperCase()));
+  const configuredKey = declaration.key;
   return {
     name: "dedupe",
-    capabilities: { provides: [{ name: "dedupe", mode: "exclusive" }] },
     hooks: {
       async intercept({ request, signal, state }) {
         const isLeader = state.get(leaderState) === true;

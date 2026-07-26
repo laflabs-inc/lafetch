@@ -1,5 +1,9 @@
 import { HttpConfigurationError } from "./errors.js";
-import { MemoryCacheStore } from "./cache-store.js";
+import {
+  deferredFeature,
+  featureLoader,
+  type ConfiguredFeature,
+} from "./deferred-feature.js";
 import { durationToMs } from "./duration.js";
 import { mergeQuery } from "./query.js";
 import {
@@ -37,7 +41,7 @@ function snapshotRetryOptions(options: RetryOptions): RetryOptions {
   });
 }
 
-function snapshotFeature(feature: RequestFeature): RequestFeature {
+function snapshotFeature(feature: ConfiguredFeature): ConfiguredFeature {
   if (
     typeof feature !== "object"
     || feature === null
@@ -84,13 +88,15 @@ function snapshotFeature(feature: RequestFeature): RequestFeature {
         ? { optionalAfter: Object.freeze([...feature.ordering.optionalAfter]) }
         : {}),
     });
+  const load = featureLoader(feature);
 
-  return Object.freeze({
+  const snapshot: RequestFeature = {
     name: feature.name,
     ...(capabilities !== undefined ? { capabilities } : {}),
     ...(ordering !== undefined ? { ordering } : {}),
     ...(feature.hooks !== undefined ? { hooks: Object.freeze({ ...feature.hooks }) } : {}),
-  });
+  };
+  return Object.freeze(load === undefined ? snapshot : deferredFeature(snapshot, load));
 }
 
 export interface ClientConfiguration {
@@ -104,21 +110,17 @@ export interface ClientConfiguration {
 
 /** Internal mutable resources isolated to one LClient instance. */
 export interface ClientPolicyScope {
-  getCacheStore(): MemoryCacheStore;
-  getDedupeExecutions(): Map<string, unknown>;
+  get<T>(key: symbol, initialize: () => T): T;
 }
 
-export function createClientPolicyScope(now: () => number = Date.now): ClientPolicyScope {
-  let cacheStore: MemoryCacheStore | undefined;
-  let dedupeExecutions: Map<string, unknown> | undefined;
+export function createClientPolicyScope(): ClientPolicyScope {
+  const values = new Map<symbol, unknown>();
   return {
-    getCacheStore() {
-      cacheStore ??= new MemoryCacheStore(500, now);
-      return cacheStore;
-    },
-    getDedupeExecutions() {
-      dedupeExecutions ??= new Map();
-      return dedupeExecutions;
+    get<T>(key: symbol, initialize: () => T): T {
+      if (values.has(key)) return values.get(key) as T;
+      const value = initialize();
+      values.set(key, value);
+      return value;
     },
   };
 }
@@ -138,7 +140,7 @@ export interface RequestConfiguration {
     readonly options: RetryOptions;
   };
   readonly acceptStatus?: StatusMatcher;
-  readonly features: readonly RequestFeature[];
+  readonly features: readonly ConfiguredFeature[];
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
   readonly credentials: RequestCredentials;
@@ -310,7 +312,7 @@ export function withRequestInit(
   return { ...config, requestInit: merged };
 }
 
-export function withFeature(config: RequestConfiguration, feature: RequestFeature): RequestConfiguration {
+export function withFeature(config: RequestConfiguration, feature: ConfiguredFeature): RequestConfiguration {
   const snapshot = snapshotFeature(feature);
   if (
     config.requestInit.cache !== undefined

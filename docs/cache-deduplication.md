@@ -29,7 +29,7 @@ Key callback은 독립적으로 소비할 수 있는 `Request` clone을 받습�
 
 사용자 `CacheStore`를 여러 클라이언트에 전달하는 것은 명시적인 공유 선택입니다.
 
-`CacheStore`는 비동기 구현을 허용하며 `Response`와 절대 만료 시각을 저장합니다. 구현체는 서로 독립적으로 소비 가능한 Response를 반환해야 합니다. `MemoryCacheStore`는 entry를 clone하고, 만료를 지연 정리하며, 제한된 LRU 방식으로 제거합니다.
+`CacheStore`는 비동기 구현을 허용하며 `Response`와 절대 만료 시각을 저장합니다. 구현체는 서로 독립적으로 소비 가능한 Response를 반환해야 합니다. `MemoryCacheStore`는 `@laflabs/lafetch/cache`에서 가져오며 entry를 clone하고, 만료를 지연 정리하며, 제한된 LRU 방식으로 제거합니다.
 
 Runtime별 Store는 다음 항목을 검증해야 합니다.
 

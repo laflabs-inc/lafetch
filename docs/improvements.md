@@ -55,7 +55,7 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 
 ### 번들 실측
 
-세 라이브러리 모두 client instance를 만들고 JSON GET 한 번을 수행하는 browser ESM entry를 사용했습니다.
+세 라이브러리 모두 client instance를 만들고 JSON GET 한 번을 수행하는 browser ESM entry를 사용했습니다. Lafetch는 Cache·Deduplication의 dynamic chunk를 제외하고 최초 요청에 필요한 정적 output closure를 합산합니다.
 
 - esbuild `0.28.1`
 - `platform: "browser"`
@@ -64,21 +64,21 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 - Node.js `zlib.gzipSync`로 gzip 측정
 
 ```text
-Lafetch  44,428 bytes minified / 13,742 bytes gzip
+Lafetch  42,474 bytes minified / 13,628 bytes gzip
 Axios    45,838 bytes minified / 17,855 bytes gzip
 Ky       20,608 bytes minified /  7,370 bytes gzip
 ```
 
 해석:
 
-- Lafetch는 Axios보다 minified 약 `3%`, gzip 약 `23%` 작습니다.
-- Lafetch는 Ky보다 minified 약 `115%`, gzip 약 `86%` 큽니다.
-- Lafetch의 실제 root public API CI 기준선은 `45,433 / 14,022 bytes gzip`입니다. 대표 요청과 거의 차이가 없어 사용하지 않는 정책 코드도 root bundle에 상당 부분 포함됩니다.
-- 현재 `16 KiB gzip` 예산 안이지만, Ky와 같은 최소 wrapper를 목표로 한다면 경쟁력이 없습니다.
-- 통합 reliability 기능을 포함한 client로는 허용 가능한 크기지만, 대표 요청 bundle도 별도 회귀 지표로 관리해야 합니다.
-- 대표 요청의 `44 KiB / 14 KiB gzip` 상한까지 남은 여유는 각각 `628 / 594 bytes`뿐입니다. Custom Retry predicate처럼 executor를 키우는 기능을 더 추가하기 전에 module graph 비용을 줄여야 합니다.
+- Lafetch는 Axios보다 minified 약 `8%`, gzip 약 `24%` 작습니다.
+- Lafetch는 Ky보다 minified 약 `105%`, gzip 약 `84%` 큽니다.
+- 대표 JSON 요청의 정적 graph에서 Cache, Deduplication과 `MemoryCacheStore` 구현을 제거했습니다. 두 정책은 선언 시 옵션을 검증·snapshot하고 실제 실행 시 별도 ESM chunk를 불러옵니다.
+- 모든 공개 API와 optional policy를 한 파일로 합친 complete root 기준선은 `47,718 / 14,778 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
+- 대표 요청은 기존 대비 `1,954 bytes minified / 114 bytes gzip` 감소했고 `44/14 KiB` 예산을 유지합니다.
+- Cache 구현은 `3,620 / 1,722 bytes gzip`, Deduplication은 `3,730 / 1,743 bytes gzip`이며 각각 별도 `4/2.5 KiB` 예산으로 제한합니다.
 
-대표 요청의 esbuild `bytesInOutput` 상위 module은 `executor.ts` 10,205 bytes, `config.ts` 4,682 bytes, `validation.ts` 4,068 bytes, `request-builder.ts` 3,793 bytes입니다. 단순 JSON 요청에서도 Cache와 Deduplication 구현이 각각 1,861 bytes, 1,655 bytes 포함됩니다. 따라서 COMP-08의 module graph 분석과 선택 policy 비용 분리는 v0.8까지 미룰 수 없으며 v0.4의 다음 구현 gate로 앞당깁니다.
+Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 상한을 `52/17 KiB`로 완화했습니다. 대신 일반 사용자의 초기 비용인 대표 요청은 `44/14 KiB`로 유지하고 정책별 예산을 추가해, 전체 상한 증가가 사용하지 않는 기능의 무제한 core 편입으로 이어지지 않게 합니다.
 
 이 수치는 네트워크 왕복시간이나 실제 처리량 benchmark가 아닙니다. 현재 Lafetch에는 신뢰할 수 있는 runtime overhead 비교 자료가 없으므로 성능 우위를 주장하지 않습니다.
 
@@ -87,8 +87,8 @@ Ky       20,608 bytes minified /  7,370 bytes gzip
 | 항목 | Lafetch | Axios | Ky |
 | --- | --- | --- | --- |
 | Runtime dependency | 0 | 4 | 0 |
-| 배포 package unpacked | `437,827 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
-| 대표 browser bundle gzip | `13,742 bytes` | `17,855 bytes` | `7,370 bytes` |
+| 배포 package unpacked | `450,973 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
+| 대표 browser bundle gzip | `13,628 bytes` | `17,855 bytes` | `7,370 bytes` |
 | Module | ESM | ESM, CJS | ESM |
 | Node.js engine | `>=20` | package에서 미지정 | `>=22` |
 | Built-in transport | Fetch | XHR, HTTP, Fetch adapter | Fetch |
@@ -259,7 +259,7 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 | COMP-05 | Retry가 custom predicate와 response-content Retry를 표현하지 못함 | Ky 2.0 대비 adaptive Retry 범위가 좁음 | 진행 중: `maxRetryAfter` 분리 완료, predicate와 forced Retry gate는 후속 |
 | COMP-06 | Transport용 conformance kit와 안정성 정책 부재 | custom Transport는 가능하지만 품질을 검증할 공식 방법이 없음 | Feature SDK와 함께 Transport contract 안정화 |
 | COMP-07 | Upload/download progress 계약 부재 | 파일 전송 UX에서 Axios와 Ky보다 불편 | Stream·Telemetry 기반 optional Feature로 먼저 검토 |
-| COMP-08 | 대표 요청도 root 전체와 거의 같은 bundle | 새 policy를 추가할 bundle 여유가 거의 없음 | v0.4에서 module graph 분리 선행, v0.8에서 benchmark와 최종 최적화 |
+| COMP-08 | 대표 요청도 root 전체와 거의 같은 bundle | 사용하지 않는 policy가 초기 비용에 포함 | v0.4 초기 분리 완료, v0.8에서 측정 자동화와 최종 구조 재평가 |
 | COMP-09 | 실제 request overhead benchmark 부재 | 성능 우위를 주장하거나 회귀를 탐지할 수 없음 | deterministic local transport benchmark와 CI threshold 설계 |
 | COMP-10 | 성공 응답에 비해 HTTP status error Body 소비가 번거로움 | `HttpStatusError.response`를 직접 clone·decode해야 함 | bounded Body를 유지하면서 중복 보관 없는 error data DX RFC |
 
@@ -313,7 +313,7 @@ Upload progress는 runtime별 request stream 지원 차이가 크므로 조용�
 | CJS build | 실제 사용자 요구가 확인되기 전까지 ESM 유지 |
 | React Native | Web Fetch 호환성 검증 없이 지원을 선언하지 않음 |
 | Axios Node adapter 전체 복제 | core 범위 밖. 필요하면 선택 Transport |
-| Ky보다 작은 절대 bundle | 목표로 삼지 않음. 대신 `16 KiB gzip` 상한과 기능 대비 비용을 관리 |
+| Ky보다 작은 절대 bundle | 목표로 삼지 않음. 대신 대표 요청 `14 KiB gzip`과 optional policy별 비용을 관리 |
 | 자동 Retry 기본 활성화 | 추가하지 않음. 네트워크 요청 횟수와 부작용은 caller가 명시 |
 
 ## 로드맵 연결
