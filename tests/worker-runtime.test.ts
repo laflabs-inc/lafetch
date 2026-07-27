@@ -32,6 +32,9 @@ describe("Workers/Edge runtime", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       calls: 2,
+      method: "OPTIONS",
+      lifecycleHeader: "worker",
+      lifecycleEvents: ["request", "response", "request"],
       processGlobal: false,
       requestCache: "no-store",
       requestRedirect: "manual",

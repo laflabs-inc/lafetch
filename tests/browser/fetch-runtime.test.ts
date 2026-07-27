@@ -7,6 +7,29 @@ import {
 } from "../../src/index.js";
 
 describe("browser Fetch runtime", () => {
+  it("runs logical lifecycle handlers with the OPTIONS named method", async () => {
+    const events: string[] = [];
+    const api = lafetch
+      .create()
+      .on((event) => {
+        events.push(event.type);
+        if (event.type === "request") {
+          event.request = event.request.header("X-Lafetch-Test", "lifecycle");
+        }
+      });
+
+    const result = await api.options<{
+      method: string;
+      header: string;
+    }>("/__lafetch_fixture__/options");
+
+    expect(result.data).toMatchObject({
+      method: "OPTIONS",
+      header: "lifecycle",
+    });
+    expect(events).toEqual(["request", "response"]);
+  });
+
   it("executes a real same-origin request", async () => {
     const result = await lafetch
       .create()

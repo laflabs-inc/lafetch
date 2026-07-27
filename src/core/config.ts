@@ -129,6 +129,7 @@ export interface RequestConfiguration {
   readonly input: string | URL;
   readonly baseUrl?: string | URL;
   readonly method: string;
+  readonly bodyAllowed: boolean;
   readonly headers: Headers;
   readonly query: ReadonlyMap<string, QueryValue>;
   readonly body: BodySource;
@@ -163,9 +164,9 @@ function encodeJson(value: unknown): string {
 }
 
 function assertRequestBodyAllowed(config: RequestConfiguration, operation: string): void {
-  if (config.method === "GET" || config.method === "HEAD") {
+  if (!config.bodyAllowed) {
     throw new HttpConfigurationError(
-      `${operation} cannot configure a request body for ${config.method}. Fetch does not allow GET or HEAD bodies.`,
+      `${operation} cannot configure a request body for this ${config.method} entry point.`,
     );
   }
 }
@@ -182,12 +183,14 @@ export function createRequestConfiguration(
   client: ClientConfiguration,
   input: string | URL,
   method: string,
+  bodyAllowed = method.toUpperCase() !== "GET" && method.toUpperCase() !== "HEAD",
 ): RequestConfiguration {
   const headers = new Headers(client.headers);
   return {
     input: input instanceof URL ? new URL(input) : input,
     ...(client.baseUrl !== undefined ? { baseUrl: client.baseUrl } : {}),
     method: method.toUpperCase(),
+    bodyAllowed,
     headers,
     query: new Map(),
     body: { kind: "none" },

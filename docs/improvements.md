@@ -1,10 +1,10 @@
 # Lafetch 기술 경쟁력 평가와 개선 백로그
 
-평가 기준일: `2026-07-26`
+평가 기준일: `2026-07-27`
 
 비교 대상:
 
-- `@laflabs/lafetch@0.3.1-alpha.0`
+- `@laflabs/lafetch@0.4.0-alpha.0`
 - `axios@1.18.1`
 - `ky@2.0.2`
 
@@ -64,19 +64,20 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 - Node.js `zlib.gzipSync`로 gzip 측정
 
 ```text
-Lafetch  42,474 bytes minified / 13,628 bytes gzip
+Lafetch  44,889 bytes minified / 14,167 bytes gzip
 Axios    45,838 bytes minified / 17,855 bytes gzip
 Ky       20,608 bytes minified /  7,370 bytes gzip
 ```
 
 해석:
 
-- Lafetch는 Axios보다 minified 약 `8%`, gzip 약 `24%` 작습니다.
-- Lafetch는 Ky보다 minified 약 `105%`, gzip 약 `84%` 큽니다.
-- 대표 JSON 요청의 정적 graph에서 Cache, Deduplication과 `MemoryCacheStore` 구현을 제거했습니다. 두 정책은 선언 시 옵션을 검증·snapshot하고 실제 실행 시 별도 ESM chunk를 불러옵니다.
-- 모든 공개 API와 optional policy를 한 파일로 합친 complete root 기준선은 `47,718 / 14,778 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
-- 대표 요청은 기존 대비 `1,954 bytes minified / 114 bytes gzip` 감소했고 `44/14 KiB` 예산을 유지합니다.
+- Lafetch는 Axios보다 minified 약 `2%`, gzip 약 `21%` 작습니다.
+- Lafetch는 Ky보다 minified 약 `118%`, gzip 약 `92%` 큽니다.
+- 대표 JSON 요청의 정적 graph에서 Cache, Deduplication, `MemoryCacheStore`와 logical lifecycle dispatcher 구현을 제거했습니다. 선언과 공개 interface는 core에 남지만 실제 hook은 사용 시 별도 ESM chunk를 불러옵니다.
+- 모든 공개 API와 optional module을 한 파일로 합친 complete root 기준선은 `50,805 / 15,536 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
+- Logical lifecycle과 OPTIONS interface 추가로 대표 요청은 이전 기준선보다 `2,415 bytes minified / 539 bytes gzip` 증가했지만 `44/14 KiB` 예산은 완화하지 않았습니다.
 - Cache 구현은 `3,620 / 1,722 bytes gzip`, Deduplication은 `3,730 / 1,743 bytes gzip`이며 각각 별도 `4/2.5 KiB` 예산으로 제한합니다.
+- Logical lifecycle dispatcher는 `1,722 / 926 bytes gzip`이며 같은 별도 예산으로 제한합니다.
 
 Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 상한을 `52/17 KiB`로 완화했습니다. 대신 일반 사용자의 초기 비용인 대표 요청은 `44/14 KiB`로 유지하고 정책별 예산을 추가해, 전체 상한 증가가 사용하지 않는 기능의 무제한 core 편입으로 이어지지 않게 합니다.
 
@@ -87,8 +88,8 @@ Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 
 | 항목 | Lafetch | Axios | Ky |
 | --- | --- | --- | --- |
 | Runtime dependency | 0 | 4 | 0 |
-| 배포 package unpacked | `450,973 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
-| 대표 browser bundle gzip | `13,628 bytes` | `17,855 bytes` | `7,370 bytes` |
+| 배포 package unpacked | `494,045 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
+| 대표 browser bundle gzip | `14,167 bytes` | `17,855 bytes` | `7,370 bytes` |
 | Module | ESM | ESM, CJS | ESM |
 | Node.js engine | `>=20` | package에서 미지정 | `>=22` |
 | Built-in transport | Fetch | XHR, HTTP, Fetch adapter | Fetch |
@@ -262,6 +263,17 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 | COMP-08 | 대표 요청도 root 전체와 거의 같은 bundle | 사용하지 않는 policy가 초기 비용에 포함 | v0.4 초기 분리 완료, v0.8에서 측정 자동화와 최종 구조 재평가 |
 | COMP-09 | 실제 request overhead benchmark 부재 | 성능 우위를 주장하거나 회귀를 탐지할 수 없음 | deterministic local transport benchmark와 CI threshold 설계 |
 | COMP-10 | 성공 응답에 비해 HTTP status error Body 소비가 번거로움 | `HttpStatusError.response`를 직접 clone·decode해야 함 | bounded Body를 유지하면서 중복 보관 없는 error data DX RFC |
+| COMP-11 | 일반 lifecycle 작업에 고급 Feature hook가 필요함 | 인증 Header 갱신과 최종 응답 확인의 학습 비용이 큼 | v0.4에서 단일 `.on(handler)` logical lifecycle 제공 |
+| COMP-12 | 표준 `OPTIONS` named method가 없음 | 기본 Retry safe method와 공개 client method가 비대칭 | v0.4에서 bodyless `api.options()` 제공 |
+
+#### Logical lifecycle 방향
+
+- event별 overload 대신 `event.type`으로 좁혀지는 단일 `.on(handler)`를 사용
+- public lifecycle은 `LRequest`와 `LResponse`, attempt 제어는 native `Request`와 `Response` 사용
+- Retry 전체에서 request와 최종 response를 각각 한 번만 처리
+- attempt metadata는 `LResponse.meta`와 Telemetry에 유지
+- direct 실행할 수 없는 same-lineage request draft로 client 격리와 중복 dispatch 차단
+- data·raw·stream terminal을 `LResponse`로 다시 포장하지 않음
 
 #### Retry 방향
 
@@ -323,7 +335,7 @@ Upload progress는 runtime별 request stream 지원 차이가 크므로 조용�
 | 단계 | 연결된 개선 항목 |
 | --- | --- |
 | v0.3.1 완료 | COMP-01~04: Error guard, Standard Schema, `RequestInit`, Request snapshot |
-| v0.4 | COMP-05와 COMP-08 일부: adaptive Retry, Reliability policy와 module graph gate |
+| v0.4 | COMP-05·08·11·12: adaptive Retry, optional policy bundle, logical lifecycle, OPTIONS |
 | v0.5 | COMP-06: Feature·Transport conformance |
 | v0.6 | COMP-07, COMP-10: Progress와 Status error data |
 | v0.8 | COMP-08 마무리, COMP-09: 최종 Bundle 구조와 runtime overhead |

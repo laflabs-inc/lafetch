@@ -50,6 +50,10 @@ import {
   validateRequestErrorMapper,
   type RequestErrorMapper,
 } from "./consumption/error-mapping.js";
+import {
+  validateLifecycleHandler,
+  type LLifecycleHandler,
+} from "./lifecycle.js";
 import type {
   BodyFactory,
   AdvancedRequestInit,
@@ -157,6 +161,9 @@ interface CommonRequestOperations<
   mapError(
     mapper: RequestErrorMapper,
   ): RequestState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
+  on(
+    handler: LLifecycleHandler,
+  ): RequestState<TData, TBodyMode, TConsumptionMode, TValidationMode>;
   telemetry(
     handler: TelemetryHandler,
     options?: TelemetryOptions,
@@ -219,12 +226,15 @@ export type RequestState<
 class RequestImplementation<TData = unknown> {
   readonly [Symbol.toStringTag] = "LafetchRequest";
   #execution?: Promise<ExecutionResult>;
+  #prepared?: Promise<PreparedRequest>;
+  #responseLifecycle?: Promise<void>;
   #consumptionMode: "open" | "buffered" | "streaming" = "open";
 
   constructor(
     private readonly configuration: RequestConfiguration,
     private readonly responseSchema?: ResponseSchema<unknown>,
     private readonly errorMappers: readonly RequestErrorMapper[] = Object.freeze([]),
+    private readonly lifecycle?: LifecycleState,
   ) {}
 
   #next<TNext = TData>(configuration: RequestConfiguration): RequestImplementation<TNext> {
@@ -232,6 +242,7 @@ class RequestImplementation<TData = unknown> {
       configuration,
       this.responseSchema,
       this.errorMappers,
+      this.lifecycle,
     );
   }
 
@@ -243,11 +254,74 @@ class RequestImplementation<TData = unknown> {
       this.configuration,
       responseSchema,
       errorMappers,
+      this.lifecycle,
     );
   }
 
+  #asLifecycleDraft(): RequestImplementation<TData> {
+    return new RequestImplementation<TData>(
+      this.configuration,
+      this.responseSchema,
+      this.errorMappers,
+      {
+        handlers: Object.freeze([]),
+        lineage: this.lifecycle!.lineage,
+        draft: true,
+      },
+    );
+  }
+
+  async #prepare(): Promise<PreparedRequest> {
+    if (this.lifecycle?.draft) {
+      throw new HttpConfigurationError(
+        "Lifecycle request drafts cannot be executed.",
+      );
+    }
+    if (this.lifecycle === undefined) {
+      return {
+        configuration: this.configuration,
+        responseSchema: this.responseSchema,
+        errorMappers: this.errorMappers,
+      };
+    }
+
+    const { runRequestLifecycle } = await import("./core/logical-lifecycle.js");
+    return await runRequestLifecycle(this.lifecycle.handlers, {
+      draft: this.#asLifecycleDraft(),
+      request: (draft) => draft as LRequest,
+      derive: (request) =>
+        request instanceof RequestImplementation
+          && request.lifecycle?.lineage === this.lifecycle!.lineage
+          && request.lifecycle.draft
+          ? request
+          : undefined,
+      prepare: (draft) => ({
+        configuration: draft.configuration,
+        responseSchema: draft.responseSchema,
+        errorMappers: draft.errorMappers,
+      }),
+    });
+  }
+
+  #prepareOnce(): Promise<PreparedRequest> {
+    if (this.lifecycle === undefined) return Promise.resolve(this.#preparedRequest());
+    this.#prepared ??= this.#prepare();
+    return this.#prepared;
+  }
+
+  #preparedRequest(): PreparedRequest {
+    return {
+      configuration: this.configuration,
+      responseSchema: this.responseSchema,
+      errorMappers: this.errorMappers,
+    };
+  }
+
   #executeOnce(): Promise<ExecutionResult> {
-    this.#execution ??= executeRequest(this.configuration);
+    this.#execution ??= this.lifecycle === undefined
+      ? executeRequest(this.configuration)
+      : this.#prepareOnce()
+        .then(async ({ configuration }) => await executeRequest(configuration));
     return this.#execution;
   }
 
@@ -273,25 +347,37 @@ class RequestImplementation<TData = unknown> {
     try {
       return await this.#executeOnce();
     } catch (error) {
-      return await mapRequestError(this.errorMappers, error, { phase: "request" });
+      const prepared = this.lifecycle === undefined
+        ? undefined
+        : await this.#prepareOnce().catch(() => undefined);
+      return await mapRequestError(
+        prepared?.errorMappers ?? this.errorMappers,
+        error,
+        { phase: "request" },
+      );
     }
   }
 
-  async #consume<TResult>(responseMode: DecodeResponseMode = "auto"): Promise<{ data: TResult; execution: ExecutionResult }> {
+  async #consume<TResult>(
+    responseMode: DecodeResponseMode = "auto",
+  ): Promise<{ data: TResult; execution: ExecutionResult; prepared: PreparedRequest }> {
     this.#claimBuffered();
     const execution = await this.#execute();
+    const prepared = this.lifecycle === undefined
+      ? this.#preparedRequest()
+      : await this.#prepareOnce();
     try {
       const decoded = await decodeResponse(
         execution.response.clone(),
         responseMode,
         execution.request.method,
       );
-      const data = (this.responseSchema
-        ? await applySchema(this.responseSchema, decoded)
+      const data = (prepared.responseSchema
+        ? await applySchema(prepared.responseSchema, decoded)
         : decoded) as TResult;
-      return { data, execution };
+      return { data, execution, prepared };
     } catch (error) {
-      return await mapRequestError(this.errorMappers, error, {
+      return await mapRequestError(prepared.errorMappers, error, {
         phase: "response",
         request: execution.request,
         response: execution.response.clone(),
@@ -313,6 +399,37 @@ class RequestImplementation<TData = unknown> {
       request: snapshotRequest(execution.request),
       meta: execution.meta,
     });
+  }
+
+  async #emitResponse(
+    data: TData,
+    execution: ExecutionResult,
+    prepared: PreparedRequest,
+  ): Promise<void> {
+    if (this.lifecycle === undefined) return;
+    this.#responseLifecycle ??= (async () => {
+      const event = Object.freeze({
+        type: "response" as const,
+        response: this.#createResponse(data, execution),
+      });
+      try {
+        const { runResponseLifecycle } = await import("./core/logical-lifecycle.js");
+        await runResponseLifecycle(this.lifecycle!.handlers, event);
+      } catch (error) {
+        await mapRequestError(prepared.errorMappers, error, {
+          phase: "response",
+          request: execution.request,
+          response: execution.response.clone(),
+        });
+      }
+    })();
+    await this.#responseLifecycle;
+  }
+
+  async #direct(): Promise<LResponse<TData>> {
+    const { data, execution, prepared } = await this.#consume<TData>();
+    await this.#emitResponse(data, execution, prepared);
+    return this.#createResponse(data, execution);
   }
 
   query(params: QueryParams): RequestImplementation<TData> {
@@ -422,6 +539,25 @@ class RequestImplementation<TData = unknown> {
     );
   }
 
+  on(handler: LLifecycleHandler): RequestImplementation<TData> {
+    if (this.lifecycle?.draft) {
+      throw new HttpConfigurationError(
+        "on() cannot be called inside a request event.",
+      );
+    }
+    validateLifecycleHandler(handler);
+    return new RequestImplementation<TData>(
+      this.configuration,
+      this.responseSchema,
+      this.errorMappers,
+      {
+        handlers: Object.freeze([...(this.lifecycle?.handlers ?? []), handler]),
+        lineage: this.lifecycle?.lineage ?? Symbol(),
+        draft: false,
+      },
+    );
+  }
+
   telemetry(handler: TelemetryHandler, options: TelemetryOptions = {}): RequestImplementation<TData> {
     return this.#next(withFeature(this.configuration, createTelemetryFeature(handler, options)));
   }
@@ -432,22 +568,28 @@ class RequestImplementation<TData = unknown> {
 
   async as(mode: ResponseMode): Promise<unknown> {
     if (mode === "stream") {
-      if (this.responseSchema !== undefined) {
+      let prepared: PreparedRequest;
+      try {
+        prepared = await this.#prepareOnce();
+      } catch (error) {
+        return await mapRequestError(this.errorMappers, error, { phase: "request" });
+      }
+      if (prepared.responseSchema !== undefined) {
         throw new HttpConfigurationError(
           "as(\"stream\") cannot be combined with validate().",
         );
       }
       this.#claimStreaming();
       try {
-        return await executeStreamingRequest(this.configuration, async (error, request, response) =>
-          await mapRequestError(this.errorMappers, error, {
+        return await executeStreamingRequest(prepared.configuration, async (error, request, response) =>
+          await mapRequestError(prepared.errorMappers, error, {
             phase: "response",
             request,
             response,
           })
         );
       } catch (error) {
-        return await mapRequestError(this.errorMappers, error, { phase: "request" });
+        return await mapRequestError(prepared.errorMappers, error, { phase: "request" });
       }
     }
 
@@ -475,30 +617,50 @@ class RequestImplementation<TData = unknown> {
     onfulfilled?: ((value: LResponse<TData>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): Promise<TResult1 | TResult2> {
-    return this.#consume<TData>()
-      .then(({ data, execution }) => this.#createResponse(data, execution))
-      .then(onfulfilled, onrejected);
+    return this.#direct().then(onfulfilled, onrejected);
   }
 
   catch<TResult = never>(
     onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null,
   ): Promise<LResponse<TData> | TResult> {
-    return this.#consume<TData>()
-      .then(({ data, execution }) => this.#createResponse(data, execution))
-      .catch(onrejected);
+    return this.#direct().catch(onrejected);
   }
 
   finally(onfinally?: (() => void) | null): Promise<LResponse<TData>> {
-    return this.#consume<TData>()
-      .then(({ data, execution }) => this.#createResponse(data, execution))
-      .finally(onfinally ?? undefined);
+    return this.#direct().finally(onfinally ?? undefined);
   }
+}
+
+interface PreparedRequest {
+  readonly configuration: RequestConfiguration;
+  readonly responseSchema: ResponseSchema<unknown> | undefined;
+  readonly errorMappers: readonly RequestErrorMapper[];
+}
+
+interface LifecycleState {
+  readonly handlers: readonly LLifecycleHandler[];
+  readonly lineage: symbol;
+  readonly draft: boolean;
 }
 
 /** @internal */
 export function createRequest<
   TData = unknown,
   TBodyMode extends RequestBodyMode = "allowed",
->(configuration: RequestConfiguration): RequestState<TData, TBodyMode, "open", "none"> {
-  return new RequestImplementation<TData>(configuration) as RequestState<TData, TBodyMode, "open", "none">;
+>(
+  configuration: RequestConfiguration,
+  lifecycleHandlers: readonly LLifecycleHandler[] = Object.freeze([]),
+): RequestState<TData, TBodyMode, "open", "none"> {
+  return new RequestImplementation<TData>(
+    configuration,
+    undefined,
+    Object.freeze([]),
+    lifecycleHandlers.length === 0
+      ? undefined
+      : {
+        handlers: lifecycleHandlers,
+        lineage: Symbol(),
+        draft: false,
+      },
+  ) as RequestState<TData, TBodyMode, "open", "none">;
 }

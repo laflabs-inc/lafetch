@@ -106,12 +106,14 @@ describe("browser bundle budget", () => {
     expect(initialInputs).not.toContain("src/features/cache.ts");
     expect(initialInputs).not.toContain("src/features/dedupe.ts");
     expect(initialInputs).not.toContain("src/core/cache-store.ts");
+    expect(initialInputs).not.toContain("src/core/logical-lifecycle.ts");
   });
 
   it.each([
     ["Cache", "src/features/cache.ts"],
     ["Deduplication", "src/features/dedupe.ts"],
-  ])("keeps the optional %s policy inside its isolated budget", async (_name, entryPoint) => {
+    ["Logical lifecycle", "src/core/logical-lifecycle.ts"],
+  ])("keeps the optional %s module inside its isolated budget", async (_name, entryPoint) => {
     const result = await build({
       entryPoints: [entryPoint],
       bundle: true,

@@ -14,7 +14,7 @@
 
 ## 현재 상태
 
-소스 버전은 `0.3.1-alpha.0`입니다. Buffered/Streaming 응답 소유권, 단일 `as(mode)`, Stream DX와 공개 계약 보강을 구현했지만 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
+소스 버전은 `0.4.0-alpha.0`입니다. Buffered/Streaming 응답 소유권과 공개 계약 보강을 바탕으로 Reliability policy와 기본 Core API 격차를 함께 정리하고 있습니다. 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
 
 | 영역 | 상태 |
 | --- | --- |
@@ -26,11 +26,11 @@
 | Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.4 Reliability policy 강화 진행 중 |
+| 다음 단계 | v0.4 Reliability policy와 Core API 격차 해소 진행 중 |
 | 라이선스 | Apache-2.0 적용 완료 |
 | npm 배포 자동화 | 미완료 |
 
-현재 complete root bundle 기준선은 `47,718 / 14,778 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `42,474 / 13,628 bytes gzip`입니다. Hard ceiling은 각각 `52/17 KiB`, `44/14 KiB`입니다. Cache와 Deduplication 구현은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다.
+현재 complete root bundle 기준선은 `50,805 / 15,536 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `44,889 / 14,167 bytes gzip`입니다. Hard ceiling은 각각 `52/17 KiB`, `44/14 KiB`입니다. Cache, Deduplication과 logical lifecycle 구현은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다.
 
 ## 완료된 기반
 
@@ -43,15 +43,19 @@
 
 과거 버전의 세부 작업과 당시 bundle 수치는 보관 문서와 병합된 PR에 남기고 현행 로드맵에서는 반복하지 않습니다.
 
-## v0.4 — Reliability policy 강화
+## v0.4 — Reliability policy와 Core API 격차 해소
 
-목표: 외부 Store와 높은 동시성에서도 Cache, Deduplication과 Retry를 예측 가능하게 만듭니다.
+목표: 외부 Store와 높은 동시성에서도 Cache, Deduplication과 Retry를 예측 가능하게 만들고, 일반적인 HTTP client 사용에서 별도 wrapper가 필요한 Core API 공백을 제거합니다.
 
 현재 `Retry-After` 상한을 일반 Backoff에서 분리하고, 상한 초과 시 서버 지시보다 일찍 재시도하지 않는 계약까지 구현했습니다. RateLimit과 비표준 Header는 자동 해석하지 않습니다. 상세 결정은 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)를 기준으로 합니다.
 
-대표 JSON 요청에서 Cache·Deduplication 구현과 `MemoryCacheStore`를 분리했습니다. 기존 fluent API와 동기식 옵션 검증은 유지하며 실제 hook만 실행 시 dynamic import합니다. 대표 요청의 `44/14 KiB` 상한은 완화하지 않았고 complete root와 두 optional policy에 별도 예산을 적용합니다.
+대표 JSON 요청에서 Cache·Deduplication 구현, `MemoryCacheStore`와 logical lifecycle dispatcher를 분리했습니다. 기존 fluent API와 동기식 옵션 검증은 유지하며 실제 hook만 실행 시 dynamic import합니다. 대표 요청의 `44/14 KiB` 상한은 완화하지 않았고 complete root와 각 optional module에 별도 예산을 적용합니다.
+
+Core API는 Fetch, Ky와 Axios의 기능 수를 그대로 추격하지 않습니다. 반복 사용되는 기본 기능이면서 현재 Lafetch의 lifecycle·Body ownership·runtime 계약을 깨지 않는 항목만 채택합니다. 상세 결정은 [v0.4 Core parity와 logical lifecycle RFC](rfcs/v0.4-core-parity.md)를 기준으로 합니다.
 
 ### 범위
+
+#### Reliability
 
 - CacheStore 적합성 테스트와 Store 실패 정책 확대
 - Cache invalidation과 revalidation 계약
@@ -63,12 +67,45 @@
 - 대표 요청 module graph 분석과 Cache·Deduplication 비용 분리 — 구현 완료
 - custom Retry predicate와 forced Retry의 method·idempotency gate
 
+#### Core parity
+
+- Fetch·Ky·Axios 대비 기본 기능 격차를 감사하고 채택·보류·제외 근거 기록 — 구현 완료
+- `api.on(handler)`와 `request.on(handler)`의 단일 logical lifecycle — 구현 완료
+- `event.type`으로 좁혀지는 `request`·`response` event — 구현 완료
+- 공개 lifecycle에서 `LRequest`·`LResponse`를 사용하고 native attempt 객체는 Feature·Transport에 유지 — 구현 완료
+- Retry 전체에서 `request` 한 번, 최종 `LResponse`에서 `response` 한 번 실행 — 구현 완료
+- `attempt` metadata는 `.on()`에 중복 노출하지 않고 `LResponse.meta`와 Telemetry에서 제공 — 구현 완료
+- 누락된 `api.options()` named method — 구현 완료
+- lifecycle 도입에 필요한 Request Builder 경계 정리와 중복 실행 방지 — 구현 완료
+
+#### 명시적 제외
+
+- Native `Request`를 가져오는 `.from()`
+- Form/FormData 전용 convenience API
+- Upload·Download progress 조기 도입 — v0.6 유지
+- Request·Response attempt 교체와 forced Retry — v0.5 Feature·Transport SDK 유지
+- `HttpStatusError` Body data DX — v0.6 유지
+
+### 실행 순서
+
+1. 경쟁 제품 기능 격차 감사와 API 채택 기준 확정
+2. logical lifecycle RFC와 characterization test
+3. 단일 `.on(handler)` 구현
+4. `api.options()` 등 승인된 작은 Core 공백 반영
+5. Request Builder와 Executor의 필요한 경계만 정리
+6. Retry·Cache·Deduplication·Abort 조합 검증
+7. bundle, runtime, declaration과 packed package 검증
+
 ### 완료 조건
 
 - client와 tenant 사이에서 Response가 암묵적으로 공유되지 않아야 합니다.
 - leader 실패나 follower 취소가 다른 요청을 잘못 취소하지 않아야 합니다.
 - 외부 Store가 공통 conformance suite를 통과할 수 있어야 합니다.
 - server delay와 custom predicate가 total Timeout이나 safe method 경계를 우회하지 않아야 합니다.
+- logical lifecycle이 client handler 다음 request handler 순서로 한 번씩 실행되어야 합니다.
+- Retry attempt 세부 event와 logical lifecycle이 중복되거나 서로 다른 Retry 결정을 만들지 않아야 합니다.
+- lifecycle request draft를 직접 실행하거나 다른 요청 계보로 교체할 수 없어야 합니다.
+- `LResponse`가 없는 explicit terminal은 native 또는 data 결과를 억지로 `LResponse`로 포장하지 않아야 합니다.
 - v0.4 기능 추가 후에도 대표 요청의 `44 KiB / 14 KiB gzip` 상한을 유지해야 합니다.
 
 ## v0.5 — Feature와 Transport SDK

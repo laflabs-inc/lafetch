@@ -8,7 +8,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 소스 버전은 `0.3.1-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.4.0-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -56,6 +56,30 @@ const { data: users } = await api
 ```
 
 `retry(2)`는 최초 요청이 실패하면 최대 두 번 더 시도한다는 뜻입니다.
+
+## Logical lifecycle
+
+일반적인 인증 Header 갱신과 최종 응답 확인은 하나의 `.on(handler)`에서 처리합니다.
+
+```ts
+const api = lafetch
+  .create({ baseUrl: "https://api.example.com" })
+  .on(async (event) => {
+    if (event.type === "request") {
+      event.request = event.request.header(
+        "Authorization",
+        `Bearer ${await getToken()}`,
+      );
+    }
+
+    if (event.type === "response") {
+      console.log(event.response.status);
+      console.log(event.response.meta.attempts);
+    }
+  });
+```
+
+`request`와 `response`는 Retry attempt마다 반복되지 않고 logical request에서 각각 한 번 실행됩니다. attempt별 관찰은 `.telemetry()`가 담당합니다. `response` event는 실제 `LResponse`를 만드는 direct `await`·`then`·`catch`·`finally`에서만 발생하며, 값을 직접 반환하는 `as(mode)` terminal은 다시 `LResponse`로 포장하지 않습니다.
 
 ## 왜 Lafetch인가요?
 
@@ -206,6 +230,7 @@ const file: Blob = await api.get("/files/1").as("blob");
 | Validation | `.validate(schema)` | 응답 검증과 타입 변환 |
 | Error Mapping | `.mapError(mapper)` | 도메인 오류 변환 |
 | Telemetry | `.telemetry(handler)` | 요청 생명주기 관찰 |
+| Logical lifecycle | `.on(handler)` | `LRequest` 구성과 최종 `LResponse` 처리 |
 
 고급 설정과 전체 예제는 [상세 사용 가이드](docs/advanced-usage.md)에 분리되어 있습니다.
 
@@ -301,8 +326,8 @@ Lafetch는 [Apache License 2.0](LICENSE)에 따라 배포됩니다. 자세한 �
 
 ## 현재 상태
 
-현재 소스 후보는 `0.3.1-alpha.0`입니다. 응답 terminal과 Streaming lifecycle에 더해 stable error narrowing, Standard Schema V1, 고급 `requestInit()`과 redacted `RequestSnapshot`까지 구현했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 통과했습니다.
+현재 소스 후보는 `0.4.0-alpha.0`입니다. v0.3의 응답·Streaming 계약 위에 Reliability policy와 단일 logical lifecycle `.on(handler)`, `OPTIONS` named method를 추가하고 있습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
 
-다음 단계는 v0.4 Reliability policy 강화입니다. Cache Store 적합성, revalidation, 높은 동시성의 Deduplication과 adaptive Retry 경계를 확정합니다.
+현재 단계는 v0.4 Reliability policy와 Core API 격차 해소입니다. Cache Store 적합성, revalidation, 높은 동시성의 Deduplication, adaptive Retry와 기본 lifecycle 경계를 확정합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. npm 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

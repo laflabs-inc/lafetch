@@ -85,6 +85,27 @@ const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 if (!(new MemoryCacheStore() instanceof MemoryCacheStore)) {
   throw new Error("Packed Cache entrypoint did not execute correctly.");
 }
+const lifecycleEvents = [];
+const lifecycleTransport = mockTransport((request) => Response.json({
+  method: request.method,
+  lifecycle: request.headers.get("x-lifecycle"),
+}));
+const lifecycleApi = lafetch
+  .create({ baseUrl: "https://api.example.com", transport: lifecycleTransport })
+  .on((event) => {
+    lifecycleEvents.push(event.type);
+    if (event.type === "request") {
+      event.request = event.request.header("X-Lifecycle", "packed");
+    }
+  });
+const optionsResult = await lifecycleApi.options("/capabilities");
+if (
+  optionsResult.data.method !== "OPTIONS"
+  || optionsResult.data.lifecycle !== "packed"
+  || lifecycleEvents.join(",") !== "request,response"
+) {
+  throw new Error("Packed logical lifecycle or OPTIONS method did not execute correctly.");
+}
 let policyCalls = 0;
 const policyApi = lafetch.create({
   baseUrl: "https://api.example.com",
@@ -169,6 +190,9 @@ const invalidConfigurations = [
   () => api.get("/probe").requestInit({ method: "POST" }),
   () => api.get("/probe").requestInit({ cache: "only-if-cached" }),
   () => api.get("/probe").mapError(null),
+  () => api.on(null),
+  () => api.get("/probe").on(null),
+  () => api.options("/probe").body("invalid"),
   () => api.get("/probe").use(null),
   () => api.get("/probe").cache("1m", null),
   () => api.get("/probe").dedupe(null),
@@ -197,6 +221,8 @@ import {
   isHttpError,
   lafetch,
   type LClient,
+  type LLifecycleEvent,
+  type LLifecycleHandler,
   type LRequest,
   type LResponse,
   type LStream,
@@ -216,6 +242,15 @@ void cacheStore;
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const client: LClient = api;
+const lifecycleHandler: LLifecycleHandler = (event: LLifecycleEvent) => {
+  if (event.type === "request") {
+    event.request = event.request.header("X-Lifecycle", "typed");
+  } else {
+    const attempts: number = event.response.meta.attempts;
+    void attempts;
+  }
+};
+const lifecycleClient: LClient = api.on(lifecycleHandler);
 const request: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").use(feature);
 const typedRequest: LRequest<User> = api.get<User>("https://api.example.com/users/1");
 const explicit: Promise<User> = api.get<User>("https://api.example.com/users/1").as("json");
@@ -227,6 +262,8 @@ const methodResults: Promise<User>[] = [
   api.request<User>("QUERY", "https://api.example.com/users").as("json"),
 ];
 const headResult: Promise<void> = api.head<void>("https://api.example.com/users").as("json");
+const optionsResult: PromiseLike<LResponse<void>> =
+  api.options<void>("https://api.example.com/capabilities");
 const response: Promise<LResponse<User>> = Promise.resolve(
   api.get<User>("https://api.example.com/users/1"),
 );
@@ -278,6 +315,8 @@ if (false) {
   api.get("/users").json({ filter: "active" });
   // @ts-expect-error Fetch does not allow request bodies on HEAD.
   api.head("/users").body("payload");
+  // @ts-expect-error OPTIONS is bodyless through the named method.
+  api.options("/capabilities").body("payload");
   // @ts-expect-error Custom GET requests preserve the Fetch body restriction.
   api.request("GET", "/users").bodyFactory(() => "payload");
   // @ts-expect-error A request has exactly one body source.
@@ -303,10 +342,13 @@ if (false) {
 }
 void request;
 void client;
+void lifecycleClient;
+void lifecycleHandler;
 void typedRequest;
 void explicit;
 void methodResults;
 void headResult;
+void optionsResult;
 void response;
 void bytes;
 void bufferedResponse;
@@ -341,7 +383,7 @@ void inspectSnapshot;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.3.1-alpha.0") {
+  if (installedPackage.version !== "0.4.0-alpha.0") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {

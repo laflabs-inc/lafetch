@@ -2,7 +2,9 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import * as publicApi from "../src/index.js";
 import {
   lafetch,
+  type LLifecycleEvent,
   type LRequest,
+  type LResponse,
   type LStreamResponse,
   type ResponseMode,
 } from "../src/index.js";
@@ -99,6 +101,9 @@ describe("public API conventions", () => {
       api.get("/users").schema(() => true);
       // @ts-expect-error One mapError() handles request and response failures.
       api.get("/users").mapDecodeError((error: Error) => error);
+      // @ts-expect-error OPTIONS is bodyless through the named method.
+      api.options("/capabilities").body("payload");
+      api.request("OPTIONS", "/capabilities").body("payload");
 
       expectTypeOf(api.get("/users").as("text")).toEqualTypeOf<Promise<string>>();
       expectTypeOf(api.get<{ id: string }>("/users").as("json"))
@@ -150,6 +155,17 @@ describe("public API conventions", () => {
       // @ts-expect-error Legacy named terminals are intentionally not kept as aliases.
       api.get("/events").asStream();
       expectTypeOf(api.get("/users").maxResponseBytes(1_000_000)).toEqualTypeOf(api.get("/users"));
+      expectTypeOf(api.options("/capabilities")).toEqualTypeOf(api.get("/capabilities"));
+      expectTypeOf(api.get("/users").on(() => undefined)).toEqualTypeOf(api.get("/users"));
+      api.on((event) => {
+        expectTypeOf(event).toEqualTypeOf<LLifecycleEvent>();
+        if (event.type === "request") {
+          expectTypeOf(event.request).toEqualTypeOf<LRequest>();
+          event.request = event.request.header("X-Lifecycle", "request");
+        } else {
+          expectTypeOf(event.response).toEqualTypeOf<LResponse>();
+        }
+      });
       // @ts-expect-error Explicit response terminals return Promise and end LRequest configuration.
       api.get("/users").as("json").timeout("1s");
       // @ts-expect-error Response Schema validation requires buffered consumption.
