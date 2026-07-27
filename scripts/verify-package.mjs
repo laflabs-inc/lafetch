@@ -39,6 +39,7 @@ try {
     "dist/feature.d.ts",
     "dist/testing/index.js",
     "dist/testing/index.d.ts",
+    "LICENSE",
     "README.md",
   ]) {
     if (!packagedFiles.has(requiredFile)) throw new Error(`Packed package is missing ${requiredFile}.`);

@@ -1,5 +1,7 @@
 # Lafetch
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
 > 데이터와 HTTP 문맥은 함께 받고, 실패 정책은 읽기 쉽게.
 
 Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트입니다. 평범한 요청은 짧게 작성하고, Timeout·Retry·Cache처럼 실패 상황을 다루는 정책은 요청 코드 안에서 명확하게 선언합니다.
@@ -293,10 +295,14 @@ pnpm check:runtimes
 
 `pnpm check`는 엄격한 TypeScript 검사, 동작 테스트, ESM 선언 빌드, 실제 tarball 설치와 공개 export 소비 검증을 실행합니다. `pnpm check:runtimes`는 Playwright Chromium이 설치된 환경에서 Chromium, Workers/Edge, Next.js 소비 환경을 추가로 검증합니다.
 
+## 라이선스
+
+Lafetch는 [Apache License 2.0](LICENSE)에 따라 배포됩니다. 자세한 이용 조건은 라이선스 전문을 확인하세요.
+
 ## 현재 상태
 
 현재 소스 후보는 `0.3.1-alpha.0`입니다. 응답 terminal과 Streaming lifecycle에 더해 stable error narrowing, Standard Schema V1, 고급 `requestInit()`과 redacted `RequestSnapshot`까지 구현했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 통과했습니다.
 
 다음 단계는 v0.4 Reliability policy 강화입니다. Cache Store 적합성, revalidation, 높은 동시성의 Deduplication과 adaptive Retry 경계를 확정합니다.
 
-Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. 라이선스와 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.
+Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. npm 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

@@ -27,7 +27,8 @@
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
 | 다음 단계 | v0.4 Reliability policy 강화 진행 중 |
-| 라이선스와 npm 배포 자동화 | 미완료 |
+| 라이선스 | Apache-2.0 적용 완료 |
+| npm 배포 자동화 | 미완료 |
 
 현재 complete root bundle 기준선은 `47,718 / 14,778 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `42,474 / 13,628 bytes gzip`입니다. Hard ceiling은 각각 `52/17 KiB`, `44/14 KiB`입니다. Cache와 Deduplication 구현은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다.
 
