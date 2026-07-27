@@ -59,27 +59,27 @@ const { data: users } = await api
 
 ## Logical lifecycle
 
-일반적인 인증 Header 갱신과 최종 응답 확인은 하나의 `.on(handler)`에서 처리합니다.
+Client에 `.on(handler)`를 등록하면 요청 직전에 최신 인증 토큰을 공통으로 추가할 수 있습니다.
 
 ```ts
+type User = { id: string; name: string };
+
 const api = lafetch
   .create({ baseUrl: "https://api.example.com" })
   .on(async (event) => {
-    if (event.type === "request") {
-      event.request = event.request.header(
-        "Authorization",
-        `Bearer ${await getToken()}`,
-      );
-    }
+    if (event.type !== "request") return;
 
-    if (event.type === "response") {
-      console.log(event.response.status);
-      console.log(event.response.meta.attempts);
-    }
+    const accessToken = await getAccessToken();
+    event.request = event.request.header(
+      "Authorization",
+      `Bearer ${accessToken}`,
+    );
   });
+
+const { data: me } = await api.get<User>("/me");
 ```
 
-`request`와 `response`는 Retry attempt마다 반복되지 않고 logical request에서 각각 한 번 실행됩니다. attempt별 관찰은 `.telemetry()`가 담당합니다. `response` event는 실제 `LResponse`를 만드는 direct `await`·`then`·`catch`·`finally`에서만 발생하며, 값을 직접 반환하는 `as(mode)` terminal은 다시 `LResponse`로 포장하지 않습니다.
+Client handler는 모든 요청에 적용되고, request handler를 추가하면 한 요청에만 적용할 수 있습니다. `request`와 `response`는 Retry attempt마다 반복되지 않고 logical request에서 각각 한 번 실행됩니다. 전체 시도 횟수는 `response` event의 `event.response.meta.attempts`, attempt별 관찰은 `.telemetry()`에서 확인합니다. `response` event는 실제 `LResponse`를 만드는 direct `await`·`then`·`catch`·`finally`에서만 발생하며, 값을 직접 반환하는 `as(mode)` terminal은 다시 `LResponse`로 포장하지 않습니다.
 
 ## 왜 Lafetch인가요?
 

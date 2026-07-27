@@ -61,6 +61,9 @@ function httpFixture(): Plugin {
 
 export default defineConfig({
   plugins: [httpFixture()],
+  server: {
+    cors: false,
+  },
   test: {
     include: ["tests/browser/**/*.test.ts"],
     browser: {

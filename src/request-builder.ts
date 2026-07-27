@@ -568,6 +568,7 @@ class RequestImplementation<TData = unknown> {
 
   async as(mode: ResponseMode): Promise<unknown> {
     if (mode === "stream") {
+      this.#claimStreaming();
       let prepared: PreparedRequest;
       try {
         prepared = await this.#prepareOnce();
@@ -579,7 +580,6 @@ class RequestImplementation<TData = unknown> {
           "as(\"stream\") cannot be combined with validate().",
         );
       }
-      this.#claimStreaming();
       try {
         return await executeStreamingRequest(prepared.configuration, async (error, request, response) =>
           await mapRequestError(prepared.errorMappers, error, {
