@@ -133,6 +133,40 @@ describe("Streaming responses", () => {
     await expect(buffered.as("stream")).rejects.toBeInstanceOf(HttpConsumptionError);
   });
 
+  it("reserves streaming ownership before async lifecycle preparation", async () => {
+    let resumeLifecycle: () => void = () => {};
+    const lifecyclePaused = new Promise<void>((resolve) => {
+      resumeLifecycle = resolve;
+    });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response("payload")),
+    });
+    const request = api
+      .get("/resource")
+      .on(async (event) => {
+        if (event.type === "request") await lifecyclePaused;
+      });
+
+    const streaming = request.as("stream");
+    const buffered = request.as("response");
+    resumeLifecycle();
+
+    const [streamingResult, bufferedResult] = await Promise.allSettled([
+      streaming,
+      buffered,
+    ]);
+
+    expect(streamingResult.status).toBe("fulfilled");
+    expect(bufferedResult.status).toBe("rejected");
+    if (streamingResult.status === "fulfilled") {
+      await streamingResult.value.body?.cancel();
+    }
+    if (bufferedResult.status === "rejected") {
+      expect(bufferedResult.reason).toBeInstanceOf(HttpConsumptionError);
+    }
+  });
+
   it("rejects Schema, Cache, and Deduplication before Transport execution", async () => {
     const transport = mockTransport(() => new Response("unused"));
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });

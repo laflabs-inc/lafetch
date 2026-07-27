@@ -3,6 +3,12 @@ export { lafetch } from "./lafetch.js";
 export type { Lafetch } from "./lafetch.js";
 export type { LRequest, ResponseMode } from "./request-builder.js";
 export type {
+  LLifecycleEvent,
+  LLifecycleHandler,
+  LRequestEvent,
+  LResponseEvent,
+} from "./lifecycle.js";
+export type {
   LStream,
   LStreamResponse,
 } from "./core/stream-response.js";

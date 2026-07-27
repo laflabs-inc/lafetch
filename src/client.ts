@@ -7,6 +7,10 @@ import { HttpConfigurationError } from "./core/errors.js";
 import { createRuntime } from "./core/runtime.js";
 import type { ClientOptions } from "./core/types.js";
 import { validateRequestCredentials } from "./core/validation.js";
+import {
+  validateLifecycleHandler,
+  type LLifecycleHandler,
+} from "./lifecycle.js";
 import { createRequest, type RequestState } from "./request-builder.js";
 import { fetchTransport } from "./transports/fetch.js";
 
@@ -17,6 +21,7 @@ type BodylessRequestMethod =
   | `${"h" | "H"}${"e" | "E"}${"a" | "A"}${"d" | "D"}`;
 
 export interface LClient {
+  on(handler: LLifecycleHandler): LClient;
   /** Custom-method entry point. Prefer the named HTTP methods when possible. */
   request<TData = unknown>(method: BodylessRequestMethod, input: string | URL): BodylessRequest<TData>;
   request<TData = unknown>(method: string, input: string | URL): BodyRequest<TData>;
@@ -26,10 +31,22 @@ export interface LClient {
   patch<TData = unknown>(input: string | URL): BodyRequest<TData>;
   delete<TData = unknown>(input: string | URL): BodyRequest<TData>;
   head<TData = unknown>(input: string | URL): BodylessRequest<TData>;
+  options<TData = unknown>(input: string | URL): BodylessRequest<TData>;
 }
 
 class ClientImplementation implements LClient {
-  constructor(private readonly configuration: ClientConfiguration) {}
+  constructor(
+    private readonly configuration: ClientConfiguration,
+    private readonly lifecycleHandlers: readonly LLifecycleHandler[] = Object.freeze([]),
+  ) {}
+
+  on(handler: LLifecycleHandler): LClient {
+    validateLifecycleHandler(handler);
+    return new ClientImplementation(
+      this.configuration,
+      Object.freeze([...this.lifecycleHandlers, handler]),
+    );
+  }
 
   request<TData = unknown>(
     method: BodylessRequestMethod,
@@ -39,12 +56,14 @@ class ClientImplementation implements LClient {
   request<TData = unknown>(method: string, input: string | URL): BodyRequest<TData> {
     return createRequest<TData, "allowed">(
       createRequestConfiguration(this.configuration, input, method),
+      this.lifecycleHandlers,
     );
   }
 
   get<TData = unknown>(input: string | URL): BodylessRequest<TData> {
     return createRequest<TData, "forbidden">(
       createRequestConfiguration(this.configuration, input, "GET"),
+      this.lifecycleHandlers,
     );
   }
 
@@ -67,6 +86,14 @@ class ClientImplementation implements LClient {
   head<TData = unknown>(input: string | URL): BodylessRequest<TData> {
     return createRequest<TData, "forbidden">(
       createRequestConfiguration(this.configuration, input, "HEAD"),
+      this.lifecycleHandlers,
+    );
+  }
+
+  options<TData = unknown>(input: string | URL): BodylessRequest<TData> {
+    return createRequest<TData, "forbidden">(
+      createRequestConfiguration(this.configuration, input, "OPTIONS", false),
+      this.lifecycleHandlers,
     );
   }
 }

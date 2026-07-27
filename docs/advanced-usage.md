@@ -126,6 +126,45 @@ await Promise.all([name, email]);
 
 체이닝 메서드를 호출하면 기존 `LRequest`를 변경하지 않고 별도의 실행 식별자를 가진 `LRequest`를 만듭니다.
 
+## Logical lifecycle
+
+`api.on(handler)`는 해당 client의 모든 요청에, `request.on(handler)`는 하나의 immutable request에 적용됩니다. client handler가 먼저 실행되고 같은 범위에서는 등록 순서를 유지합니다.
+
+```ts
+const api = lafetch
+  .create({ baseUrl: "https://api.example.com" })
+  .on(async (event) => {
+    if (event.type === "request") {
+      event.request = event.request.header(
+        "Authorization",
+        `Bearer ${await getToken()}`,
+      );
+    }
+
+    if (event.type === "response") {
+      console.log(event.response.status);
+      console.log(event.response.meta.attempts);
+    }
+  });
+
+await api
+  .get<User>("/users/123")
+  .on((event) => {
+    if (event.type === "request") {
+      event.request = event.request.timeout("3s");
+    }
+  });
+```
+
+`LRequest`는 immutable이므로 `event.request.header()`가 만든 새 request를 event에 다시 연결합니다. lifecycle request draft는 설정 전용이라 직접 `await`할 수 없고, 다른 client나 다른 logical request에서 만든 `LRequest`로 교체할 수도 없습니다.
+
+- `request`: Retry 전체가 시작되기 전에 한 번
+- `response`: 자동 decoding과 validation 뒤 direct `LResponse`가 만들어질 때 한 번
+- 전체 시도 수: `event.response.meta.attempts`
+- attempt별 event: `.telemetry()`의 `attempt:*`
+
+`as("json")`, `as("response")`, `as("stream")` 같은 explicit terminal은 각각 data, native `Response`, live `LStreamResponse`를 직접 반환하므로 `response` lifecycle event를 만들지 않습니다. request event는 terminal과 관계없이 적용됩니다.
+
 ## 요청 구성
 
 ```ts
@@ -162,6 +201,14 @@ await api
   .json({ filters })
   .as("json");
 ```
+
+표준 capability 조회는 bodyless `options()` named method를 사용합니다.
+
+```ts
+await api.options("/capabilities");
+```
+
+Body가 필요한 비표준 OPTIONS 요청은 명시적인 `request("OPTIONS", url)`을 사용합니다.
 
 자격 증명의 기본값은 `"omit"`입니다. 클라이언트 또는 요청에서 명시적으로 활성화할 수 있습니다.
 

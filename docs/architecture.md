@@ -1,6 +1,6 @@
 # Lafetch 커널 아키텍처
 
-이 문서는 현행 v0.3 커널의 실행 모델과 반드시 유지해야 하는 불변식을 설명합니다. 일반적인 사용법은 [상세 사용 가이드](advanced-usage.md)를 참고하세요.
+이 문서는 현행 v0.4 커널의 실행 모델과 반드시 유지해야 하는 불변식을 설명합니다. 일반적인 사용법은 [상세 사용 가이드](advanced-usage.md)를 참고하세요.
 
 ## 공개 모델
 
@@ -8,20 +8,24 @@
 lafetch.create()
   → LClient.method(url)
     → immutable LRequest
-      → normalized RequestConfiguration
-        → Feature resolver
-          → request / attempt lifecycle
-            → Transport
+      → logical request lifecycle
+        → normalized RequestConfiguration
+          → Feature resolver
+            → request / attempt lifecycle
+              → Transport
 ```
 
 Fluent chain은 실행 순서를 감싼 middleware가 아니라 선언적 설정입니다. 실제 순서는 요청을 전송하기 전에 Feature 의존성과 Capability를 해석해 한 번 결정합니다.
 
 Cache와 Deduplication은 선택 정책입니다. `.cache()`와 `.dedupe()` 호출 시 옵션·Capability를 동기적으로 검증하고 immutable declaration을 저장하지만, 실제 hook과 기본 memory store 구현은 요청 실행 시 별도 ESM chunk에서 불러옵니다. 사용하지 않는 정책 비용이 일반 JSON 요청의 초기 graph에 포함되지 않으면서 기존 fluent 문법과 타입 상태를 유지하기 위한 경계입니다. `MemoryCacheStore`의 명시적 value export도 `@laflabs/lafetch/cache`로 분리합니다.
 
+Logical lifecycle도 handler와 공개 interface만 core에 두고 event dispatcher는 `.on()`이 선언된 요청에서만 별도 ESM chunk로 불러옵니다. `.on()`을 사용하지 않는 대표 요청 graph에 dispatcher 구현이 포함되지 않는지 bundle test로 고정합니다.
+
 공개 API의 역할은 세 가지로 제한합니다.
 
 - `lafetch`는 격리된 `LClient`를 만드는 factory입니다.
 - `LClient`는 공통 환경 설정과 Cache·Deduplication의 소유 경계입니다.
+- `.on(handler)`는 `LRequest`와 최종 `LResponse`를 연결하는 public logical lifecycle입니다.
 - `.use(feature)`는 공식 정책이 아닌 외부 확장에만 사용하는 고급 진입점입니다.
 
 프로세스 전역 기본 클라이언트나 static request shortcut은 제공하지 않습니다.
@@ -32,6 +36,8 @@ client.method(url).configure().policy() → await LResponse
 
 Named HTTP method는 URL만 받고 Query, Header, Body, 취소, 실행 정책, 검증과 Telemetry는 immutable fluent method로 설정합니다. 사용자 정의 HTTP method만 `request(method, url)`을 사용합니다.
 
+`get()`, `head()`, `options()` named method는 bodyless Type-State입니다. Fetch 자체가 허용하는 body 포함 OPTIONS가 필요하면 `request("OPTIONS", url)`로 의도를 명시합니다.
+
 응답 소비 계약은 다음과 같습니다.
 
 | 문법 | 반환 | 소유권 |
@@ -40,6 +46,8 @@ Named HTTP method는 URL만 받고 Query, Header, Body, 취소, 실행 정책, �
 | `request.as(dataMode)` | 강제 디코딩 또는 Schema 변환 값 | Buffered, 다중 소비 |
 | `request.as("response")` | Fetch `Response` | Buffered, 다중 소비 |
 | `request.as("stream")` | `LStreamResponse` | live Body, 단일 소비 |
+
+`response` logical lifecycle event는 실제 `LResponse`를 만드는 direct PromiseLike 소비에서만 발생합니다. explicit terminal은 선택한 data 또는 native ownership을 다시 envelope으로 포장하지 않습니다.
 
 ## 공개 이름 규칙
 
@@ -57,6 +65,7 @@ Named HTTP method는 URL만 받고 Query, Header, Body, 취소, 실행 정책, �
 | 상태 | 소유자 | 수명 |
 | --- | --- | --- |
 | `LRequest` 실행 Promise | 하나의 immutable request | 모든 소비자가 완료될 때까지 |
+| Logical lifecycle handler | immutable client 또는 request | logical request와 direct `LResponse` 각각 1회 |
 | Feature `state` | 한 실행의 한 Feature | 요청 실행 1회 |
 | Feature `metadata` | 한 실행의 모든 Feature | 요청 실행 1회 |
 | 기본 memory cache | 한 `LClient` | 클라이언트 수명 |
@@ -66,6 +75,18 @@ Named HTTP method는 URL만 받고 Query, Header, Body, 취소, 실행 정책, �
 서로 다른 `LClient`는 전역 Cache나 Deduplication registry를 공유하지 않습니다. 여러 클라이언트가 같은 Store를 사용하려면 호출자가 동일한 adapter를 명시적으로 전달해야 합니다.
 
 ## 실행 범위
+
+### Logical lifecycle
+
+Public `.on(handler)`는 내부 Feature attempt hook보다 바깥에서 실행됩니다.
+
+1. client handler를 등록 순서대로 실행합니다.
+2. request handler를 등록 순서대로 실행합니다.
+3. same-lineage `LRequest` draft에서 최종 설정을 확정합니다.
+4. Feature와 Transport request scope를 실행합니다.
+5. direct 소비가 `LResponse`를 만들면 response handler를 같은 순서로 한 번 실행합니다.
+
+Retry attempt는 `.on()`을 반복하지 않습니다. attempt 횟수는 `LResponse.meta`, 세부 event는 Telemetry, native `Request`·`Response` 제어는 Feature와 Transport가 소유합니다.
 
 ### 요청 범위
 

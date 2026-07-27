@@ -17,6 +17,7 @@
 | [v0.3 Streaming과 본문 안전성 RFC](rfcs/v0.3-streaming-body-safety.md) | Buffered/Streaming 응답 소유권의 확정 결정 |
 | [v0.3.1 공개 계약 보강 RFC](rfcs/v0.3.1-public-contract.md) | Error guard, Standard Schema, `RequestInit`과 요청 snapshot |
 | [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md) | Server-directed delay 상한과 adaptive Retry 경계 |
+| [v0.4 Core parity와 logical lifecycle RFC](rfcs/v0.4-core-parity.md) | 단일 `.on(handler)`, `LRequest`·`LResponse` lifecycle과 OPTIONS |
 
 ## 계획과 평가
 
