@@ -70,14 +70,21 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
     }),
     check("write-isolation", async () => {
       const store = await factory();
-      const response = new Response("payload");
+      const response = new Response("payload", {
+        headers: { "X-Cache-Probe": "original" },
+      });
       const cacheKey = key("write-isolation");
       await withCleanup(store, [cacheKey], async () => {
         await store.set(cacheKey, { response, expiresAt: future() });
+        response.headers.set("X-Cache-Probe", "mutated");
         invariant(await response.text() === "payload", "The input response was not independently readable.");
         const entry = await store.get(cacheKey);
         invariant(entry, "get() did not return the stored entry.");
         invariant(await entry.response.text() === "payload", "Consuming the input response changed the stored body.");
+        invariant(
+          entry.response.headers.get("x-cache-probe") === "original",
+          "Mutating the input response changed the stored headers.",
+        );
       });
     }),
     check("read-isolation", async () => {
@@ -93,9 +100,13 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
         invariant(first && second, "get() did not return independently readable entries.");
         invariant(first.response !== second.response, "get() returned the same Response instance twice.");
         invariant(first.response.headers !== second.response.headers, "Response Header views were shared between reads.");
+        first.response.headers.set("X-Cache-Probe", "mutated");
         invariant(await first.response.text() === "payload", "The first response clone was unreadable.");
         invariant(await second.response.text() === "payload", "The second response clone was not isolated.");
-        invariant(second.response.headers.get("x-cache-probe") === "original", "Response headers were shared between reads.");
+        invariant(
+          second.response.headers.get("x-cache-probe") === "original",
+          "Mutating one read changed another read's headers.",
+        );
       });
     }),
     check("key-and-overwrite", async () => {
