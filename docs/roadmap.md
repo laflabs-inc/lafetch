@@ -14,7 +14,7 @@
 
 ## 현재 상태
 
-소스 버전은 `0.4.0-alpha.0`입니다. Buffered/Streaming 응답 소유권과 공개 계약 보강을 바탕으로 Reliability policy와 기본 Core API 격차를 함께 정리하고 있습니다. 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
+소스 버전은 `0.4.0-alpha.1`입니다. Buffered/Streaming 응답 소유권과 공개 계약 보강을 바탕으로 Reliability policy를 정리하고 있습니다. 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
 
 | 영역 | 상태 |
 | --- | --- |
@@ -22,15 +22,15 @@
 | `LResponse`와 data mode 반환 계약 | 구현 완료 |
 | Streaming Body lifecycle | 구현 완료 |
 | Timeout, Retry, Abort | 기본 구현 완료, adaptive Retry 강화 진행 중 |
-| Cache, Deduplication, Idempotency | 기본 구현과 격리 테스트 완료 |
+| Cache, Deduplication, Idempotency | CacheStore 계약 완료, invalidation·revalidation 진행 예정 |
 | Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.4 Reliability policy와 Core API 격차 해소 진행 중 |
+| 다음 단계 | v0.4 Cache invalidation·revalidation 계약 |
 | 라이선스 | Apache-2.0 적용 완료 |
 | npm 배포 자동화 | 미완료 |
 
-현재 complete root bundle 기준선은 `50,805 / 15,536 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `44,889 / 14,167 bytes gzip`입니다. Hard ceiling은 각각 `52/17 KiB`, `44/14 KiB`입니다. Cache, Deduplication과 logical lifecycle 구현은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다.
+현재 complete root bundle 기준선은 `51,274 / 15,676 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `44,955 / 14,197 bytes gzip`입니다. Hard ceiling은 각각 `52/17 KiB`, `44/14 KiB`입니다. Cache, Deduplication과 logical lifecycle 구현은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다.
 
 ## 완료된 기반
 
@@ -53,11 +53,13 @@
 
 Core API는 Fetch, Ky와 Axios의 기능 수를 그대로 추격하지 않습니다. 반복 사용되는 기본 기능이면서 현재 Lafetch의 lifecycle·Body ownership·runtime 계약을 깨지 않는 항목만 채택합니다. 상세 결정은 [v0.4 Core parity와 logical lifecycle RFC](rfcs/v0.4-core-parity.md)를 기준으로 합니다.
 
+외부 CacheStore는 필수 `delete()`, Response snapshot·만료 계약과 공통 conformance suite를 사용합니다. Store 장애는 기본 `"throw"`이며 Cache가 성공 조건이 아닌 요청만 `"bypass"`를 명시합니다. 상세 결정은 [v0.4 CacheStore 신뢰성 RFC](rfcs/v0.4-cache-store-reliability.md)를 기준으로 합니다.
+
 ### 범위
 
 #### Reliability
 
-- CacheStore 적합성 테스트와 Store 실패 정책 확대
+- CacheStore 적합성 테스트와 Store 실패 정책 확대 — 구현 완료
 - Cache invalidation과 revalidation 계약
 - TTL, `Cache-Control`, `Age` 상호작용 검증
 - leader/follower Abort·Timeout 경쟁 상태와 누수 테스트

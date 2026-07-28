@@ -15,7 +15,10 @@ export type {
 
 export { fetchTransport } from "./transports/fetch.js";
 
-export type { CacheOptions } from "./features/cache-options.js";
+export type {
+  CacheOptions,
+  CacheStoreFailureMode,
+} from "./features/cache-options.js";
 export type { DedupeOptions } from "./features/dedupe-options.js";
 export type { IdempotencyOptions } from "./features/idempotency.js";
 export type {

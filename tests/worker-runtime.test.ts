@@ -31,10 +31,11 @@ describe("Workers/Edge runtime", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
+      cacheBypass: true,
       calls: 2,
       method: "OPTIONS",
       lifecycleHeader: "worker",
-      lifecycleEvents: ["request", "response", "request"],
+      lifecycleEvents: ["request", "response", "request", "request"],
       processGlobal: false,
       requestCache: "no-store",
       requestRedirect: "manual",

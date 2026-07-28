@@ -85,6 +85,30 @@ describe("browser Fetch runtime", () => {
     expect(cached.data.method).toBe("GET");
   });
 
+  it("applies the explicit CacheStore failure policy in the browser", async () => {
+    const store = {
+      get() { throw new Error("cache unavailable"); },
+      set() {},
+      delete() {},
+    };
+    const api = lafetch.create();
+
+    await expect(api
+      .get("/__lafetch_fixture__/echo")
+      .cache("1m", { store }))
+      .rejects.toMatchObject({
+        code: "ERR_HTTP_FEATURE",
+        feature: "cache",
+        hook: "intercept",
+      });
+
+    const result = await api
+      .get<{ method: string }>("/__lafetch_fixture__/echo")
+      .cache("1m", { store, storeFailure: "bypass" });
+
+    expect(result.data.method).toBe("GET");
+  });
+
   it("maps browser AbortSignal cancellation", async () => {
     const controller = new AbortController();
     const request = lafetch.create().get("/__lafetch_fixture__/slow").signal(controller.signal);

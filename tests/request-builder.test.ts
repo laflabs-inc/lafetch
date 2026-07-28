@@ -369,6 +369,10 @@ describe("LRequest", () => {
       () => (api.get("/x") as any).mapError(null),
       () => (api.get("/x") as any).use(null),
       () => (api.get("/x") as any).cache("1m", null),
+      () => (api.get("/x") as any).cache("1m", { storeFailure: "ignore" }),
+      () => (api.get("/x") as any).cache("1m", {
+        store: { get() {}, set() {} },
+      }),
       () => (api.get("/x") as any).dedupe(null),
       () => (api.post("/x") as any).idempotency(null),
       () => (api.get("/x") as any).telemetry(() => undefined, null),

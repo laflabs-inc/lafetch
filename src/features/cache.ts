@@ -1,11 +1,60 @@
-import { MemoryCacheStore, type CacheStore } from "../core/cache-store.js";
+import {
+  MemoryCacheStore,
+  type CacheEntry,
+  type CacheStore,
+} from "../core/cache-store.js";
 import type { ClientPolicyScope } from "../core/config.js";
 import type { RequestFeature } from "../core/types.js";
-import type { CacheDeclaration } from "./cache-options.js";
+import type {
+  CacheDeclaration,
+  CacheStoreFailureMode,
+} from "./cache-options.js";
 import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
+
+function assertCacheEntry(entry: unknown): asserts entry is CacheEntry {
+  const candidate = entry as Partial<CacheEntry> | null;
+  if (
+    typeof entry !== "object"
+    || entry === null
+    || !(candidate!.response instanceof Response)
+    || !Number.isFinite(candidate!.expiresAt)
+  ) {
+    throw new TypeError("CacheStore.get() returned an invalid entry.");
+  }
+}
+
+async function storeOperation<T>(
+  failureMode: CacheStoreFailureMode,
+  operation: () => T | Promise<T>,
+): Promise<T | undefined> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (failureMode === "throw") throw error;
+    return;
+  }
+}
+
+async function readStore(
+  store: CacheStore,
+  key: string,
+  now: number,
+  failureMode: CacheStoreFailureMode,
+): Promise<Response | undefined> {
+  return await storeOperation(failureMode, async () => {
+    const entry = await store.get(key);
+    if (entry === undefined) return;
+    assertCacheEntry(entry);
+    if (entry.expiresAt <= now) {
+      await store.delete(key);
+      return;
+    }
+    return entry.response.clone();
+  });
+}
 
 function cacheableResponse(response: Response, statuses: ReadonlySet<number>): boolean {
   if (!statuses.has(response.status) || response.headers.has("set-cookie")) return false;
@@ -56,12 +105,7 @@ export function createCacheFeature(
         if (bypass) return;
         const resolvedKey = await resolveRequestKey(key, request);
         state.set(keyState, resolvedKey);
-        const entry = await store.get(resolvedKey);
-        if (!entry || entry.expiresAt <= now()) {
-          if (entry) await store.delete?.(resolvedKey);
-          return;
-        }
-        return entry.response.clone();
+        return await readStore(store, resolvedKey, now(), declaration.storeFailure);
       },
       async finalize({ response, error, source, state }) {
         if (
@@ -75,7 +119,13 @@ export function createCacheFeature(
         if (typeof key !== "string") return;
         const effectiveTtlMs = responseTtl(response, declaration.ttlMs);
         if (effectiveTtlMs <= 0) return;
-        await store.set(key, { response: response.clone(), expiresAt: now() + effectiveTtlMs });
+        await storeOperation(
+          declaration.storeFailure,
+          () => store.set(key, {
+            response: response.clone(),
+            expiresAt: now() + effectiveTtlMs,
+          }),
+        );
       },
     },
   };

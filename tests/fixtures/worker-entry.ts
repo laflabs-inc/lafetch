@@ -69,6 +69,23 @@ export default {
       .forEach((chunk) => {
         streamed += chunk;
       });
-    return Response.json({ ...result.data, lifecycleEvents, streamed });
+    const cacheResult = await api
+      .get<{ calls: number }>("https://fixture.invalid/cache")
+      .cache("1m", {
+        store: {
+          get() { throw new Error("cache unavailable"); },
+          set() {},
+          delete() {},
+        },
+        storeFailure: "bypass",
+      })
+      .retry(1, { backoff: { type: "fixed", base: 0, jitter: "none" } })
+      .as("json");
+    return Response.json({
+      ...result.data,
+      cacheBypass: cacheResult.calls === 5,
+      lifecycleEvents,
+      streamed,
+    });
   },
 };
