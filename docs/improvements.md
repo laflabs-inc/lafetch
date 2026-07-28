@@ -1,10 +1,10 @@
 # Lafetch 기술 경쟁력 평가와 개선 백로그
 
-평가 기준일: `2026-07-27`
+평가 기준일: `2026-07-28`
 
 비교 대상:
 
-- `@laflabs/lafetch@0.4.0-alpha.0`
+- `@laflabs/lafetch@0.4.0-alpha.1`
 - `axios@1.18.1`
 - `ky@2.0.2`
 
@@ -64,19 +64,19 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 - Node.js `zlib.gzipSync`로 gzip 측정
 
 ```text
-Lafetch  44,889 bytes minified / 14,167 bytes gzip
+Lafetch  44,955 bytes minified / 14,197 bytes gzip
 Axios    45,838 bytes minified / 17,855 bytes gzip
 Ky       20,608 bytes minified /  7,370 bytes gzip
 ```
 
 해석:
 
-- Lafetch는 Axios보다 minified 약 `2%`, gzip 약 `21%` 작습니다.
-- Lafetch는 Ky보다 minified 약 `118%`, gzip 약 `92%` 큽니다.
+- Lafetch는 Axios보다 minified 약 `2%`, gzip 약 `20%` 작습니다.
+- Lafetch는 Ky보다 minified 약 `118%`, gzip 약 `93%` 큽니다.
 - 대표 JSON 요청의 정적 graph에서 Cache, Deduplication, `MemoryCacheStore`와 logical lifecycle dispatcher 구현을 제거했습니다. 선언과 공개 interface는 core에 남지만 실제 hook은 사용 시 별도 ESM chunk를 불러옵니다.
-- 모든 공개 API와 optional module을 한 파일로 합친 complete root 기준선은 `50,805 / 15,536 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
-- Logical lifecycle과 OPTIONS interface 추가로 대표 요청은 이전 기준선보다 `2,415 bytes minified / 539 bytes gzip` 증가했지만 `44/14 KiB` 예산은 완화하지 않았습니다.
-- Cache 구현은 `3,620 / 1,722 bytes gzip`, Deduplication은 `3,730 / 1,743 bytes gzip`이며 각각 별도 `4/2.5 KiB` 예산으로 제한합니다.
+- 모든 공개 API와 optional module을 한 파일로 합친 complete root 기준선은 `51,274 / 15,676 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
+- Core parity와 CacheStore 실패 선언을 추가한 대표 요청은 module graph 분리 직후 기준선보다 `2,481 bytes minified / 569 bytes gzip` 증가했지만 `44/14 KiB` 예산은 완화하지 않았습니다. CacheStore 작업 자체의 `0.4.0-alpha.0` 대비 증가는 `66 bytes minified / 30 bytes gzip`입니다.
+- Cache 구현은 `4,016 / 1,868 bytes gzip`, Deduplication은 `3,730 / 1,743 bytes gzip`이며 각각 별도 `4/2.5 KiB` 예산으로 제한합니다.
 - Logical lifecycle dispatcher는 `1,722 / 926 bytes gzip`이며 같은 별도 예산으로 제한합니다.
 
 Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 상한을 `52/17 KiB`로 완화했습니다. 대신 일반 사용자의 초기 비용인 대표 요청은 `44/14 KiB`로 유지하고 정책별 예산을 추가해, 전체 상한 증가가 사용하지 않는 기능의 무제한 core 편입으로 이어지지 않게 합니다.
@@ -88,8 +88,8 @@ Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 
 | 항목 | Lafetch | Axios | Ky |
 | --- | --- | --- | --- |
 | Runtime dependency | 0 | 4 | 0 |
-| 배포 package unpacked | `494,045 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
-| 대표 browser bundle gzip | `14,167 bytes` | `17,855 bytes` | `7,370 bytes` |
+| 배포 package unpacked | `515,049 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
+| 대표 browser bundle gzip | `14,197 bytes` | `17,855 bytes` | `7,370 bytes` |
 | Module | ESM | ESM, CJS | ESM |
 | Node.js engine | `>=20` | package에서 미지정 | `>=22` |
 | Built-in transport | Fetch | XHR, HTTP, Fetch adapter | Fetch |

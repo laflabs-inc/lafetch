@@ -10,8 +10,11 @@ import {
 } from "../core/validation.js";
 import type { RequestKey } from "./request-key.js";
 
+export type CacheStoreFailureMode = "throw" | "bypass";
+
 export interface CacheOptions {
   readonly store?: CacheStore;
+  readonly storeFailure?: CacheStoreFailureMode;
   readonly methods?: readonly string[];
   readonly statuses?: readonly number[];
   readonly key?: RequestKey;
@@ -20,6 +23,7 @@ export interface CacheOptions {
 export interface CacheDeclaration {
   readonly ttlMs: number;
   readonly store?: CacheStore;
+  readonly storeFailure: CacheStoreFailureMode;
   readonly methods: readonly string[];
   readonly statuses: readonly number[];
   readonly key?: RequestKey;
@@ -41,23 +45,36 @@ export function snapshotCacheDeclaration(
   if (options.methods !== undefined) validateHttpMethods(options.methods, "cache.methods");
   if (options.statuses !== undefined) validateHttpStatuses(options.statuses, "cache.statuses");
   validateOptionalKey(options.key, "cache.key");
+  const store = options.store;
   if (
-    options.store !== undefined
+    store !== undefined
     && (
-      typeof options.store !== "object"
-      || options.store === null
-      || typeof options.store.get !== "function"
-      || typeof options.store.set !== "function"
-      || (options.store.delete !== undefined && typeof options.store.delete !== "function")
+      typeof store !== "object"
+      || store === null
+      || typeof store.get !== "function"
+      || typeof store.set !== "function"
+      || typeof store.delete !== "function"
     )
   ) {
     throw new HttpConfigurationError(
-      "cache.store must provide get() and set() functions and an optional delete() function.",
+      "cache.store must implement get(), set(), and delete().",
+    );
+  }
+  const storeFailure = options.storeFailure === undefined
+    ? "throw"
+    : options.storeFailure;
+  if (
+    storeFailure !== "throw"
+    && storeFailure !== "bypass"
+  ) {
+    throw new HttpConfigurationError(
+      "cache.storeFailure must be throw or bypass.",
     );
   }
   return Object.freeze({
     ttlMs: durationToMs(ttl, "cache.ttl"),
-    ...(options.store !== undefined ? { store: options.store } : {}),
+    ...(store !== undefined ? { store } : {}),
+    storeFailure,
     methods: Object.freeze([...(options.methods ?? ["GET", "HEAD"])]),
     statuses: Object.freeze([...(options.statuses ?? [200])]),
     ...(options.key !== undefined ? { key: options.key } : {}),

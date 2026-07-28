@@ -7,8 +7,8 @@ Lafetch는 Fetch와 Web Platform primitive를 기준으로 구현합니다. 지�
 | 런타임 | 검증 방법 | 주요 범위 |
 | --- | --- | --- |
 | Node.js 20, 22, 24 | Vitest와 TypeScript build matrix | 커널, 정책, Buffered/Streaming 소비, lifecycle 오류 |
-| Chromium | Playwright 기반 Vitest Browser Mode | 실제 same-origin Fetch, logical lifecycle, OPTIONS, Status Retry, AbortSignal, incremental Streaming |
-| Workers/Edge | Miniflare/workerd 격리 fixture | Browser target bundle, logical lifecycle, OPTIONS, Retry, Schema, Web Stream |
+| Chromium | Playwright 기반 Vitest Browser Mode | 실제 same-origin Fetch, logical lifecycle, OPTIONS, CacheStore 실패 모드, Status Retry, AbortSignal, incremental Streaming |
+| Workers/Edge | Miniflare/workerd 격리 fixture | Browser target bundle, logical lifecycle, OPTIONS, CacheStore bypass, Retry, Schema, Web Stream |
 | Next.js App Router | Next.js 16 production build | Server, Client, Route Handler의 공개 package 소비 |
 
 `pnpm check`는 일반 테스트 외에도 배포 대상 파일을 tarball로 만들고 빈 프로젝트에 설치합니다. 이 독립 소비자에서 JavaScript 실행, TypeScript declaration과 `.`, `./cache`, `./feature`, `./testing` 공개 export를 검증합니다.
@@ -21,9 +21,9 @@ Browser 대상 현재 기준선:
 
 | 대상 | Minified | Gzip |
 | --- | ---: | ---: |
-| Complete root 단일 bundle | `50,805 bytes` | `15,536 bytes` |
-| 대표 JSON 요청 초기 graph | `44,889 bytes` | `14,167 bytes` |
-| Cache policy | `3,620 bytes` | `1,722 bytes` |
+| Complete root 단일 bundle | `51,274 bytes` | `15,676 bytes` |
+| 대표 JSON 요청 초기 graph | `44,955 bytes` | `14,197 bytes` |
+| Cache policy | `4,016 bytes` | `1,868 bytes` |
 | Deduplication policy | `3,730 bytes` | `1,743 bytes` |
 | Logical lifecycle dispatcher | `1,722 bytes` | `926 bytes` |
 

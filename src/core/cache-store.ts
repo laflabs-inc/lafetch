@@ -6,9 +6,12 @@ export interface CacheEntry {
 }
 
 export interface CacheStore {
+  /** Return a stored entry or undefined. Core owns expiration and revalidation policy. */
   get(key: string): CacheEntry | undefined | Promise<CacheEntry | undefined>;
+  /** Snapshot the entry so later consumption of the input Response cannot affect the Store. */
   set(key: string, entry: CacheEntry): void | Promise<void>;
-  delete?(key: string): void | Promise<void>;
+  /** Remove the key. Deleting a missing key must succeed. */
+  delete(key: string): void | Promise<void>;
 }
 
 export class MemoryCacheStore implements CacheStore {

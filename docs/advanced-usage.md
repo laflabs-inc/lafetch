@@ -347,6 +347,19 @@ await api
   .cache("5m", { store });
 ```
 
+외부 Store 장애는 기본적으로 요청 실패로 드러납니다. Cache가 성공 조건이 아니고 origin으로의 fallback을 의도한 경우에만 `"bypass"`를 선택합니다.
+
+```ts
+await api
+  .get<Catalog>("/catalog")
+  .cache("5m", {
+    store,
+    storeFailure: "bypass",
+  });
+```
+
+`CacheStore` adapter는 `get()`, `set()`, `delete()`를 구현하고 `@laflabs/lafetch/testing`의 `runCacheStoreConformance()`으로 Body·Header 격리, 만료, overwrite와 동시 읽기를 검증해야 합니다. `"bypass"`는 Store 오류를 반환 결과에서 제거하므로 adapter가 자체 logging과 metrics를 제공해야 합니다.
+
 세부 규칙은 [Cache와 Deduplication 설계](cache-deduplication.md)를 참고하세요.
 
 ## 멱등성

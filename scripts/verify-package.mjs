@@ -70,7 +70,7 @@ import {
 } from "@laflabs/lafetch";
 import { MemoryCacheStore } from "@laflabs/lafetch/cache";
 import { defineFeature } from "@laflabs/lafetch/feature";
-import { mockTransport } from "@laflabs/lafetch/testing";
+import { mockTransport, runCacheStoreConformance } from "@laflabs/lafetch/testing";
 import * as v from "valibot";
 import * as z from "zod";
 
@@ -84,6 +84,10 @@ const transport = mockTransport((request) => Response.json({
 const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
 if (!(new MemoryCacheStore() instanceof MemoryCacheStore)) {
   throw new Error("Packed Cache entrypoint did not execute correctly.");
+}
+const cacheStoreChecks = await runCacheStoreConformance(() => new MemoryCacheStore());
+if (cacheStoreChecks.some((result) => !result.passed)) {
+  throw new Error("Packed CacheStore conformance checks failed.");
 }
 const lifecycleEvents = [];
 const lifecycleTransport = mockTransport((request) => Response.json({
@@ -195,6 +199,10 @@ const invalidConfigurations = [
   () => api.options("/probe").body("invalid"),
   () => api.get("/probe").use(null),
   () => api.get("/probe").cache("1m", null),
+  () => api.get("/probe").cache("1m", { storeFailure: "ignore" }),
+  () => api.get("/probe").cache("1m", {
+    store: { get() {}, set() {} },
+  }),
   () => api.get("/probe").dedupe(null),
   () => api.post("/probe").body("one").body("two"),
   () => api.post("/probe").idempotency(null),
@@ -230,7 +238,11 @@ import {
   type ResponseMode,
   type RequestSnapshot,
 } from "@laflabs/lafetch";
-import { MemoryCacheStore, type CacheStore } from "@laflabs/lafetch/cache";
+import {
+  MemoryCacheStore,
+  type CacheStore,
+  type CacheStoreFailureMode,
+} from "@laflabs/lafetch/cache";
 import { defineFeature, type RequestFeature } from "@laflabs/lafetch/feature";
 import { mockTransport } from "@laflabs/lafetch/testing";
 import * as v from "valibot";
@@ -239,6 +251,7 @@ import * as z from "zod";
 interface User { id: string }
 const cacheStore: CacheStore = new MemoryCacheStore();
 void cacheStore;
+const cacheStoreFailure: CacheStoreFailureMode = "bypass";
 const feature: RequestFeature = defineFeature({ name: "type-probe" });
 const api = lafetch.create({ transport: mockTransport(() => Response.json({ id: "1" })) });
 const client: LClient = api;
@@ -281,6 +294,10 @@ const valibotValidated: Promise<User> = api
   .validate(v.object({ id: v.string() }))
   .as("json");
 const limited: PromiseLike<LResponse<User>> = api.get<User>("https://api.example.com/users/1").maxResponseBytes(1_000_000);
+const cacheBypass: PromiseLike<LResponse<User>> = api
+  .get<User>("https://api.example.com/users/1")
+  .cache("1m", { store: cacheStore, storeFailure: cacheStoreFailure });
+void cacheBypass;
 const advanced: PromiseLike<LResponse<User>> = api
   .get<User>("https://api.example.com/users/1")
   .requestInit({ redirect: "manual", priority: "high" });
@@ -383,7 +400,7 @@ void inspectSnapshot;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.4.0-alpha.0") {
+  if (installedPackage.version !== "0.4.0-alpha.1") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {

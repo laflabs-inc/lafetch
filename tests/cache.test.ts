@@ -11,6 +11,7 @@ describe("cache", () => {
     const store = {
       get() { return undefined; },
       set() { writes += 1; },
+      delete() {},
     };
     const api = lafetch.create({
       baseUrl: "https://api.example.com",
@@ -39,6 +40,119 @@ describe("cache", () => {
     expect(first.data.call).toBe(1);
     expect(second.data.call).toBe(1);
     expect(calls).toBe(1);
+  });
+
+  it("throws on CacheStore read failures by default", async () => {
+    const transport = mockTransport(() => Response.json({ unused: true }));
+    const store = {
+      get() { throw new Error("cache unavailable"); },
+      set() {},
+      delete() {},
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+    });
+
+    await expect(api.get("/cache/read-failure").cache("1m", { store }))
+      .rejects.toMatchObject({
+        code: "ERR_HTTP_FEATURE",
+        feature: "cache",
+        hook: "intercept",
+        cause: expect.objectContaining({ message: "cache unavailable" }),
+      });
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("bypasses CacheStore read failures only when explicitly requested", async () => {
+    let calls = 0;
+    const store = {
+      get() { throw new Error("cache unavailable"); },
+      set() {},
+      delete() {},
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const result = await api.get<{ call: number }>("/cache/read-bypass")
+      .cache("1m", { store, storeFailure: "bypass" });
+
+    expect(result.data.call).toBe(1);
+    expect(calls).toBe(1);
+  });
+
+  it("keeps the origin response when a bypassed CacheStore write fails", async () => {
+    let calls = 0;
+    const store = {
+      get() { return undefined; },
+      set() { throw new Error("cache unavailable"); },
+      delete() {},
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const first = await api.get<{ call: number }>("/cache/write-bypass")
+      .cache("1m", { store, storeFailure: "bypass" });
+    const second = await api.get<{ call: number }>("/cache/write-bypass")
+      .cache("1m", { store, storeFailure: "bypass" });
+
+    expect([first.data.call, second.data.call]).toEqual([1, 2]);
+  });
+
+  it("treats expired-entry cleanup failures as a miss in bypass mode", async () => {
+    let calls = 0;
+    const store = {
+      get() {
+        return {
+          response: Response.json({ stale: true }),
+          expiresAt: Date.now() - 1,
+        };
+      },
+      set() {},
+      delete() { throw new Error("cache unavailable"); },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const result = await api.get<{ call: number }>("/cache/delete-bypass")
+      .cache("1m", { store, storeFailure: "bypass" });
+
+    expect(result.data.call).toBe(1);
+  });
+
+  it("rejects malformed Store entries in throw mode and bypasses them on request", async () => {
+    let calls = 0;
+    const store = {
+      get() {
+        return {
+          response: "not a Response",
+          expiresAt: Number.NaN,
+        } as any;
+      },
+      set() {},
+      delete() {},
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    await expect(api.get("/cache/malformed").cache("1m", { store }))
+      .rejects.toMatchObject({
+        code: "ERR_HTTP_FEATURE",
+        feature: "cache",
+        hook: "intercept",
+      });
+    const result = await api.get<{ call: number }>("/cache/malformed")
+      .cache("1m", { store, storeFailure: "bypass" });
+
+    expect(result.data.call).toBe(1);
   });
 
   it("bypasses credentialed requests", async () => {
@@ -259,6 +373,7 @@ describe("cache", () => {
     const store = {
       get() { return undefined; },
       set() { throw new Error("cache unavailable"); },
+      delete() {},
     };
     const api = lafetch.create({
       baseUrl: "https://api.example.com",

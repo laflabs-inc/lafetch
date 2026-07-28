@@ -28,6 +28,11 @@ describe("JavaScript public API configuration", () => {
       () => api.get("/users").retry(2, { backoff: { jitter: null } }),
       () => api.get("/users").retry(2, { maxRetryAfter: -1 }),
       () => api.get("/users").retry(2, { maxRetryAfter: "forever" }),
+      () => api.get("/users").cache("1m", { storeFailure: "ignore" }),
+      () => api.get("/users").cache("1m", { storeFailure: null }),
+      () => api.get("/users").cache("1m", {
+        store: { get() {}, set() {} },
+      }),
       () => api.get("/users").retry(-1),
       () => api.get("/users").retry(1.5),
       () => api.get("/users").maxResponseBytes(-1),
@@ -84,5 +89,8 @@ describe("JavaScript public API configuration", () => {
       expect(() => api.get("/resource").retry(1, { backoff: { jitter } })).not.toThrow();
     }
     expect(() => api.get("/resource").retry(1, { maxRetryAfter: "1m" })).not.toThrow();
+    for (const storeFailure of ["throw", "bypass"]) {
+      expect(() => api.get("/resource").cache("1m", { storeFailure })).not.toThrow();
+    }
   });
 });

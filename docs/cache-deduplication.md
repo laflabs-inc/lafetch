@@ -29,7 +29,9 @@ Key callback은 독립적으로 소비할 수 있는 `Request` clone을 받습�
 
 사용자 `CacheStore`를 여러 클라이언트에 전달하는 것은 명시적인 공유 선택입니다.
 
-`CacheStore`는 비동기 구현을 허용하며 `Response`와 절대 만료 시각을 저장합니다. 구현체는 서로 독립적으로 소비 가능한 Response를 반환해야 합니다. `MemoryCacheStore`는 `@laflabs/lafetch/cache`에서 가져오며 entry를 clone하고, 만료를 지연 정리하며, 제한된 LRU 방식으로 제거합니다.
+`CacheStore`는 비동기 구현을 허용하며 `Response`와 절대 만료 시각을 저장합니다. `get()`, `set()`, `delete()`가 모두 필요합니다. 구현체는 입력 Response와 각 읽기를 서로 독립적으로 소비할 수 있게 snapshot해야 합니다. 같은 key의 쓰기는 이전 entry를 대체하고 없는 key의 삭제도 성공해야 합니다.
+
+`MemoryCacheStore`는 `@laflabs/lafetch/cache`에서 가져오며 entry를 clone하고, 만료를 지연 정리하며, 제한된 LRU 방식으로 제거합니다. 외부 Store는 만료 entry를 자체 eviction하거나 원래 `expiresAt`과 함께 반환할 수 있습니다. Core가 `Response`와 유한한 `expiresAt`을 검증하고 현행 정책에서는 만료를 miss로 판정한 뒤 삭제합니다. Store 단계에서 stale entry 반환을 금지하지 않아 다음 revalidation 계약을 미리 막지 않습니다.
 
 Runtime별 Store는 다음 항목을 검증해야 합니다.
 
@@ -37,11 +39,26 @@ Runtime별 Store는 다음 항목을 검증해야 합니다.
 - 만료
 - 동시 읽기와 쓰기
 - 제한된 저장량 또는 외부 eviction
-- Store 실패가 HTTP 결과를 오염시키지 않는지 여부
+- Store 실패 모드와 origin 부하 정책
 
 내장 Cache는 Status 처리와 Buffered 크기 제한이 성공한 뒤 finalization에서만 entry를 commit합니다. Retry 대상, 거부, Abort, Timeout과 크기 초과 Response는 저장하지 않습니다.
 
-`@laflabs/lafetch/testing`의 `runCacheStoreConformance()`은 test framework와 독립적인 기본 적합성 검사를 제공합니다. Round trip, 독립 Response clone과 선택적 삭제를 검사하며 adapter 프로젝트가 결과를 자체 assertion으로 변환할 수 있습니다.
+Store 장애의 기본값은 `storeFailure: "throw"`입니다. 읽기·만료 삭제 실패는 `intercept`, 쓰기 실패는 `finalize`의 `HttpFeatureError`로 노출합니다. 이는 장애를 숨긴 채 모든 요청을 origin으로 보내는 Cache stampede를 기본 동작으로 만들지 않기 위한 선택입니다.
+
+Cache가 성공 조건이 아닌 서비스는 명시적으로 fail-open을 선택할 수 있습니다.
+
+```ts
+await api
+  .get("/catalog")
+  .cache("5m", {
+    store,
+    storeFailure: "bypass",
+  });
+```
+
+`"bypass"`에서는 Store 읽기·만료 정리 실패와 잘못된 entry를 miss로, 쓰기 실패를 skip으로 처리합니다. key callback, Transport, HTTP status, decoding과 validation 오류는 우회하지 않습니다. Store 오류가 Lafetch 결과에 남지 않으므로 adapter가 자체 logging과 metrics를 제공해야 합니다.
+
+`@laflabs/lafetch/testing`의 `runCacheStoreConformance()`은 test framework와 독립적인 적합성 검사를 제공합니다. Metadata·Body round trip, write/read isolation, overwrite, key isolation, 만료 연장 방지, 동시 읽기와 삭제를 검사하며 adapter 프로젝트가 결과를 자체 assertion으로 변환할 수 있습니다. 상세 결정은 [v0.4 CacheStore 신뢰성 RFC](rfcs/v0.4-cache-store-reliability.md)를 기준으로 합니다.
 
 ## Deduplication 소유권
 

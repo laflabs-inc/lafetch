@@ -8,7 +8,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 소스 버전은 `0.4.0-alpha.0`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.4.0-alpha.1`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -326,8 +326,8 @@ Lafetch는 [Apache License 2.0](LICENSE)에 따라 배포됩니다. 자세한 �
 
 ## 현재 상태
 
-현재 소스 후보는 `0.4.0-alpha.0`입니다. v0.3의 응답·Streaming 계약 위에 Reliability policy와 단일 logical lifecycle `.on(handler)`, `OPTIONS` named method를 추가하고 있습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
+현재 소스 후보는 `0.4.0-alpha.1`입니다. v0.3의 응답·Streaming 계약 위에 logical lifecycle, `OPTIONS`와 외부 CacheStore 신뢰성 계약을 추가했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
 
-현재 단계는 v0.4 Reliability policy와 Core API 격차 해소입니다. Cache Store 적합성, revalidation, 높은 동시성의 Deduplication, adaptive Retry와 기본 lifecycle 경계를 확정합니다.
+현재 단계는 v0.4 Reliability policy입니다. 다음으로 Cache invalidation·revalidation, 높은 동시성의 Deduplication과 adaptive Retry 경계를 확정합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. npm 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.
