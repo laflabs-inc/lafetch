@@ -9,6 +9,7 @@ import type {
   CacheDeclaration,
   CacheStoreFailureMode,
 } from "./cache-options.js";
+import { cacheInvalidationMetadata } from "./policy-metadata.js";
 import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 const keyState = Symbol("cache.key");
@@ -99,6 +100,11 @@ export function createCacheFeature(
   return {
     name: "cache",
     hooks: {
+      prepare({ metadata }) {
+        if (declaration.mode === "invalidate") {
+          metadata.set(cacheInvalidationMetadata, true);
+        }
+      },
       async intercept({ request, state }) {
         state.delete(keyState);
         state.delete(staleState);

@@ -3,6 +3,7 @@ import type { ClientPolicyScope } from "../core/config.js";
 import type { RequestFeature } from "../core/types.js";
 import { cancellationError } from "../core/signals.js";
 import type { DedupeDeclaration } from "./dedupe-options.js";
+import { cacheInvalidationMetadata } from "./policy-metadata.js";
 import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 interface SharedExecution {
@@ -50,7 +51,8 @@ export function createDedupeFeature(
   return {
     name: "dedupe",
     hooks: {
-      async intercept({ request, signal, state }) {
+      async intercept({ request, signal, state, metadata }) {
+        if (metadata.get(cacheInvalidationMetadata) === true) return;
         const isLeader = state.get(leaderState) === true;
         if ((configuredKey === undefined && !methods.has(request.method)) || hasSensitiveRequest(request)) {
           if (isLeader) {
