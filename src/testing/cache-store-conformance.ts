@@ -21,6 +21,19 @@ function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function isTypeError(error: unknown): boolean {
+  return error instanceof TypeError
+    || (typeof error === "object" && error !== null && "name" in error && error.name === "TypeError");
+}
+
+function trySetHeader(headers: Headers, name: string, value: string): void {
+  try {
+    headers.set(name, value);
+  } catch (error) {
+    if (!isTypeError(error)) throw error;
+  }
+}
+
 async function withCleanup(
   store: CacheStore,
   keys: readonly string[],
@@ -100,13 +113,23 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
         invariant(first && second, "get() did not return independently readable entries.");
         invariant(first.response !== second.response, "get() returned the same Response instance twice.");
         invariant(first.response.headers !== second.response.headers, "Response Header views were shared between reads.");
-        first.response.headers.set("X-Cache-Probe", "mutated");
-        invariant(await first.response.text() === "payload", "The first response clone was unreadable.");
-        invariant(await second.response.text() === "payload", "The second response clone was not isolated.");
+        const mutationHeader = "X-Lafetch-Conformance-Mutation";
+        const firstBefore = first.response.headers.get(mutationHeader);
+        const secondBefore = second.response.headers.get(mutationHeader);
+        invariant(firstBefore === secondBefore, "Response Header views did not start from the same snapshot.");
+        trySetHeader(first.response.headers, mutationHeader, "first");
         invariant(
-          second.response.headers.get("x-cache-probe") === "original",
+          second.response.headers.get(mutationHeader) === secondBefore,
           "Mutating one read changed another read's headers.",
         );
+        const firstAfter = first.response.headers.get(mutationHeader);
+        trySetHeader(second.response.headers, mutationHeader, "second");
+        invariant(
+          first.response.headers.get(mutationHeader) === firstAfter,
+          "Mutating one read changed another read's headers.",
+        );
+        invariant(await first.response.text() === "payload", "The first response clone was unreadable.");
+        invariant(await second.response.text() === "payload", "The second response clone was not isolated.");
       });
     }),
     check("key-and-overwrite", async () => {
