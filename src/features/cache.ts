@@ -13,6 +13,7 @@ import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
+const staleState = Symbol("cache.stale");
 
 function assertCacheEntry(entry: unknown): asserts entry is CacheEntry {
   const candidate = entry as Partial<CacheEntry> | null;
@@ -100,12 +101,40 @@ export function createCacheFeature(
     hooks: {
       async intercept({ request, state }) {
         state.delete(keyState);
+        state.delete(staleState);
         const bypass = (key === undefined && !methods.has(request.method)) || hasSensitiveRequest(request);
         state.set(bypassState, bypass);
         if (bypass) return;
         const resolvedKey = await resolveRequestKey(key, request);
         state.set(keyState, resolvedKey);
+        if (declaration.mode === "invalidate") {
+          await storeOperation(declaration.storeFailure, () => store.delete(resolvedKey));
+          return;
+        }
+        if (declaration.mode === "revalidate") {
+          const { readRevalidatingCache } = await import("./cache-revalidation.js");
+          const read = await readRevalidatingCache(
+            store,
+            resolvedKey,
+            now(),
+            request,
+            declaration.storeFailure,
+          );
+          if (read?.stale === undefined) return read?.response;
+          state.set(staleState, read.stale);
+          return;
+        }
         return await readStore(store, resolvedKey, now(), declaration.storeFailure);
+      },
+      async afterResponse({ response, source, state }) {
+        const stale = state.get(staleState);
+        if (
+          source === "feature:cache"
+          || response.status !== 304
+          || !(stale instanceof Response)
+        ) return;
+        const { mergeNotModifiedResponse } = await import("./cache-revalidation.js");
+        return mergeNotModifiedResponse(stale, response);
       },
       async finalize({ response, error, source, state }) {
         if (

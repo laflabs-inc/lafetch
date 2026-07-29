@@ -11,6 +11,7 @@ import {
 import type { RequestKey } from "./request-key.js";
 
 export type CacheStoreFailureMode = "throw" | "bypass";
+export type CacheMode = "invalidate" | "revalidate";
 
 export interface CacheOptions {
   readonly store?: CacheStore;
@@ -18,6 +19,7 @@ export interface CacheOptions {
   readonly methods?: readonly string[];
   readonly statuses?: readonly number[];
   readonly key?: RequestKey;
+  readonly mode?: CacheMode;
 }
 
 export interface CacheDeclaration {
@@ -27,6 +29,7 @@ export interface CacheDeclaration {
   readonly methods: readonly string[];
   readonly statuses: readonly number[];
   readonly key?: RequestKey;
+  readonly mode: CacheMode | undefined;
 }
 
 export const cacheFeatureDescriptor = Object.freeze<RequestFeature>({
@@ -45,6 +48,9 @@ export function snapshotCacheDeclaration(
   if (options.methods !== undefined) validateHttpMethods(options.methods, "cache.methods");
   if (options.statuses !== undefined) validateHttpStatuses(options.statuses, "cache.statuses");
   validateOptionalKey(options.key, "cache.key");
+  if (![undefined, "invalidate", "revalidate"].includes(options.mode)) {
+    throw new HttpConfigurationError("Invalid mode");
+  }
   const store = options.store;
   if (
     store !== undefined
@@ -78,5 +84,6 @@ export function snapshotCacheDeclaration(
     methods: Object.freeze([...(options.methods ?? ["GET", "HEAD"])]),
     statuses: Object.freeze([...(options.statuses ?? [200])]),
     ...(options.key !== undefined ? { key: options.key } : {}),
+    mode: options.mode,
   });
 }

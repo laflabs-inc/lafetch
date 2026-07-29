@@ -42,6 +42,97 @@ describe("cache", () => {
     expect(calls).toBe(1);
   });
 
+  it("invalidates the resolved key before dispatch and stores the replacement", async () => {
+    let calls = 0;
+    const store = new MemoryCacheStore();
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    expect((await api.get<{ call: number }>("/cache/invalidate").cache("1m", { store })).data.call).toBe(1);
+    expect((await api.get<{ call: number }>("/cache/invalidate").cache("1m", {
+      store,
+      mode: "invalidate",
+    })).data.call).toBe(2);
+    expect((await api.get<{ call: number }>("/cache/invalidate").cache("1m", { store })).data.call).toBe(2);
+    expect(calls).toBe(2);
+  });
+
+  it("conditionally revalidates a stale ETag response without sharing its Body", async () => {
+    let now = 1_000;
+    let calls = 0;
+    const store = new MemoryCacheStore(10, () => now);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport((request) => {
+        calls += 1;
+        if (request.headers.get("if-none-match") === "\"catalog-v1\"") {
+          return new Response(null, {
+            status: 304,
+            headers: { ETag: "\"catalog-v1\"", "X-Revalidated": "true" },
+          });
+        }
+        return Response.json(
+          { version: 1 },
+          { headers: { ETag: "\"catalog-v1\"", "Cache-Control": "max-age=1" } },
+        );
+      }),
+    });
+
+    await api.get("/cache/revalidate").cache("1s", { store, mode: "revalidate" });
+    now += 1_001;
+    const first = await api.get<{ version: number }>("/cache/revalidate")
+      .cache("1s", { store, mode: "revalidate" });
+    const second = await api.get<{ version: number }>("/cache/revalidate")
+      .cache("1s", { store, mode: "revalidate" });
+
+    expect(first.data).toEqual({ version: 1 });
+    expect(second.data).toEqual({ version: 1 });
+    expect(first.headers.get("x-revalidated")).toBe("true");
+    expect(calls).toBe(2);
+  });
+
+  it("uses Last-Modified when ETag is unavailable and deletes unvalidated stale entries", async () => {
+    let now = 10_000;
+    const seen: Array<string | null> = [];
+    const store = new MemoryCacheStore(10, () => now);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport((request) => {
+        seen.push(request.headers.get("if-modified-since"));
+        return new Response("value", {
+          headers: { "Last-Modified": "Wed, 29 Jul 2026 00:00:00 GMT" },
+        });
+      }),
+    });
+
+    await api.get("/cache/last-modified").cache("1ms", { store, mode: "revalidate" });
+    now += 2;
+    await api.get("/cache/last-modified").cache("1ms", { store, mode: "revalidate" });
+
+    expect(seen).toEqual([null, "Wed, 29 Jul 2026 00:00:00 GMT"]);
+
+    let deletes = 0;
+    const unvalidatedStore = {
+      get() {
+        return {
+          response: Response.json({ stale: true }),
+          expiresAt: now - 1,
+        };
+      },
+      set() {},
+      delete() { deletes += 1; },
+    };
+    await api.get("/cache/no-validator").cache("1m", {
+      store: unvalidatedStore,
+      mode: "revalidate",
+    });
+    expect(deletes).toBe(1);
+  });
+
   it("throws on CacheStore read failures by default", async () => {
     const transport = mockTransport(() => Response.json({ unused: true }));
     const store = {

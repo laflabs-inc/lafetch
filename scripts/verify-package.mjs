@@ -400,7 +400,7 @@ void inspectSnapshot;
     join(consumerDirectory, "node_modules", "@laflabs", "lafetch", "package.json"),
     "utf8",
   ));
-  if (installedPackage.version !== "0.4.0-alpha.1") {
+  if (installedPackage.version !== "0.4.0-alpha.2") {
     throw new Error(`Unexpected installed version: ${installedPackage.version}`);
   }
 } finally {

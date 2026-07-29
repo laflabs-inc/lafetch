@@ -109,6 +109,31 @@ describe("browser Fetch runtime", () => {
     expect(result.data.method).toBe("GET");
   });
 
+  it("runs application-cache invalidation in the browser", async () => {
+    let deletes = 0;
+    const entries = new Map<string, { response: Response; expiresAt: number }>();
+    const store = {
+      get(key: string) {
+        const entry = entries.get(key);
+        return entry && { ...entry, response: entry.response.clone() };
+      },
+      set(key: string, entry: { response: Response; expiresAt: number }) {
+        entries.set(key, { ...entry, response: entry.response.clone() });
+      },
+      delete(key: string) {
+        deletes += 1;
+        entries.delete(key);
+      },
+    };
+    const api = lafetch.create();
+    const url = `/__lafetch_fixture__/echo?key=${crypto.randomUUID()}`;
+
+    await api.get(url).cache("1m", { store });
+    await api.get(url).cache("1m", { store, mode: "invalidate" });
+
+    expect(deletes).toBe(1);
+  });
+
   it("maps browser AbortSignal cancellation", async () => {
     const controller = new AbortController();
     const request = lafetch.create().get("/__lafetch_fixture__/slow").signal(controller.signal);

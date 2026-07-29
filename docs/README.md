@@ -19,6 +19,7 @@
 | [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md) | Server-directed delay 상한과 adaptive Retry 경계 |
 | [v0.4 Core parity와 logical lifecycle RFC](rfcs/v0.4-core-parity.md) | 단일 `.on(handler)`, `LRequest`·`LResponse` lifecycle과 OPTIONS |
 | [v0.4 CacheStore 신뢰성 RFC](rfcs/v0.4-cache-store-reliability.md) | 외부 Store 적합성, 필수 삭제와 장애 모드 |
+| [v0.4 Cache invalidation·revalidation RFC](rfcs/v0.4-cache-invalidation-revalidation.md) | key 교체와 validator 기반 stale 갱신 |
 
 ## 계획과 평가
 

@@ -60,6 +60,26 @@ await api
 
 `@laflabs/lafetch/testing`의 `runCacheStoreConformance()`은 test framework와 독립적인 적합성 검사를 제공합니다. Metadata·Body round trip, write/read isolation, overwrite, key isolation, 만료 연장 방지, 동시 읽기와 삭제를 검사하며 adapter 프로젝트가 결과를 자체 assertion으로 변환할 수 있습니다. 상세 결정은 [v0.4 CacheStore 신뢰성 RFC](rfcs/v0.4-cache-store-reliability.md)를 기준으로 합니다.
 
+동일 key를 origin 결과로 교체할 때는 기존 `.cache()` 정책에서 invalidation mode를 선언합니다.
+
+```ts
+await api.get("/catalog").cache("5m", {
+  store,
+  mode: "invalidate",
+});
+```
+
+stale entry가 `ETag` 또는 `Last-Modified`를 제공할 때 조건부 요청을 사용하려면 revalidation mode를 명시합니다. 기본값은 기존 계약을 보존하는 `"default"`입니다.
+
+```ts
+await api.get("/catalog").cache("5m", {
+  store,
+  mode: "revalidate",
+});
+```
+
+`304 Not Modified`는 저장된 Body의 독립 clone과 갱신된 Header를 가진 정상 응답으로 변환됩니다. validator가 없는 stale entry는 삭제 후 miss가 됩니다. tag·prefix invalidation, stale-while-revalidate와 stale-if-error는 포함하지 않습니다. 상세 경계는 [v0.4 Cache invalidation·revalidation RFC](rfcs/v0.4-cache-invalidation-revalidation.md)를 따릅니다.
+
 ## Deduplication 소유권
 
 첫 번째 일치 요청이 leader이고 이후 요청은 follower입니다. Follower는 leader가 보관한 Response를 기다리지만 각자의 Abort와 Timeout signal을 유지합니다.

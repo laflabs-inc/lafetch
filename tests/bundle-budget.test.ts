@@ -11,6 +11,7 @@ const MAX_REPRESENTATIVE_MINIFIED_BYTES = 44 * 1_024;
 const MAX_REPRESENTATIVE_GZIP_BYTES = 14 * 1_024;
 const MAX_OPTIONAL_POLICY_MINIFIED_BYTES = 4 * 1_024;
 const MAX_OPTIONAL_POLICY_GZIP_BYTES = 2.5 * 1_024;
+const MAX_CACHE_MINIFIED_BYTES = 4.75 * 1_024;
 
 type SplitBuild = BuildResult<{ metafile: true; write: false }>;
 
@@ -110,10 +111,10 @@ describe("browser bundle budget", () => {
   });
 
   it.each([
-    ["Cache", "src/features/cache.ts"],
-    ["Deduplication", "src/features/dedupe.ts"],
-    ["Logical lifecycle", "src/core/logical-lifecycle.ts"],
-  ])("keeps the optional %s module inside its isolated budget", async (_name, entryPoint) => {
+    ["Cache", "src/features/cache.ts", MAX_CACHE_MINIFIED_BYTES],
+    ["Deduplication", "src/features/dedupe.ts", MAX_OPTIONAL_POLICY_MINIFIED_BYTES],
+    ["Logical lifecycle", "src/core/logical-lifecycle.ts", MAX_OPTIONAL_POLICY_MINIFIED_BYTES],
+  ])("keeps the optional %s module inside its isolated budget", async (_name, entryPoint, minifiedBudget) => {
     const result = await build({
       entryPoints: [entryPoint],
       bundle: true,
@@ -132,7 +133,7 @@ describe("browser bundle budget", () => {
     expect(entry).toBeDefined();
 
     const size = measureOutputs(result, staticClosure(result.metafile, entry!));
-    expect(size.minified).toBeLessThanOrEqual(MAX_OPTIONAL_POLICY_MINIFIED_BYTES);
+    expect(size.minified).toBeLessThanOrEqual(minifiedBudget);
     expect(size.gzip).toBeLessThanOrEqual(MAX_OPTIONAL_POLICY_GZIP_BYTES);
   });
 });

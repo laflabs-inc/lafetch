@@ -370,6 +370,7 @@ describe("LRequest", () => {
       () => (api.get("/x") as any).use(null),
       () => (api.get("/x") as any).cache("1m", null),
       () => (api.get("/x") as any).cache("1m", { storeFailure: "ignore" }),
+      () => (api.get("/x") as any).cache("1m", { mode: "refresh" }),
       () => (api.get("/x") as any).cache("1m", {
         store: { get() {}, set() {} },
       }),
