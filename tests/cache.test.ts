@@ -69,10 +69,16 @@ describe("cache", () => {
       transport: mockTransport((request) => {
         calls += 1;
         if (request.headers.get("if-none-match") === "\"catalog-v1\"") {
-          return new Response(null, {
+          const notModified = new Response(null, {
             status: 304,
             headers: { ETag: "\"catalog-v1\"", "X-Revalidated": "true" },
           });
+          Object.defineProperties(notModified, {
+            url: { value: "https://api.example.com/cache/revalidate" },
+            redirected: { value: true },
+            type: { value: "cors" },
+          });
+          return notModified;
         }
         return Response.json(
           { version: 1 },
@@ -91,6 +97,54 @@ describe("cache", () => {
     expect(first.data).toEqual({ version: 1 });
     expect(second.data).toEqual({ version: 1 });
     expect(first.headers.get("x-revalidated")).toBe("true");
+    expect(first.url).toBe("https://api.example.com/cache/revalidate");
+    expect(second.url).toBe("https://api.example.com/cache/revalidate");
+    expect(first.redirected).toBe(true);
+    expect(second.type).toBe("cors");
+    expect(calls).toBe(2);
+  });
+
+  it("does not let deduplication skip invalidation", async () => {
+    let calls = 0;
+    const memory = new MemoryCacheStore();
+    let delayReads = false;
+    let releaseRead!: () => void;
+    let readStarted!: () => void;
+    const readGate = new Promise<void>((resolve) => { releaseRead = resolve; });
+    const started = new Promise<void>((resolve) => { readStarted = resolve; });
+    const store = {
+      async get(key: string) {
+        const entry = memory.get(key);
+        if (delayReads) {
+          readStarted();
+          await readGate;
+        }
+        return entry;
+      },
+      set: memory.set.bind(memory),
+      delete: memory.delete.bind(memory),
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    await api.get("/cache/invalidate-dedupe").cache("1m", { store });
+    delayReads = true;
+    const ordinaryRequest = Promise.resolve(
+      api.get<{ call: number }>("/cache/invalidate-dedupe")
+        .cache("1m", { store })
+        .dedupe(),
+    );
+    await started;
+    const invalidated = await api.get<{ call: number }>("/cache/invalidate-dedupe")
+      .cache("1m", { store, mode: "invalidate" })
+      .dedupe();
+    releaseRead();
+    const ordinary = await ordinaryRequest;
+
+    expect(ordinary.data.call).toBe(1);
+    expect(invalidated.data.call).toBe(2);
     expect(calls).toBe(2);
   });
 

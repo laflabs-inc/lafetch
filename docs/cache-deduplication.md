@@ -69,6 +69,8 @@ await api.get("/catalog").cache("5m", {
 });
 ```
 
+Invalidation은 기존 in-flight leader를 따라가면 stale 값을 다시 저장할 수 있으므로 해당 logical request에서만 Dedupe 공유를 우회합니다. 일반 Cache·Dedupe 조합의 leader/follower 계약은 바뀌지 않습니다.
+
 stale entry가 `ETag` 또는 `Last-Modified`를 제공할 때 조건부 요청을 사용하려면 revalidation mode를 명시합니다. 기본값은 기존 계약을 보존하는 `"default"`입니다.
 
 ```ts

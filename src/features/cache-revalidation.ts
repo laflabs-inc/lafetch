@@ -6,6 +6,19 @@ export interface RevalidationRead {
   readonly stale?: Response;
 }
 
+function preserveResponseMetadata(response: Response, source: Response): Response {
+  for (const key of ["url", "redirected", "type"] as const) {
+    Object.defineProperty(response, key, { value: source[key] });
+  }
+  Object.defineProperty(response, "clone", {
+    value: () => preserveResponseMetadata(
+      Response.prototype.clone.call(response),
+      source,
+    ),
+  });
+  return response;
+}
+
 export async function readRevalidatingCache(
   store: CacheStore,
   key: string,
@@ -46,9 +59,10 @@ export function mergeNotModifiedResponse(stale: Response, response: Response): R
   for (const [name, value] of response.headers) {
     if (name.toLowerCase() !== "content-length") headers.set(name, value);
   }
-  return new Response(stale.body, {
+  const merged = new Response(stale.body, {
     status: stale.status,
     statusText: stale.statusText,
     headers,
   });
+  return preserveResponseMetadata(merged, response);
 }
