@@ -9,12 +9,14 @@ import type {
   CacheDeclaration,
   CacheStoreFailureMode,
 } from "./cache-options.js";
+import type { CacheGenerationRegistration } from "./cache-generation.js";
 import { cacheInvalidationMetadata } from "./policy-metadata.js";
 import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
 const staleState = Symbol("cache.stale");
+const generationState = Symbol("cache.generation");
 
 function assertCacheEntry(entry: unknown): asserts entry is CacheEntry {
   const candidate = entry as Partial<CacheEntry> | null;
@@ -113,6 +115,17 @@ export function createCacheFeature(
         if (bypass) return;
         const resolvedKey = await resolveRequestKey(key, request);
         state.set(keyState, resolvedKey);
+        let registration = state.get(generationState) as CacheGenerationRegistration | undefined;
+        if (registration?.key !== resolvedKey) {
+          registration?.release();
+          const { acquireCacheGeneration } = await import("./cache-generation.js");
+          registration = acquireCacheGeneration(
+            store,
+            resolvedKey,
+            declaration.mode === "invalidate",
+          );
+          state.set(generationState, registration);
+        }
         if (declaration.mode === "invalidate") {
           await storeOperation(declaration.storeFailure, () => store.delete(resolvedKey));
           return;
@@ -143,24 +156,30 @@ export function createCacheFeature(
         return mergeNotModifiedResponse(stale, response);
       },
       async finalize({ response, error, source, state }) {
-        if (
-          error !== undefined ||
-          response === undefined ||
-          state.get(bypassState) ||
-          source === "feature:cache" ||
-          !cacheableResponse(response, statuses)
-        ) return;
-        const key = state.get(keyState);
-        if (typeof key !== "string") return;
-        const effectiveTtlMs = responseTtl(response, declaration.ttlMs);
-        if (effectiveTtlMs <= 0) return;
-        await storeOperation(
-          declaration.storeFailure,
-          () => store.set(key, {
-            response: response.clone(),
-            expiresAt: now() + effectiveTtlMs,
-          }),
-        );
+        const registration = state.get(generationState) as CacheGenerationRegistration | undefined;
+        try {
+          if (
+            error !== undefined ||
+            response === undefined ||
+            state.get(bypassState) ||
+            source === "feature:cache" ||
+            !cacheableResponse(response, statuses)
+          ) return;
+          const key = state.get(keyState);
+          if (typeof key !== "string" || registration?.isCurrent() === false) return;
+          const effectiveTtlMs = responseTtl(response, declaration.ttlMs);
+          if (effectiveTtlMs <= 0) return;
+          await storeOperation(
+            declaration.storeFailure,
+            () => store.set(key, {
+              response: response.clone(),
+              expiresAt: now() + effectiveTtlMs,
+            }),
+          );
+        } finally {
+          registration?.release();
+          state.delete(generationState);
+        }
       },
     },
   };
