@@ -29,7 +29,11 @@ export class MemoryCacheStore implements CacheStore {
   get(key: string): CacheEntry | undefined {
     const entry = this.#entries.get(key);
     if (!entry) return undefined;
-    if (entry.expiresAt <= this.now()) {
+    if (
+      entry.expiresAt <= this.now()
+      && !entry.response.headers.has("etag")
+      && !entry.response.headers.has("last-modified")
+    ) {
       this.#entries.delete(key);
       return undefined;
     }

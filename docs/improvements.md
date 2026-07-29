@@ -4,7 +4,7 @@
 
 비교 대상:
 
-- `@laflabs/lafetch@0.4.0-alpha.1`
+- `@laflabs/lafetch@0.4.0-alpha.2`
 - `axios@1.18.1`
 - `ky@2.0.2`
 
