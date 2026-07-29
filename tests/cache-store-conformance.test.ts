@@ -130,5 +130,4 @@ describe("CacheStore conformance", () => {
         }),
       });
   });
-
 });
