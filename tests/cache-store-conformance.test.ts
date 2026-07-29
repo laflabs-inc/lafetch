@@ -77,4 +77,58 @@ describe("CacheStore conformance", () => {
         }),
       });
   });
+
+  it("accepts native immutable Header views as isolated reads", async () => {
+    const results = await runCacheStoreConformance(() => ({
+      async get(key: string) {
+        if (!key.endsWith(":read-isolation")) return;
+        return {
+          expiresAt: Date.now() + 60_000,
+          response: await fetch("data:text/plain,payload"),
+        };
+      },
+      set() {},
+      delete() {},
+    }));
+
+    expect(results.find((result) => result.name === "read-isolation"))
+      .toMatchObject({ passed: true });
+  });
+
+  it("still rejects observably shared mutable Header state", async () => {
+    const shared = new Headers();
+    class SharedHeaderResponse extends Response {
+      override get headers(): Headers {
+        return {
+          get(name: string) {
+            return shared.get(name);
+          },
+          set(name: string, value: string) {
+            shared.set(name, value);
+          },
+        } as Headers;
+      }
+    }
+
+    const results = await runCacheStoreConformance(() => ({
+      get(key: string) {
+        if (!key.endsWith(":read-isolation")) return;
+        return {
+          expiresAt: Date.now() + 60_000,
+          response: new SharedHeaderResponse("payload"),
+        };
+      },
+      set() {},
+      delete() {},
+    }));
+
+    expect(results.find((result) => result.name === "read-isolation"))
+      .toMatchObject({
+        passed: false,
+        error: expect.objectContaining({
+          message: "Mutating one read changed another read's headers.",
+        }),
+      });
+  });
+
 });
