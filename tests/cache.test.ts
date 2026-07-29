@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryCacheStore } from "../src/cache.js";
+import { MemoryCacheStore, type CacheStore } from "../src/cache.js";
 import { lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
@@ -182,6 +182,58 @@ describe("cache", () => {
 
     expect(older.data.call).toBe(1);
     expect(invalidated.data.call).toBe(2);
+    expect(cached.data.call).toBe(2);
+    expect(calls).toBe(2);
+  });
+
+  it("serializes invalidation after an older pending cache write", async () => {
+    let calls = 0;
+    let releaseSet!: () => void;
+    let setStarted!: () => void;
+    const setGate = new Promise<void>((resolve) => { releaseSet = resolve; });
+    const started = new Promise<void>((resolve) => { setStarted = resolve; });
+    let keyCalls = 0;
+    let invalidationKeyResolved!: () => void;
+    const keyResolved = new Promise<void>((resolve) => { invalidationKeyResolved = resolve; });
+    const key = () => {
+      if (++keyCalls === 2) invalidationKeyResolved();
+      return "pending-write";
+    };
+    const backing = new MemoryCacheStore();
+    let blockFirstSet = true;
+    const store: CacheStore = {
+      get: (key) => backing.get(key),
+      delete: (key) => backing.delete(key),
+      async set(key, entry) {
+        if (blockFirstSet) {
+          blockFirstSet = false;
+          setStarted();
+          await setGate;
+        }
+        await backing.set(key, entry);
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const older = Promise.resolve(
+      api.get<{ call: number }>("/cache/pending-write").cache("1m", { store, key }),
+    );
+    await started;
+    const invalidated = Promise.resolve(
+      api.get<{ call: number }>("/cache/pending-write")
+        .cache("1m", { store, key, mode: "invalidate" }),
+    );
+    await keyResolved;
+    await Promise.resolve();
+    releaseSet();
+
+    expect((await older).data.call).toBe(1);
+    expect((await invalidated).data.call).toBe(2);
+    const cached = await api.get<{ call: number }>("/cache/pending-write")
+      .cache("1m", { store, key });
     expect(cached.data.call).toBe(2);
     expect(calls).toBe(2);
   });

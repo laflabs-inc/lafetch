@@ -71,7 +71,7 @@ await api.get("/catalog").cache("5m", {
 
 Invalidation은 기존 in-flight leader를 따라가면 stale 값을 다시 저장할 수 있으므로 해당 logical request에서만 Dedupe 공유를 우회합니다. 일반 Cache·Dedupe 조합의 leader/follower 계약은 바뀌지 않습니다.
 
-Store·key generation guard는 invalidation보다 먼저 시작한 origin 요청이 나중에 완료되어 새 값을 덮어쓰는 것을 막습니다. 활성 요청이 모두 finalize되면 generation record도 제거됩니다.
+Store·key generation guard는 invalidation보다 먼저 시작한 origin 요청이 나중에 완료되어 새 값을 덮어쓰는 것을 막습니다. 동일 경계의 Cache write와 invalidation delete는 직렬화되어 이미 진행 중인 write도 delete보다 먼저 끝납니다. 활성 요청이 모두 finalize되면 generation record도 제거됩니다.
 
 stale entry가 `ETag` 또는 `Last-Modified`를 제공할 때 조건부 요청을 사용하려면 revalidation mode를 명시합니다. 기본값은 기존 계약을 보존하는 `"default"`입니다.
 
