@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 
 // Hard alpha regression ceiling, not the expected output size. Intentional
 // public API growth must still record a measured baseline in the runtime docs.
-const MAX_MINIFIED_BYTES = 52 * 1_024;
+const MAX_MINIFIED_BYTES = 52.75 * 1_024;
 const MAX_GZIP_BYTES = 17 * 1_024;
 const MAX_REPRESENTATIVE_MINIFIED_BYTES = 44 * 1_024;
 const MAX_REPRESENTATIVE_GZIP_BYTES = 14 * 1_024;
 const MAX_OPTIONAL_POLICY_MINIFIED_BYTES = 4 * 1_024;
 const MAX_OPTIONAL_POLICY_GZIP_BYTES = 2.5 * 1_024;
-const MAX_CACHE_MINIFIED_BYTES = 4.75 * 1_024;
+const MAX_CACHE_MINIFIED_BYTES = 5 * 1_024;
 
 type SplitBuild = BuildResult<{ metafile: true; write: false }>;
 

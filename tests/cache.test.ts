@@ -148,6 +148,44 @@ describe("cache", () => {
     expect(calls).toBe(2);
   });
 
+  it("prevents an older leader from overwriting a completed invalidation", async () => {
+    let calls = 0;
+    let releaseOrigin!: () => void;
+    let originStarted!: () => void;
+    const originGate = new Promise<void>((resolve) => { releaseOrigin = resolve; });
+    const started = new Promise<void>((resolve) => { originStarted = resolve; });
+    const store = new MemoryCacheStore();
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async () => {
+        const call = ++calls;
+        if (call === 1) {
+          originStarted();
+          await originGate;
+        }
+        return Response.json({ call });
+      }),
+    });
+
+    const olderLeader = Promise.resolve(
+      api.get<{ call: number }>("/cache/generation")
+        .cache("1m", { store })
+        .dedupe(),
+    );
+    await started;
+    const invalidated = await api.get<{ call: number }>("/cache/generation")
+      .cache("1m", { store, mode: "invalidate" })
+      .dedupe();
+    releaseOrigin();
+    const older = await olderLeader;
+    const cached = await api.get<{ call: number }>("/cache/generation").cache("1m", { store });
+
+    expect(older.data.call).toBe(1);
+    expect(invalidated.data.call).toBe(2);
+    expect(cached.data.call).toBe(2);
+    expect(calls).toBe(2);
+  });
+
   it("uses Last-Modified when ETag is unavailable and deletes unvalidated stale entries", async () => {
     let now = 10_000;
     const seen: Array<string | null> = [];
