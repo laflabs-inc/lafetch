@@ -238,6 +238,64 @@ describe("cache", () => {
     expect(calls).toBe(2);
   });
 
+  it("continues queued invalidation after an older cache write rejects", async () => {
+    let calls = 0;
+    let rejectSet!: () => void;
+    let setStarted!: () => void;
+    const setGate = new Promise<void>((_resolve, reject) => {
+      rejectSet = () => reject(new Error("cache write failed"));
+    });
+    const started = new Promise<void>((resolve) => { setStarted = resolve; });
+    let keyCalls = 0;
+    let invalidationKeyResolved!: () => void;
+    const keyResolved = new Promise<void>((resolve) => { invalidationKeyResolved = resolve; });
+    const key = () => {
+      if (++keyCalls === 2) invalidationKeyResolved();
+      return "rejected-write";
+    };
+    const backing = new MemoryCacheStore();
+    let rejectFirstSet = true;
+    const store: CacheStore = {
+      get: (key) => backing.get(key),
+      delete: (key) => backing.delete(key),
+      async set(key, entry) {
+        if (rejectFirstSet) {
+          rejectFirstSet = false;
+          setStarted();
+          await setGate;
+        }
+        await backing.set(key, entry);
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const older = Promise.resolve(
+      api.get("/cache/rejected-write").cache("1m", { store, key }),
+    );
+    await started;
+    const invalidated = Promise.resolve(
+      api.get<{ call: number }>("/cache/rejected-write")
+        .cache("1m", { store, key, mode: "invalidate" }),
+    );
+    await keyResolved;
+    await Promise.resolve();
+    rejectSet();
+
+    await expect(older).rejects.toMatchObject({
+      code: "ERR_HTTP_FEATURE",
+      feature: "cache",
+      hook: "finalize",
+    });
+    expect((await invalidated).data.call).toBe(2);
+    const cached = await api.get<{ call: number }>("/cache/rejected-write")
+      .cache("1m", { store, key });
+    expect(cached.data.call).toBe(2);
+    expect(calls).toBe(2);
+  });
+
   it("uses Last-Modified when ETag is unavailable and deletes unvalidated stale entries", async () => {
     let now = 10_000;
     const seen: Array<string | null> = [];
