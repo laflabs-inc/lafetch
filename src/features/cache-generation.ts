@@ -8,7 +8,7 @@ interface GenerationRecord {
 
 export interface CacheGenerationRegistration {
   readonly key: string;
-  commit(operation: () => void | Promise<void>): Promise<void>;
+  commit(operation: () => unknown): Promise<void>;
   release(): void;
 }
 

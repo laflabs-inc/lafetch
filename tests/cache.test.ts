@@ -238,6 +238,71 @@ describe("cache", () => {
     expect(calls).toBe(2);
   });
 
+  it("does not extend response freshness while a cache write waits in the commit queue", async () => {
+    let now = 0;
+    let calls = 0;
+    let setCalls = 0;
+    let releaseFirstSet!: () => void;
+    let firstSetStarted!: () => void;
+    const firstSetGate = new Promise<void>((resolve) => { releaseFirstSet = resolve; });
+    const setStarted = new Promise<void>((resolve) => { firstSetStarted = resolve; });
+    const entries = new Map<string, { response: Response; expiresAt: number }>();
+    let finalizations = 0;
+    const advanceQueueClock = {
+      name: "advance-queue-clock",
+      hooks: {
+        finalize() {
+          if (++finalizations !== 2) return;
+          setTimeout(() => {
+            now = 20;
+            releaseFirstSet();
+          }, 0);
+        },
+      },
+    };
+    const store: CacheStore = {
+      get(key) {
+        const entry = entries.get(key);
+        return entry && {
+          response: entry.response.clone(),
+          expiresAt: entry.expiresAt,
+        };
+      },
+      async set(key, entry) {
+        setCalls += 1;
+        if (setCalls === 1) {
+          firstSetStarted();
+          await firstSetGate;
+        }
+        entries.set(key, {
+          response: entry.response.clone(),
+          expiresAt: entry.expiresAt,
+        });
+      },
+      delete(key) {
+        entries.delete(key);
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const first = Promise.resolve(
+      api.get("/cache/queued-expiry").cache("10ms", { store }).use(advanceQueueClock),
+    );
+    await setStarted;
+    const second = Promise.resolve(
+      api.get("/cache/queued-expiry").cache("10ms", { store }).use(advanceQueueClock),
+    );
+    await Promise.all([first, second]);
+
+    expect(setCalls).toBe(1);
+    expect([...entries.values()].map((entry) => entry.expiresAt)).toEqual([10]);
+    expect(calls).toBe(2);
+  });
+
   it("continues queued invalidation after an older cache write rejects", async () => {
     let calls = 0;
     let rejectSet!: () => void;
