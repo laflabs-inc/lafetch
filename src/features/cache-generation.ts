@@ -3,11 +3,12 @@ import type { CacheStore } from "../core/cache-store.js";
 interface GenerationRecord {
   current: object;
   active: number;
+  tail: Promise<void>;
 }
 
 export interface CacheGenerationRegistration {
   readonly key: string;
-  isCurrent(): boolean;
+  commit(operation: () => void | Promise<void>): Promise<void>;
   release(): void;
 }
 
@@ -25,7 +26,7 @@ export function acquireCacheGeneration(
   }
   let record = records.get(key);
   if (record === undefined) {
-    record = { current: {}, active: 0 };
+    record = { current: {}, active: 0, tail: Promise.resolve() };
     records.set(key, record);
   }
   if (invalidate) record.current = {};
@@ -35,7 +36,14 @@ export function acquireCacheGeneration(
 
   return {
     key,
-    isCurrent: () => record!.current === generation,
+    commit(operation) {
+      const committed = record!.tail.then(async () => {
+        if (record!.current !== generation) return;
+        await operation();
+      });
+      record!.tail = committed.catch(() => {});
+      return committed;
+    },
     release() {
       if (released) return;
       released = true;

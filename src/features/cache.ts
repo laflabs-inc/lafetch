@@ -127,7 +127,9 @@ export function createCacheFeature(
           state.set(generationState, registration);
         }
         if (declaration.mode === "invalidate") {
-          await storeOperation(declaration.storeFailure, () => store.delete(resolvedKey));
+          await registration.commit(() =>
+            storeOperation(declaration.storeFailure, () => store.delete(resolvedKey))
+          );
           return;
         }
         if (declaration.mode === "revalidate") {
@@ -166,15 +168,17 @@ export function createCacheFeature(
             !cacheableResponse(response, statuses)
           ) return;
           const key = state.get(keyState);
-          if (typeof key !== "string" || registration?.isCurrent() === false) return;
+          if (typeof key !== "string" || registration === undefined) return;
           const effectiveTtlMs = responseTtl(response, declaration.ttlMs);
           if (effectiveTtlMs <= 0) return;
-          await storeOperation(
-            declaration.storeFailure,
-            () => store.set(key, {
-              response: response.clone(),
-              expiresAt: now() + effectiveTtlMs,
-            }),
+          await registration.commit(() =>
+            storeOperation(
+              declaration.storeFailure,
+              () => store.set(key, {
+                response: response.clone(),
+                expiresAt: now() + effectiveTtlMs,
+              }),
+            )
           );
         } finally {
           registration?.release();
