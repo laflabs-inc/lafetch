@@ -56,6 +56,7 @@ export async function readRevalidatingCache(
 
 export function mergeNotModifiedResponse(stale: Response, response: Response): Response {
   const headers = new Headers(stale.headers);
+  headers.delete("age");
   for (const [name, value] of response.headers) {
     if (name.toLowerCase() !== "content-length") headers.set(name, value);
   }

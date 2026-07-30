@@ -678,6 +678,247 @@ describe("cache", () => {
     expect((await api.get<{ call: number }>("/cache/server-policy").cache("1m")).data.call).toBe(2);
   });
 
+  it.each([
+    {
+      name: "ignores Age without max-age",
+      cacheControl: undefined,
+      age: "999",
+      expectedTtlMs: 10_000,
+    },
+    {
+      name: "keeps the configured TTL as an upper bound",
+      cacheControl: "public, max-age=20",
+      age: "5",
+      expectedTtlMs: 10_000,
+    },
+    {
+      name: "subtracts Age from a compatible quoted max-age",
+      cacheControl: "max-age=\"8\"",
+      age: "3",
+      expectedTtlMs: 5_000,
+    },
+    {
+      name: "uses the first list member of Age",
+      cacheControl: "max-age=8",
+      age: "3, 7",
+      expectedTtlMs: 5_000,
+    },
+    {
+      name: "ignores an invalid first Age member",
+      cacheControl: "max-age=8",
+      age: "invalid, 7",
+      expectedTtlMs: 8_000,
+    },
+    {
+      name: "saturates an overflowing max-age before applying the TTL bound",
+      cacheControl: `max-age=${"9".repeat(400)}`,
+      age: "0",
+      expectedTtlMs: 10_000,
+    },
+  ])("$name", async ({ cacheControl, age, expectedTtlMs }) => {
+    const now = 1_000;
+    let expiresAt: number | undefined;
+    const store: CacheStore = {
+      get() { return undefined; },
+      set(_key, entry) { expiresAt = entry.expiresAt; },
+      delete() {},
+    };
+    const headers = new Headers({ Age: age });
+    if (cacheControl !== undefined) headers.set("Cache-Control", cacheControl);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport(() => new Response("value", { headers })),
+    });
+
+    await api.get("/cache/freshness").cache("10s", { store });
+
+    expect(expiresAt).toBe(now + expectedTtlMs);
+  });
+
+  it.each([
+    "max-age",
+    "max-age=1.5",
+    "max-age=\"10",
+    "max-age=10, max-age=20",
+  ])("treats invalid freshness information as stale: %s", async (cacheControl) => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json(
+        { call: ++calls },
+        { headers: { "Cache-Control": cacheControl } },
+      )),
+    });
+
+    await api.get("/cache/invalid-freshness").cache("1m");
+    await api.get("/cache/invalid-freshness").cache("1m");
+
+    expect(calls).toBe(2);
+  });
+
+  it.each([
+    "no-store, max-age=60",
+    "max-age=60, no-cache",
+    "public, private, max-age=60",
+  ])("honors the most restrictive Cache-Control directive: %s", async (cacheControl) => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json(
+        { call: ++calls },
+        { headers: { "Cache-Control": cacheControl } },
+      )),
+    });
+
+    await api.get("/cache/restricted").cache("1m");
+    await api.get("/cache/restricted").cache("1m");
+
+    expect(calls).toBe(2);
+  });
+
+  it("does not extend freshness during later response processing", async () => {
+    let now = 1_000;
+    let writes = 0;
+    const store: CacheStore = {
+      get() { return undefined; },
+      set() { writes += 1; },
+      delete() {},
+    };
+    const advanceClock = {
+      name: "advance-response-clock",
+      hooks: {
+        afterResponse() {
+          now = 5_000;
+        },
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport(() => new Response("value", {
+        headers: { "Cache-Control": "max-age=3" },
+      })),
+    });
+
+    await api.get("/cache/response-delay")
+      .cache("10s", { store })
+      .use(advanceClock);
+
+    expect(writes).toBe(0);
+  });
+
+  it("resets an inherited Age after a successful 304 without a new Age value", async () => {
+    let now = 0;
+    let calls = 0;
+    const store = new MemoryCacheStore(10, () => now);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport((request) => {
+        calls += 1;
+        if (request.headers.has("if-none-match")) {
+          return new Response(null, {
+            status: 304,
+            headers: { ETag: "\"age-v1\"" },
+          });
+        }
+        return new Response("value", {
+          headers: {
+            Age: "9",
+            "Cache-Control": "max-age=10",
+            ETag: "\"age-v1\"",
+          },
+        });
+      }),
+    });
+
+    await api.get("/cache/revalidated-age").cache("1m", { store, mode: "revalidate" });
+    now = 1_001;
+    await api.get("/cache/revalidated-age").cache("1m", { store, mode: "revalidate" });
+    now += 2_000;
+    const cached = await api.get("/cache/revalidated-age").cache("1m", {
+      store,
+      mode: "revalidate",
+    });
+
+    expect(cached.headers.get("age")).toBeNull();
+    expect(calls).toBe(2);
+  });
+
+  it("removes a stale validator when revalidation becomes uncacheable", async () => {
+    let now = 0;
+    let calls = 0;
+    const validators: Array<string | null> = [];
+    const store = new MemoryCacheStore(10, () => now);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport((request) => {
+        validators.push(request.headers.get("if-none-match"));
+        calls += 1;
+        if (calls === 1) {
+          return new Response("old", {
+            headers: {
+              "Cache-Control": "max-age=1",
+              ETag: "\"old\"",
+            },
+          });
+        }
+        return new Response("new", {
+          headers: { "Cache-Control": "no-store" },
+        });
+      }),
+    });
+
+    await api.get("/cache/revalidation-no-store").cache("1m", { store, mode: "revalidate" });
+    now = 1_001;
+    await api.get("/cache/revalidation-no-store").cache("1m", { store, mode: "revalidate" });
+    await api.get("/cache/revalidation-no-store").cache("1m", { store, mode: "revalidate" });
+
+    expect(validators).toEqual([null, "\"old\"", null]);
+  });
+
+  it("applies storeFailure when uncacheable revalidation cleans up stale data", async () => {
+    for (const storeFailure of ["throw", "bypass"] as const) {
+      const store: CacheStore = {
+        get() {
+          return {
+            response: Response.json(
+              { value: "old" },
+              { headers: { ETag: "\"old\"" } },
+            ),
+            expiresAt: 0,
+          };
+        },
+        set() {},
+        delete() { throw new Error("cache cleanup failed"); },
+      };
+      const api = lafetch.create({
+        baseUrl: "https://api.example.com",
+        transport: mockTransport(() => Response.json(
+          { value: "new" },
+          { headers: { "Cache-Control": "no-store" } },
+        )),
+      });
+      const request = Promise.resolve(
+        api.get<{ value: string }>("/cache/revalidation-cleanup")
+          .cache("1m", { store, storeFailure, mode: "revalidate" }),
+      );
+
+      if (storeFailure === "throw") {
+        await expect(request).rejects.toMatchObject({
+          code: "ERR_HTTP_FEATURE",
+          feature: "cache",
+          hook: "finalize",
+          cause: expect.objectContaining({ message: "cache cleanup failed" }),
+        });
+      } else {
+        await expect(request).resolves.toHaveProperty("data", { value: "new" });
+      }
+    }
+  });
+
   it("does not store a response that fails the buffer limit", async () => {
     let calls = 0;
     const api = lafetch.create({
