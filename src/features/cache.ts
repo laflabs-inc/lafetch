@@ -42,13 +42,13 @@ async function storeOperation<T>(
   }
 }
 
-async function readStore(
+function readStore(
   store: CacheStore,
   key: string,
   now: number,
   failureMode: CacheStoreFailureMode,
 ): Promise<Response | undefined> {
-  return await storeOperation(failureMode, async () => {
+  return storeOperation(failureMode, async () => {
     const entry = await store.get(key);
     if (entry === undefined) return;
     assertCacheEntry(entry);
@@ -169,16 +169,17 @@ export function createCacheFeature(
           ) return;
           const key = state.get(keyState);
           if (typeof key !== "string" || registration === undefined) return;
-          const effectiveTtlMs = responseTtl(response, declaration.ttlMs);
-          if (effectiveTtlMs <= 0) return;
+          let expiresAt = responseTtl(response, declaration.ttlMs);
+          if (expiresAt <= 0) return;
+          expiresAt += now();
           await registration.commit(() =>
-            storeOperation(
-              declaration.storeFailure,
-              () => store.set(key, {
-                response: response.clone(),
-                expiresAt: now() + effectiveTtlMs,
-              }),
-            )
+            expiresAt > now() && storeOperation(
+                declaration.storeFailure,
+                () => store.set(key, {
+                  response: response.clone(),
+                  expiresAt,
+                }),
+              )
           );
         } finally {
           registration?.release();
