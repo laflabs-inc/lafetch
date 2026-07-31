@@ -17,6 +17,7 @@ const keyState = Symbol("cache.key");
 const bypassState = Symbol("cache.bypass");
 const staleState = Symbol("cache.stale");
 const generationState = Symbol("cache.generation");
+const responseTimeState = Symbol();
 
 function assertCacheEntry(entry: unknown): asserts entry is CacheEntry {
   const candidate = entry as Partial<CacheEntry> | null;
@@ -60,24 +61,26 @@ function readStore(
   });
 }
 
-function cacheableResponse(response: Response, statuses: ReadonlySet<number>): boolean {
-  if (!statuses.has(response.status) || response.headers.has("set-cookie")) return false;
-  const control = response.headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/\b(?:no-cache|no-store|private)\b/.test(control)) return false;
-  const vary = response.headers.get("vary");
-  return !vary || vary.trim() === "";
-}
-
-function responseTtl(response: Response, configuredTtlMs: number): number {
+function responseTtl(
+  response: Response,
+  statuses: ReadonlySet<number>,
+  configuredTtlMs: number,
+): number | undefined {
+  if (!statuses.has(response.status) || response.headers.has("set-cookie")) return;
   const control = response.headers.get("cache-control") ?? "";
-  const match = /(?:^|,)\s*max-age\s*=\s*"?(\d+)"?/i.exec(control);
-  if (!match) return /(?:^|,)\s*max-age\s*=/i.test(control) ? 0 : configuredTtlMs;
-  const maxAgeSeconds = Number(match[1]);
-  if (!Number.isFinite(maxAgeSeconds)) return 0;
-  const parsedAge = Number(response.headers.get("age") ?? 0);
-  const ageMs = Number.isFinite(parsedAge) && parsedAge > 0 ? parsedAge * 1_000 : 0;
-  const maxAgeMs = maxAgeSeconds * 1_000;
-  return Math.max(0, Math.min(configuredTtlMs, maxAgeMs - ageMs));
+  if (/\b(?:no-cache|no-store|private)\b/i.test(control)) return;
+  if (response.headers.get("vary")?.trim()) return;
+  const maxAges = control.match(/(?:^|,)\s*max-age(?=\s*(?:=|$))[^,]*/gi);
+  if (!maxAges) return configuredTtlMs;
+  if (maxAges.length > 1) return 0;
+  const match = /(?:^|,)\s*max-age\s*=\s*(?:"(\d+)"|(\d+))\s*$/i.exec(maxAges[0]!);
+  if (!match) return 0;
+  const age = /^\s*(\d+)\s*(?:,|$)/.exec(response.headers.get("age") ?? "")?.[1] ?? "0";
+  const maxAgeSeconds = +(match[1] ?? match[2]!);
+  const ageSeconds = +age;
+  return maxAgeSeconds <= ageSeconds
+    ? 0
+    : Math.min(configuredTtlMs, (maxAgeSeconds - ageSeconds) * 1_000);
 }
 
 interface CacheRuntime {
@@ -148,12 +151,10 @@ export function createCacheFeature(
         return await readStore(store, resolvedKey, now(), declaration.storeFailure);
       },
       async afterResponse({ response, source, state }) {
+        if (source === "feature:cache") return;
         const stale = state.get(staleState);
-        if (
-          source === "feature:cache"
-          || response.status !== 304
-          || !(stale instanceof Response)
-        ) return;
+        state.set(responseTimeState, now());
+        if (response.status !== 304 || !(stale instanceof Response)) return;
         const { mergeNotModifiedResponse } = await import("./cache-revalidation.js");
         return mergeNotModifiedResponse(stale, response);
       },
@@ -164,14 +165,21 @@ export function createCacheFeature(
             error !== undefined ||
             response === undefined ||
             state.get(bypassState) ||
-            source === "feature:cache" ||
-            !cacheableResponse(response, statuses)
+            source === "feature:cache"
           ) return;
           const key = state.get(keyState);
           if (typeof key !== "string" || registration === undefined) return;
-          let expiresAt = responseTtl(response, declaration.ttlMs);
-          if (expiresAt <= 0) return;
-          expiresAt += now();
+          const ttl = responseTtl(response, statuses, declaration.ttlMs);
+          if (ttl === undefined) {
+            if (state.get(staleState) instanceof Response) {
+              await registration.commit(() =>
+                storeOperation(declaration.storeFailure, () => store.delete(key))
+              );
+            }
+            return;
+          }
+          if (ttl <= 0) return;
+          const expiresAt = ttl + (state.get(responseTimeState) as number);
           await registration.commit(() =>
             expiresAt > now() && storeOperation(
                 declaration.storeFailure,
