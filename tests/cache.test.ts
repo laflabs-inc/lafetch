@@ -715,6 +715,24 @@ describe("cache", () => {
       age: "0",
       expectedTtlMs: 10_000,
     },
+    {
+      name: "preserves integer precision while subtracting Age",
+      cacheControl: "max-age=9007199254740994",
+      age: "9007199254740993",
+      expectedTtlMs: 1_000,
+    },
+    {
+      name: "ignores max-age text inside a quoted extension",
+      cacheControl: 'foo="a,max-age=60"',
+      age: "0",
+      expectedTtlMs: 10_000,
+    },
+    {
+      name: "parses a real max-age after a quoted extension",
+      cacheControl: 'foo="a,max-age=60", max-age=8',
+      age: "3",
+      expectedTtlMs: 5_000,
+    },
   ])("$name", async ({ cacheControl, age, expectedTtlMs }) => {
     const now = 1_000;
     let expiresAt: number | undefined;
@@ -775,6 +793,25 @@ describe("cache", () => {
     await api.get("/cache/restricted").cache("1m");
 
     expect(calls).toBe(2);
+  });
+
+  it.each([
+    'foo="no-store,private"',
+    'foo="no-cache"',
+  ])("does not treat quoted extension text as a restrictive directive: %s", async (cacheControl) => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json(
+        { call: ++calls },
+        { headers: { "Cache-Control": cacheControl } },
+      )),
+    });
+
+    await api.get("/cache/quoted-extension").cache("1m");
+    await api.get("/cache/quoted-extension").cache("1m");
+
+    expect(calls).toBe(1);
   });
 
   it("does not extend freshness during later response processing", async () => {

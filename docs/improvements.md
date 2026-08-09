@@ -76,7 +76,7 @@ Ky       20,608 bytes minified /  7,370 bytes gzip
 - 대표 JSON 요청의 정적 graph에서 Cache, Deduplication, `MemoryCacheStore`와 logical lifecycle dispatcher 구현을 제거했습니다. 선언과 공개 interface는 core에 남지만 실제 hook은 사용 시 별도 ESM chunk를 불러옵니다.
 - 모든 공개 API와 optional module을 한 파일로 합친 complete root 기준선은 `54,114 / 16,590 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
 - 대표 요청은 `44/14 KiB` 상한을 완화하지 않았고 현재 minified ceiling까지 `5 bytes`를 남깁니다.
-- Cache 구현은 `5,100 / 2,278 bytes gzip`, Deduplication은 `3,792 / 1,777 bytes gzip`이며 각각 `5/2.5 KiB`, `4/2.5 KiB` 예산으로 제한합니다.
+- Cache 구현은 `5,336 / 2,405 bytes gzip`, Deduplication은 `3,792 / 1,777 bytes gzip`이며 각각 `5.5/2.5 KiB`, `4/2.5 KiB` 예산으로 제한합니다.
 - Logical lifecycle dispatcher는 `1,722 / 926 bytes gzip`이며 같은 별도 예산으로 제한합니다.
 
 Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 상한을 `53/17 KiB`로 둡니다. 대신 일반 사용자의 초기 비용인 대표 요청은 `44/14 KiB`로 유지하고 정책별 예산을 추가해, 전체 상한 증가가 사용하지 않는 기능의 무제한 core 편입으로 이어지지 않게 합니다.

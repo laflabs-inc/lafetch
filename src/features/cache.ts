@@ -68,19 +68,37 @@ function responseTtl(
 ): number | undefined {
   if (!statuses.has(response.status) || response.headers.has("set-cookie")) return;
   const control = response.headers.get("cache-control") ?? "";
-  if (/\b(?:no-cache|no-store|private)\b/i.test(control)) return;
+  const directives: string[] = [];
+  let start = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index <= control.length; index += 1) {
+    const character = control[index];
+    if (index === control.length || (character === "," && !quoted)) {
+      directives.push(control.slice(start, index).trim());
+      start = index + 1;
+    } else if (escaped) {
+      escaped = false;
+    } else if (character === "\\" && quoted) {
+      escaped = true;
+    } else if (character === '"') {
+      quoted = !quoted;
+    }
+  }
+  const names = directives.map((directive) => /^([^\s=]+)/.exec(directive)?.[1]?.toLowerCase());
+  if (names.some((name) => name === "no-cache" || name === "no-store" || name === "private")) return;
   if (response.headers.get("vary")?.trim()) return;
-  const maxAges = control.match(/(?:^|,)\s*max-age(?=\s*(?:=|$))[^,]*/gi);
-  if (!maxAges) return configuredTtlMs;
+  const maxAges = directives.filter((_directive, index) => names[index] === "max-age");
+  if (maxAges.length === 0) return configuredTtlMs;
   if (maxAges.length > 1) return 0;
-  const match = /(?:^|,)\s*max-age\s*=\s*(?:"(\d+)"|(\d+))\s*$/i.exec(maxAges[0]!);
+  const match = /^max-age\s*=\s*(?:"(\d+)"|(\d+))\s*$/i.exec(maxAges[0]!);
   if (!match) return 0;
   const age = /^\s*(\d+)\s*(?:,|$)/.exec(response.headers.get("age") ?? "")?.[1] ?? "0";
-  const maxAgeSeconds = +(match[1] ?? match[2]!);
-  const ageSeconds = +age;
+  const maxAgeSeconds = BigInt(match[1] ?? match[2]!);
+  const ageSeconds = BigInt(age);
   return maxAgeSeconds <= ageSeconds
     ? 0
-    : Math.min(configuredTtlMs, (maxAgeSeconds - ageSeconds) * 1_000);
+    : Math.min(configuredTtlMs, Number(maxAgeSeconds - ageSeconds) * 1_000);
 }
 
 interface CacheRuntime {
