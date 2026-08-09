@@ -19,7 +19,7 @@ Cache와 Deduplication은 서로 다른 시간 문제를 해결하는 별도 Fea
 
 내장 Cache는 기본적으로 Status `200`만 저장하며 `Set-Cookie`, 제한적인 `Cache-Control` 또는 `Vary`가 있는 Response를 거부합니다. Response의 `max-age`와 `Age`는 호출자가 지정한 TTL을 줄일 수 있지만 늘릴 수는 없습니다. 임의의 `Vary`를 거부하는 이유는 variant-aware Store가 없는 상태에서 서로 다른 표현을 공유하지 않기 위해서입니다.
 
-유효한 단일 `max-age`가 있으면 남은 수명은 `min(configured TTL, max(0, max-age - Age))`입니다. `Age`는 첫 list member만 사용하며 `max-age`가 없을 때는 local TTL에서 차감하지 않습니다. 중복되거나 잘못된 `max-age`는 즉시 stale로 취급합니다. Response가 Cache hook에 도착한 시점에 절대 만료 시각을 고정하므로 Body 처리나 Store queue가 느려도 freshness가 늘어나지 않습니다.
+유효한 단일 `max-age`가 있으면 남은 수명은 `min(configured TTL, max(0, max-age - Age))`입니다. `Age`는 첫 list member만 사용하며 `max-age`가 없을 때는 local TTL에서 차감하지 않습니다. Directive는 quoted-string 밖의 쉼표로만 나누고, `max-age`와 `Age`의 정수 차감은 JavaScript `number` 정밀도에 의존하지 않습니다. 중복되거나 잘못된 `max-age`는 즉시 stale로 취급합니다. Response가 Cache hook에 도착한 시점에 절대 만료 시각을 고정하므로 Body 처리나 Store queue가 느려도 freshness가 늘어나지 않습니다.
 
 `304 Not Modified`에 새 `Age`가 없으면 stale Response의 기존 `Age`를 상속하지 않습니다. Revalidation 결과가 `no-store` 등으로 저장 불가가 되면 이전 stale validator도 generation queue에서 제거합니다. `Expires`, `s-maxage`, heuristic freshness와 동적 `Age` 합성은 현재 application-cache 계약에 포함하지 않습니다. 상세 결정은 [v0.4 HTTP freshness RFC](rfcs/v0.4-cache-freshness.md)를 따릅니다.
 

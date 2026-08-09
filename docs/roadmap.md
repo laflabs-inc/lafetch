@@ -30,7 +30,7 @@
 | 라이선스 | Apache-2.0 적용 완료 |
 | npm 배포 자동화 | 미완료 |
 
-현재 complete root bundle 기준선은 `54,114 bytes minified`, 대표 JSON 요청의 초기 정적 graph는 `44/14 KiB` 안에 있습니다. Hard ceiling은 각각 `53/17 KiB`, `44/14 KiB`입니다. Cache는 `5/2.5 KiB`, Deduplication과 logical lifecycle은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다. Revalidation과 generation guard 구현은 필요 경로의 추가 dynamic chunk로 격리합니다.
+현재 complete root bundle 기준선은 `54,348 bytes minified`, 대표 JSON 요청의 초기 정적 graph는 `44/14 KiB` 안에 있습니다. Hard ceiling은 각각 `53.5/17 KiB`, `44/14 KiB`입니다. Cache는 `5.5/2.5 KiB`, Deduplication과 logical lifecycle은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다. Revalidation과 generation guard 구현은 필요 경로의 추가 dynamic chunk로 격리합니다.
 
 ## 완료된 기반
 
