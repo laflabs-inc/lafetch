@@ -1,4 +1,4 @@
-import type { CacheStore } from "../core/cache-store.js";
+import type { CacheEntry, CacheStore } from "../core/cache-store.js";
 
 export interface CacheStoreConformanceResult {
   readonly name: string;
@@ -34,6 +34,15 @@ function trySetHeader(headers: Headers, name: string, value: string): void {
   }
 }
 
+function cacheEntry(response: Response, expiresAt: number, sizeBytes: number): CacheEntry {
+  return {
+    response,
+    expiresAt,
+    sizeBytes,
+    storedAt: Math.min(Date.now(), expiresAt),
+  };
+}
+
 async function withCleanup(
   store: CacheStore,
   keys: readonly string[],
@@ -61,20 +70,24 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
       const expiresAt = future();
       const cacheKey = key("round-trip");
       await withCleanup(store, [cacheKey], async () => {
-        await store.set(cacheKey, {
-          response: new Response("payload", {
+        const input = cacheEntry(
+          new Response("payload", {
             status: 201,
             statusText: "Created",
             headers: { "Content-Type": "text/plain", "X-Cache-Probe": "round-trip" },
           }),
           expiresAt,
-        });
+          7,
+        );
+        await store.set(cacheKey, input);
         const entry = await store.get(cacheKey);
         invariant(entry, "get() did not return the stored entry.");
         invariant(
           entry.expiresAt > Date.now() && entry.expiresAt <= expiresAt,
           "The Store returned an expired entry or extended its absolute expiration.",
         );
+        invariant(entry.storedAt === input.storedAt, "The Store changed the response storage time.");
+        invariant(entry.sizeBytes === input.sizeBytes, "The Store changed the retained byte count.");
         invariant(entry.response.status === 201, "The stored response status changed.");
         invariant(entry.response.statusText === "Created", "The stored response status text changed.");
         invariant(entry.response.headers.get("x-cache-probe") === "round-trip", "The stored response headers changed.");
@@ -88,7 +101,7 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
       });
       const cacheKey = key("write-isolation");
       await withCleanup(store, [cacheKey], async () => {
-        await store.set(cacheKey, { response, expiresAt: future() });
+        await store.set(cacheKey, cacheEntry(response, future(), 7));
         response.headers.set("X-Cache-Probe", "mutated");
         invariant(await response.text() === "payload", "The input response was not independently readable.");
         const entry = await store.get(cacheKey);
@@ -104,10 +117,11 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
       const store = await factory();
       const cacheKey = key("read-isolation");
       await withCleanup(store, [cacheKey], async () => {
-        await store.set(cacheKey, {
-          response: new Response("payload", { headers: { "X-Cache-Probe": "original" } }),
-          expiresAt: future(),
-        });
+        await store.set(cacheKey, cacheEntry(
+          new Response("payload", { headers: { "X-Cache-Probe": "original" } }),
+          future(),
+          7,
+        ));
         const first = await store.get(cacheKey);
         const second = await store.get(cacheKey);
         invariant(first && second, "get() did not return independently readable entries.");
@@ -137,9 +151,9 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
       const firstKey = key("first-key");
       const secondKey = key("second-key");
       await withCleanup(store, [firstKey, secondKey], async () => {
-        await store.set(firstKey, { response: new Response("old"), expiresAt: future() });
-        await store.set(secondKey, { response: new Response("second"), expiresAt: future() });
-        await store.set(firstKey, { response: new Response("new"), expiresAt: future() });
+        await store.set(firstKey, cacheEntry(new Response("old"), future(), 3));
+        await store.set(secondKey, cacheEntry(new Response("second"), future(), 6));
+        await store.set(firstKey, cacheEntry(new Response("new"), future(), 3));
         const first = await store.get(firstKey);
         const second = await store.get(secondKey);
         invariant(first && second, "Entries with different keys were not retained independently.");
@@ -152,7 +166,7 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
       const cacheKey = key("expired");
       const expiresAt = Date.now() - 1;
       await withCleanup(store, [cacheKey], async () => {
-        await store.set(cacheKey, { response: new Response("stale"), expiresAt });
+        await store.set(cacheKey, cacheEntry(new Response("stale"), expiresAt, 5));
         const entry = await store.get(cacheKey);
         if (entry === undefined) return;
         invariant(entry.expiresAt <= expiresAt, "The Store extended an expired entry.");
@@ -163,7 +177,7 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
       const store = await factory();
       const cacheKey = key("concurrent");
       await withCleanup(store, [cacheKey], async () => {
-        await store.set(cacheKey, { response: new Response("payload"), expiresAt: future() });
+        await store.set(cacheKey, cacheEntry(new Response("payload"), future(), 7));
         const entries = await Promise.all([
           store.get(cacheKey),
           store.get(cacheKey),
@@ -177,7 +191,7 @@ export async function runCacheStoreConformance(factory: CacheStoreFactory): Prom
     check("delete", async () => {
       const store = await factory();
       const cacheKey = key("delete");
-      await store.set(cacheKey, { response: new Response("payload"), expiresAt: future() });
+      await store.set(cacheKey, cacheEntry(new Response("payload"), future(), 7));
       await store.delete(cacheKey);
       await store.delete(cacheKey);
       invariant(await store.get(cacheKey) === undefined, "delete() did not remove the entry.");

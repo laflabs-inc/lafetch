@@ -1,10 +1,10 @@
 # Lafetch 기술 경쟁력 평가와 개선 백로그
 
-평가 기준일: `2026-07-30`
+평가 기준일: `2026-08-10`
 
 비교 대상:
 
-- `@laflabs/lafetch@0.4.0-alpha.3`
+- `@laflabs/lafetch@0.4.0-alpha.4`
 - `axios@1.18.1`
 - `ky@2.0.2`
 
@@ -64,22 +64,22 @@ RateLimit header는 평가 시점에 아직 RFC가 아니라 [IETF HTTPAPI Worki
 - Node.js `zlib.gzipSync`로 gzip 측정
 
 ```text
-Lafetch  45,051 bytes minified / 14,230 bytes gzip
+Lafetch  45,194 bytes minified / 14,305 bytes gzip
 Axios    45,838 bytes minified / 17,855 bytes gzip
 Ky       20,608 bytes minified /  7,370 bytes gzip
 ```
 
 해석:
 
-- Lafetch는 Axios보다 minified 약 `1.7%`, gzip 약 `20%` 작습니다.
-- Lafetch는 Ky보다 minified 약 `118%`, gzip 약 `93%` 큽니다.
+- Lafetch는 Axios보다 minified 약 `1.4%`, gzip 약 `20%` 작습니다.
+- Lafetch는 Ky보다 minified 약 `119%`, gzip 약 `94%` 큽니다.
 - 대표 JSON 요청의 정적 graph에서 Cache, Deduplication, `MemoryCacheStore`와 logical lifecycle dispatcher 구현을 제거했습니다. 선언과 공개 interface는 core에 남지만 실제 hook은 사용 시 별도 ESM chunk를 불러옵니다.
-- 모든 공개 API와 optional module을 한 파일로 합친 complete root 기준선은 `54,114 / 16,590 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
-- 대표 요청은 `44/14 KiB` 상한을 완화하지 않았고 현재 minified ceiling까지 `5 bytes`를 남깁니다.
-- Cache 구현은 `5,336 / 2,405 bytes gzip`, Deduplication은 `3,792 / 1,777 bytes gzip`이며 각각 `5.5/2.5 KiB`, `4/2.5 KiB` 예산으로 제한합니다.
+- 모든 공개 API와 optional module을 한 파일로 합친 complete root 기준선은 `56,191 / 17,262 bytes gzip`입니다. 이 수치는 최초 요청 비용이 아니라 전체 기능 비용 회귀를 감시합니다.
+- 대표 요청은 `44.25/14 KiB` 상한을 사용하며 현재 minified ceiling까지 `118 bytes`, gzip ceiling까지 `31 bytes`를 남깁니다.
+- Cache 구현은 `6,539 / 2,824 bytes gzip`, Deduplication은 `4,451 / 2,074 bytes gzip`이며 각각 `6.5/3 KiB`, `4.5/2.5 KiB` 예산으로 제한합니다.
 - Logical lifecycle dispatcher는 `1,722 / 926 bytes gzip`이며 같은 별도 예산으로 제한합니다.
 
-Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 상한을 `53/17 KiB`로 둡니다. 대신 일반 사용자의 초기 비용인 대표 요청은 `44/14 KiB`로 유지하고 정책별 예산을 추가해, 전체 상한 증가가 사용하지 않는 기능의 무제한 core 편입으로 이어지지 않게 합니다.
+Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 상한을 `55/17 KiB`로 둡니다. 일반 사용자의 초기 비용인 대표 요청은 `44.25/14 KiB`로 제한하고 정책별 예산을 추가해, 전체 상한 증가가 사용하지 않는 기능의 무제한 core 편입으로 이어지지 않게 합니다.
 
 이 수치는 네트워크 왕복시간이나 실제 처리량 benchmark가 아닙니다. 현재 Lafetch에는 신뢰할 수 있는 runtime overhead 비교 자료가 없으므로 성능 우위를 주장하지 않습니다.
 
@@ -89,7 +89,7 @@ Complete root는 optional loader 경계까지 한 파일로 강제 합치므로 
 | --- | --- | --- | --- |
 | Runtime dependency | 0 | 4 | 0 |
 | 배포 package unpacked | `515,049 bytes` 실측 | `1,772,607 bytes` registry metadata | `405,395 bytes` registry metadata |
-| 대표 browser bundle gzip | `14,230 bytes` | `17,855 bytes` | `7,370 bytes` |
+| 대표 browser bundle gzip | `14,305 bytes` | `17,855 bytes` | `7,370 bytes` |
 | Module | ESM | ESM, CJS | ESM |
 | Node.js engine | `>=20` | package에서 미지정 | `>=22` |
 | Built-in transport | Fetch | XHR, HTTP, Fetch adapter | Fetch |

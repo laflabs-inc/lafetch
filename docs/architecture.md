@@ -21,6 +21,10 @@ Cache와 Deduplication은 선택 정책입니다. `.cache()`와 `.dedupe()` 호�
 
 외부 `CacheStore`는 `get()`·`set()`·`delete()`와 독립 Response snapshot을 제공해야 합니다. Store 장애는 기본적으로 Cache Feature 오류이며, `storeFailure: "bypass"`가 선언된 요청에서만 miss 또는 write skip으로 격리합니다.
 
+`baseUrl`이 있는 client의 resolved URL은 반드시 같은 origin이어야 합니다. Client 공통 Header와 credentials의 신뢰 경계가 URL 입력 하나로 바뀌지 않게 하고, 다른 origin은 별도 client가 소유합니다.
+
+기본 `MemoryCacheStore`는 entry 수와 실제 buffered Body byte 합계를 함께 제한합니다. Cache reader는 저장 당시 TTL만 따르지 않고 `storedAt`을 기준으로 자신의 TTL을 다시 상한으로 적용합니다.
+
 Logical lifecycle도 handler와 공개 interface만 core에 두고 event dispatcher는 `.on()`이 선언된 요청에서만 별도 ESM chunk로 불러옵니다. `.on()`을 사용하지 않는 대표 요청 graph에 dispatcher 구현이 포함되지 않는지 bundle test로 고정합니다.
 
 공개 API의 역할은 세 가지로 제한합니다.

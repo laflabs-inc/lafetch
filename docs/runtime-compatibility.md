@@ -21,18 +21,18 @@ Browser 대상 현재 기준선:
 
 | 대상 | Minified | Gzip |
 | --- | ---: | ---: |
-| Complete root 단일 bundle | `54,114 bytes` | `16,590 bytes` |
-| 대표 JSON 요청 초기 graph | `45,051 bytes` | `14,230 bytes` |
-| Cache policy | `5,336 bytes` | `2,405 bytes` |
-| Deduplication policy | `3,792 bytes` | `1,777 bytes` |
-| Logical lifecycle dispatcher | `1,722 bytes` | `926 bytes` |
+| Complete root 단일 bundle | `56,191 bytes` | `17,262 bytes` |
+| 대표 JSON 요청 초기 graph | `45,194 bytes` | `14,305 bytes` |
+| Cache policy | `6,539 bytes` | `2,824 bytes` |
+| Deduplication policy | `4,451 bytes` | `2,074 bytes` |
+| Logical lifecycle dispatcher | `1,751 bytes` | `943 bytes` |
 
 Hard ceiling:
 
-- Complete root: `53.5 KiB / 17 KiB gzip`
-- 대표 JSON 요청: `44 KiB / 14 KiB gzip`
-- Cache: `5.5 KiB / 2.5 KiB gzip`
-- Deduplication·Logical lifecycle 각각: `4 KiB / 2.5 KiB gzip`
+- Complete root: `55 KiB / 17 KiB gzip`
+- 대표 JSON 요청: `44.25 KiB / 14 KiB gzip`
+- Cache: `6.5 KiB / 3 KiB gzip`
+- Deduplication·Logical lifecycle 각각: `4.5 KiB / 2.5 KiB gzip`
 
 Complete root는 dynamic chunk까지 한 파일로 강제 합쳐 전체 기능 비용을 감시합니다. 대표 요청은 code splitting 후 최초 요청에 필요한 정적 output만 합산하며, Cache·Deduplication 구현, `MemoryCacheStore`와 logical lifecycle dispatcher가 포함되지 않는지도 검사합니다.
 

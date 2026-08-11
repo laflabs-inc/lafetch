@@ -14,7 +14,7 @@
 
 ## 현재 상태
 
-소스 버전은 `0.4.0-alpha.3`입니다. Buffered/Streaming 응답 소유권과 공개 계약 보강을 바탕으로 Reliability policy를 정리하고 있습니다. 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
+소스 버전은 `0.4.0-alpha.4`입니다. Buffered/Streaming 응답 소유권과 공개 계약 보강을 바탕으로 Reliability policy를 정리하고 있습니다. 아직 npm에 배포하지 않았으며 프로덕션 안정 버전이 아닙니다.
 
 | 영역 | 상태 |
 | --- | --- |
@@ -22,15 +22,15 @@
 | `LResponse`와 data mode 반환 계약 | 구현 완료 |
 | Streaming Body lifecycle | 구현 완료 |
 | Timeout, Retry, Abort | 기본 구현 완료, adaptive Retry 강화 진행 중 |
-| Cache, Deduplication, Idempotency | CacheStore, invalidation·revalidation과 HTTP freshness 계약 완료 |
+| Cache, Deduplication, Idempotency | CacheStore, freshness, byte budget과 leader/follower 취소 안전성 완료 |
 | Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.4 leader/follower Abort·Timeout 경쟁 상태와 누수 검증 |
+| 다음 단계 | v0.4 사용자 key의 tenant·인증 경계 문서화와 adaptive Retry |
 | 라이선스 | Apache-2.0 적용 완료 |
 | npm 배포 자동화 | 미완료 |
 
-현재 complete root bundle 기준선은 `54,348 bytes minified`, 대표 JSON 요청의 초기 정적 graph는 `44/14 KiB` 안에 있습니다. Hard ceiling은 각각 `53.5/17 KiB`, `44/14 KiB`입니다. Cache는 `5.5/2.5 KiB`, Deduplication과 logical lifecycle은 각각 `4/2.5 KiB`의 별도 예산을 사용합니다. Revalidation과 generation guard 구현은 필요 경로의 추가 dynamic chunk로 격리합니다.
+현재 complete root bundle 기준선은 `56,191 / 17,262 bytes gzip`, 대표 JSON 요청의 초기 정적 graph는 `45,194 / 14,305 bytes gzip`입니다. Hard ceiling은 각각 `55/17 KiB`, `44.25/14 KiB`입니다. Cache는 `6.5/3 KiB`, Deduplication과 logical lifecycle은 각각 `4.5/2.5 KiB`의 별도 예산을 사용합니다. Revalidation과 generation guard 구현은 필요 경로의 추가 dynamic chunk로 격리합니다.
 
 ## 완료된 기반
 
@@ -40,6 +40,7 @@
 | v0.2.1 | 제한형 Type-State, GET/HEAD Body 차단, Buffered 상한, package consumer 검증 | [보관된 v0.2.1 RFC](archive/rfc-v0.2.1-progressive-builder.md) |
 | v0.3 | 단일 `as(mode)`, `LResponse`, live Streaming, Body 종료까지 Timeout·Abort·finalize, Stream DX | [v0.3 RFC](rfcs/v0.3-streaming-body-safety.md) |
 | v0.3.1 | Stable error guard, Standard Schema V1, `requestInit()`, redacted `RequestSnapshot`, 이중 bundle budget | [v0.3.1 RFC](rfcs/v0.3.1-public-contract.md) |
+| v0.4.0-alpha.4 | same-origin client 경계, bounded Cache, reader TTL, Dedupe 취소·재전송과 진단 redaction hotfix | [v0.4 Security hotfix RFC](rfcs/v0.4-security-hotfix.md) |
 
 과거 버전의 세부 작업과 당시 bundle 수치는 보관 문서와 병합된 PR에 남기고 현행 로드맵에서는 반복하지 않습니다.
 
@@ -49,13 +50,15 @@
 
 현재 `Retry-After` 상한을 일반 Backoff에서 분리하고, 상한 초과 시 서버 지시보다 일찍 재시도하지 않는 계약까지 구현했습니다. RateLimit과 비표준 Header는 자동 해석하지 않습니다. 상세 결정은 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)를 기준으로 합니다.
 
-대표 JSON 요청에서 Cache·Deduplication 구현, `MemoryCacheStore`와 logical lifecycle dispatcher를 분리했습니다. 기존 fluent API와 동기식 옵션 검증은 유지하며 실제 hook만 실행 시 dynamic import합니다. 대표 요청의 `44/14 KiB` 상한은 완화하지 않았고 complete root와 각 optional module에 별도 예산을 적용합니다.
+대표 JSON 요청에서 Cache·Deduplication 구현, `MemoryCacheStore`와 logical lifecycle dispatcher를 분리했습니다. 기존 fluent API와 동기식 옵션 검증은 유지하며 실제 hook만 실행 시 dynamic import합니다. Security hotfix의 same-origin 검사 비용으로 대표 minified 상한만 `44.25 KiB`로 조정하고 gzip `14 KiB`는 유지했으며, complete root와 각 optional module에 별도 예산을 적용합니다.
 
 Core API는 Fetch, Ky와 Axios의 기능 수를 그대로 추격하지 않습니다. 반복 사용되는 기본 기능이면서 현재 Lafetch의 lifecycle·Body ownership·runtime 계약을 깨지 않는 항목만 채택합니다. 상세 결정은 [v0.4 Core parity와 logical lifecycle RFC](rfcs/v0.4-core-parity.md)를 기준으로 합니다.
 
 외부 CacheStore는 필수 `delete()`, Response snapshot·만료 계약과 공통 conformance suite를 사용합니다. Store 장애는 기본 `"throw"`이며 Cache가 성공 조건이 아닌 요청만 `"bypass"`를 명시합니다. 상세 결정은 [v0.4 CacheStore 신뢰성 RFC](rfcs/v0.4-cache-store-reliability.md)를 기준으로 합니다.
 
 Configured TTL은 HTTP freshness의 최종 상한이며 유효한 단일 `max-age`와 `Age`만 이를 줄입니다. 잘못된 freshness 정보, 304의 `Age` reset과 queue 대기 시간은 [v0.4 HTTP freshness RFC](rfcs/v0.4-cache-freshness.md)를 기준으로 합니다.
+
+독립 보안 보고서의 Medium 7건과 Low 2건은 same-origin `baseUrl`, aggregate Cache byte budget, reader별 TTL, 취소 가능한 Dedupe observer, unsafe takeover 차단, key identity·redaction과 초기화 cleanup으로 닫았습니다. 설계 변경과 호환성 영향은 [v0.4 Security hotfix RFC](rfcs/v0.4-security-hotfix.md)를 기준으로 합니다.
 
 ### 범위
 
@@ -64,7 +67,7 @@ Configured TTL은 HTTP freshness의 최종 상한이며 유효한 단일 `max-ag
 - CacheStore 적합성 테스트와 Store 실패 정책 확대 — 구현 완료
 - Cache invalidation과 revalidation 계약 — 구현 완료
 - TTL, `Cache-Control`, `Age` 상호작용 검증 — 구현 완료
-- leader/follower Abort·Timeout 경쟁 상태와 누수 테스트
+- leader/follower Abort·Timeout 경쟁 상태와 누수 테스트 — 구현 완료
 - 사용자 key의 tenant·인증 경계 문서화
 - server-directed Retry delay 별도 상한 — 구현 완료
 - `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙 — 구현 완료
@@ -110,7 +113,7 @@ Configured TTL은 HTTP freshness의 최종 상한이며 유효한 단일 `max-ag
 - Retry attempt 세부 event와 logical lifecycle이 중복되거나 서로 다른 Retry 결정을 만들지 않아야 합니다.
 - lifecycle request draft를 직접 실행하거나 다른 요청 계보로 교체할 수 없어야 합니다.
 - `LResponse`가 없는 explicit terminal은 native 또는 data 결과를 억지로 `LResponse`로 포장하지 않아야 합니다.
-- v0.4 기능 추가 후에도 대표 요청의 `44 KiB / 14 KiB gzip` 상한을 유지해야 합니다.
+- v0.4 기능 추가 후에도 대표 요청의 `44.25 KiB / 14 KiB gzip` 상한을 유지해야 합니다.
 
 ## v0.5 — Feature와 Transport SDK
 

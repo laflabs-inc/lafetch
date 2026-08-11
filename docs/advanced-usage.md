@@ -1,6 +1,12 @@
 # Lafetch 상세 사용 가이드
 
-이 문서는 Lafetch v0.3.1의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
+이 문서는 Lafetch v0.4의 고급 옵션과 확장 지점을 설명합니다. 처음 사용하는 경우 [README의 기본 사용법](../README.md)부터 확인하세요.
+
+## `baseUrl` origin 경계
+
+`baseUrl`은 URL 결합 편의 기능이면서 클라이언트의 origin 경계입니다. 상대 URL과 같은 origin의 절대 URL은 허용하지만, 다른 origin으로 해석되는 절대 URL, scheme-relative URL과 비교 가능한 origin이 없는 opaque URL은 `HttpConfigurationError`로 거부합니다. 공통 Authorization Header나 credentials가 공격자 origin으로 상속되는 것을 막기 위한 계약입니다.
+
+여러 origin이 필요하면 `baseUrl`과 민감한 공통 설정을 공유하지 않는 클라이언트를 origin별로 생성합니다.
 
 ## LResponse, 원본 응답, Streaming 응답
 
@@ -340,12 +346,18 @@ await api
 ```ts
 import { MemoryCacheStore } from "@laflabs/lafetch/cache";
 
-const store = new MemoryCacheStore(1_000);
+const store = new MemoryCacheStore(
+  1_000,
+  Date.now,
+  64 * 1024 * 1024,
+);
 
 await api
   .get<Catalog>("/catalog")
   .cache("5m", { store });
 ```
+
+인자는 순서대로 최대 entry 수, clock, 최대 응답 Body 합계입니다. 기본값은 500개와 64 MiB이며 두 한도 중 하나를 넘으면 가장 오래 사용하지 않은 entry부터 제거합니다.
 
 외부 Store 장애는 기본적으로 요청 실패로 드러납니다. Cache가 성공 조건이 아니고 origin으로의 fallback을 의도한 경우에만 `"bypass"`를 선택합니다.
 
@@ -358,7 +370,7 @@ await api
   });
 ```
 
-`CacheStore` adapter는 `get()`, `set()`, `delete()`를 구현하고 `@laflabs/lafetch/testing`의 `runCacheStoreConformance()`으로 Body·Header 격리, 만료, overwrite와 동시 읽기를 검증해야 합니다. `"bypass"`는 Store 오류를 반환 결과에서 제거하므로 adapter가 자체 logging과 metrics를 제공해야 합니다.
+`CacheStore` adapter는 `get()`, `set()`, `delete()`를 구현하고 각 `CacheEntry`의 `response`, `storedAt`, `expiresAt`, `sizeBytes`를 보존해야 합니다. `@laflabs/lafetch/testing`의 `runCacheStoreConformance()`으로 Body·Header 격리, metadata, 만료, overwrite와 동시 읽기를 검증하세요. `"bypass"`는 Store 오류를 반환 결과에서 제거하므로 adapter가 자체 logging과 metrics를 제공해야 합니다.
 
 세부 규칙은 [Cache와 Deduplication 설계](cache-deduplication.md)를 참고하세요.
 

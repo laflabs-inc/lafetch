@@ -17,6 +17,8 @@ Cache와 Deduplication은 서로 다른 시간 문제를 해결하는 별도 Fea
 
 내장 key는 모든 `beforeAttempt` hook이 끝난 최종 `Request`에서 계산합니다. Method, 전체 URL과 정규화된 모든 Header를 포함하므로 tenant Header, locale, content negotiation처럼 늦게 결정되는 응답 identity도 분리됩니다.
 
+정적 key나 key callback을 사용해도 Fetch 실행 정책은 key에서 제거되지 않습니다. `cache`, `credentials`, `integrity`, `keepalive`, `mode`, `priority`, `redirect`, `referrer`, `referrerPolicy`를 최종 key에 덧붙여 같은 사용자 key가 의미가 다른 `Request`를 합치지 않게 합니다.
+
 내장 Cache는 기본적으로 Status `200`만 저장하며 `Set-Cookie`, 제한적인 `Cache-Control` 또는 `Vary`가 있는 Response를 거부합니다. Response의 `max-age`와 `Age`는 호출자가 지정한 TTL을 줄일 수 있지만 늘릴 수는 없습니다. 임의의 `Vary`를 거부하는 이유는 variant-aware Store가 없는 상태에서 서로 다른 표현을 공유하지 않기 위해서입니다.
 
 유효한 단일 `max-age`가 있으면 남은 수명은 `min(configured TTL, max(0, max-age - Age))`입니다. `Age`는 첫 list member만 사용하며 `max-age`가 없을 때는 local TTL에서 차감하지 않습니다. Directive는 quoted-string 밖의 쉼표로만 나누고, `max-age`와 `Age`의 정수 차감은 JavaScript `number` 정밀도에 의존하지 않습니다. 중복되거나 잘못된 `max-age`는 즉시 stale로 취급합니다. Response가 Cache hook에 도착한 시점에 절대 만료 시각을 고정하므로 Body 처리나 Store queue가 느려도 freshness가 늘어나지 않습니다.
@@ -25,7 +27,7 @@ Cache와 Deduplication은 서로 다른 시간 문제를 해결하는 별도 Fea
 
 Unsafe method는 호출자 소유 key가 필요합니다. `methods: ["POST"]`를 추가해도 이 요구 사항은 없어지지 않습니다. 내장 key가 Request Body를 읽지 않기 때문입니다.
 
-Key callback은 독립적으로 소비할 수 있는 `Request` clone을 받습니다. 정적 key와 callback 결과는 비어 있지 않은 문자열이어야 합니다. Key는 신뢰 경계이므로 Response identity를 바꾸는 모든 값을 호출자가 포함해야 합니다.
+Key callback은 독립적으로 소비할 수 있는 `Request` clone을 받습니다. 정적 key와 callback 결과는 비어 있지 않은 문자열이어야 합니다. Fetch 실행 정책은 Lafetch가 항상 분리하지만, Body·tenant처럼 사용자 key가 대신한 Response identity는 호출자가 포함해야 합니다.
 
 ## Store 계약
 
@@ -33,9 +35,11 @@ Key callback은 독립적으로 소비할 수 있는 `Request` clone을 받습�
 
 사용자 `CacheStore`를 여러 클라이언트에 전달하는 것은 명시적인 공유 선택입니다.
 
-`CacheStore`는 비동기 구현을 허용하며 `Response`와 절대 만료 시각을 저장합니다. `get()`, `set()`, `delete()`가 모두 필요합니다. 구현체는 입력 Response와 각 읽기를 서로 독립적으로 소비할 수 있게 snapshot해야 합니다. 같은 key의 쓰기는 이전 entry를 대체하고 없는 key의 삭제도 성공해야 합니다.
+`CacheStore`는 비동기 구현을 허용하며 `Response`, `storedAt`, `expiresAt`, `sizeBytes`를 저장합니다. `get()`, `set()`, `delete()`가 모두 필요합니다. 구현체는 입력 Response와 각 읽기를 서로 독립적으로 소비할 수 있게 snapshot하고 metadata를 변경 없이 보존해야 합니다. 같은 key의 쓰기는 이전 entry를 대체하고 없는 key의 삭제도 성공해야 합니다.
 
-`MemoryCacheStore`는 `@laflabs/lafetch/cache`에서 가져오며 entry를 clone하고, 만료를 지연 정리하며, 제한된 LRU 방식으로 제거합니다. 외부 Store는 만료 entry를 자체 eviction하거나 원래 `expiresAt`과 함께 반환할 수 있습니다. Core가 `Response`와 유한한 `expiresAt`을 검증하고 현행 정책에서는 만료를 miss로 판정한 뒤 삭제합니다. Store 단계에서 stale entry 반환을 금지하지 않아 다음 revalidation 계약을 미리 막지 않습니다.
+`MemoryCacheStore`는 `@laflabs/lafetch/cache`에서 가져오며 entry를 clone하고, 만료를 지연 정리하며, entry 수 또는 응답 Body 합계가 한도를 넘으면 LRU 방식으로 제거합니다. 기본 한도는 500개와 64 MiB입니다. 외부 Store는 만료 entry를 자체 eviction하거나 원래 metadata와 함께 반환할 수 있습니다. Core는 `Response`, `storedAt`, `expiresAt`, `sizeBytes`를 검증합니다. Store 단계에서 stale validator 반환을 금지하지 않아 revalidation 계약을 유지합니다.
+
+Cache hit의 유효 수명은 저장 당시 정책만 신뢰하지 않고 `min(expiresAt, storedAt + 현재 요청 TTL)`로 계산합니다. 따라서 먼저 저장한 긴 TTL이 이후 reader가 선언한 짧은 TTL이나 `cache(0)`을 확장하지 않습니다.
 
 Runtime별 Store는 다음 항목을 검증해야 합니다.
 
@@ -43,6 +47,7 @@ Runtime별 Store는 다음 항목을 검증해야 합니다.
 - 만료
 - 동시 읽기와 쓰기
 - 제한된 저장량 또는 외부 eviction
+- `storedAt`·`expiresAt`·`sizeBytes` metadata 보존
 - Store 실패 모드와 origin 부하 정책
 
 내장 Cache는 Status 처리와 Buffered 크기 제한이 성공한 뒤 finalization에서만 entry를 commit합니다. Retry 대상, 거부, Abort, Timeout과 크기 초과 Response는 저장하지 않습니다.
@@ -93,8 +98,10 @@ await api.get("/catalog").cache("5m", {
 첫 번째 일치 요청이 leader이고 이후 요청은 follower입니다. Follower는 leader가 보관한 Response를 기다리지만 각자의 Abort와 Timeout signal을 유지합니다.
 
 - Follower Abort는 leader를 취소하지 않습니다.
-- Leader가 Abort 또는 Timeout으로 끝나면 active follower 하나가 자체 Transport 실행을 이어받을 수 있습니다.
-- 대체 leader 선출은 현재 registry entry를 다시 확인해 한 번만 발생합니다.
+- 취소된 follower의 observer는 leader가 완료되기 전이라도 즉시 registry에서 분리됩니다.
+- Safe method의 leader가 Abort 또는 Timeout으로 끝나면 active follower 하나가 자체 Transport 실행을 이어받을 수 있습니다.
+- Unsafe method는 idempotency key가 있어도 leader의 Abort·Timeout이 origin 처리 여부를 확정하지 못하므로 follower가 자동 재전송하지 않고 같은 오류를 받습니다.
+- Safe method의 대체 leader 선출은 현재 registry entry를 다시 확인해 한 번만 발생합니다.
 
 Deduplication은 개별 attempt가 아니라 leader의 전체 Retry sequence를 소유합니다. 이후 Retry도 기존 leader로 계속 실행되며 자신의 미완료 공유 실행을 다시 기다리지 않습니다.
 

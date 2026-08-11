@@ -11,6 +11,7 @@
 
 | 문서 | 역할 |
 | --- | --- |
+| [보안 정책 및 0.4.0-alpha.4 Hotfix](../SECURITY.md) | 지원 범위, 취약점 신고 절차와 공개 보안 수정 요약 |
 | [커널 아키텍처](architecture.md) | 요청 실행, 상태 격리, Feature lifecycle과 보안 불변식 |
 | [Cache와 Deduplication](cache-deduplication.md) | 키, Store, leader/follower 소유권 |
 | [런타임 호환성](runtime-compatibility.md) | 지원 환경과 자동 검증 범위 |
@@ -21,6 +22,7 @@
 | [v0.4 CacheStore 신뢰성 RFC](rfcs/v0.4-cache-store-reliability.md) | 외부 Store 적합성, 필수 삭제와 장애 모드 |
 | [v0.4 Cache invalidation·revalidation RFC](rfcs/v0.4-cache-invalidation-revalidation.md) | key 교체와 validator 기반 stale 갱신 |
 | [v0.4 HTTP freshness RFC](rfcs/v0.4-cache-freshness.md) | TTL, `Cache-Control: max-age`, `Age`와 revalidation freshness |
+| [v0.4 Security hotfix RFC](rfcs/v0.4-security-hotfix.md) | same-origin, bounded Cache, Dedupe 취소·재전송과 redaction 보강 |
 
 ## 계획과 평가
 

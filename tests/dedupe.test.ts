@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { lafetch } from "../src/index.js";
+import { createSharedExecution } from "../src/features/dedupe.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("deduplication", () => {
@@ -55,6 +56,21 @@ describe("deduplication", () => {
 
     await expect(follower).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
     await expect(leader).resolves.toHaveProperty("data.ok", true);
+  });
+
+  it("detaches an aborted follower observer before the leader settles", async () => {
+    const execution = createSharedExecution();
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const waiting = execution.wait(controller.signal);
+
+    expect(execution.observerCount()).toBe(1);
+    controller.abort("follower cancelled");
+
+    await expect(waiting).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
+    expect(execution.observerCount()).toBe(0);
+    expect(remove).toHaveBeenCalledOnce();
+    execution.resolve(new Response("leader eventually completed"));
   });
 
   it("elects one replacement leader when an aborted leader has multiple followers", async () => {
@@ -141,6 +157,33 @@ describe("deduplication", () => {
 
     expect(first.data.tenant).toBe("first");
     expect(second.data.tenant).toBe("second");
+    expect(calls).toBe(2);
+  });
+
+  it.each([
+    ["integrity", { integrity: "sha256-first" }, { integrity: "sha256-second" }],
+    ["mode", { mode: "cors" as const }, { mode: "same-origin" as const }],
+    ["redirect", { redirect: "follow" as const }, { redirect: "manual" as const }],
+    ["referrer", { referrer: "https://first.example/" }, { referrer: "https://second.example/" }],
+    ["referrerPolicy", { referrerPolicy: "origin" as const }, { referrerPolicy: "no-referrer" as const }],
+    ["cache", { cache: "no-store" as const }, { cache: "reload" as const }],
+    ["keepalive", { keepalive: false }, { keepalive: true }],
+  ])("does not merge a custom key across different RequestInit %s policies", async (_name, first, second) => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return Response.json({ ok: true });
+      }),
+    });
+
+    await Promise.all([
+      api.get("/dedupe/request-policy").requestInit(first).dedupe({ key: "shared" }),
+      api.get("/dedupe/request-policy").requestInit(second).dedupe({ key: "shared" }),
+    ]);
+
     expect(calls).toBe(2);
   });
 
@@ -231,6 +274,78 @@ describe("deduplication", () => {
     ]);
 
     expect(results.map((result) => result.data.body)).toEqual(["same", "same"]);
+    expect(calls).toBe(1);
+  });
+
+  it("does not redispatch an unsafe request after an ambiguous leader abort", async () => {
+    const leaderController = new AbortController();
+    let calls = 0;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((_request, context) => {
+        calls += 1;
+        if (calls === 2) return Response.json({ duplicate: true });
+        markStarted();
+        return new Promise((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+        });
+      }),
+    });
+    const options = { methods: ["POST"], key: "same-write" } as const;
+
+    const leader = Promise.resolve(api.post("/dedupe/unsafe-abort")
+      .body("same")
+      .signal(leaderController.signal)
+      .dedupe(options)
+      .idempotency());
+    await started;
+    const follower = Promise.resolve(api.post("/dedupe/unsafe-abort")
+      .body("same")
+      .dedupe(options)
+      .idempotency());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    leaderController.abort("ambiguous leader failure");
+
+    const results = await Promise.allSettled([leader, follower]);
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(calls).toBe(1);
+  });
+
+  it("does not redispatch an unsafe request after an ambiguous leader timeout", async () => {
+    let calls = 0;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport((_request, context) => {
+        calls += 1;
+        if (calls === 2) return Response.json({ duplicate: true });
+        markStarted();
+        return new Promise((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+        });
+      }),
+    });
+    const options = { methods: ["POST"], key: "same-write" } as const;
+
+    const leader = Promise.resolve(api.post("/dedupe/unsafe-timeout")
+      .body("same")
+      .timeout("10ms")
+      .dedupe(options)
+      .idempotency());
+    await started;
+    const follower = Promise.resolve(api.post("/dedupe/unsafe-timeout")
+      .body("same")
+      .dedupe(options)
+      .idempotency());
+
+    const results = await Promise.allSettled([leader, follower]);
+    expect(results).toMatchObject([
+      { status: "rejected", reason: { code: "ERR_HTTP_TIMEOUT" } },
+      { status: "rejected", reason: { code: "ERR_HTTP_TIMEOUT" } },
+    ]);
     expect(calls).toBe(1);
   });
 

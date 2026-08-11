@@ -33,16 +33,24 @@ export function applyQuery(url: URL, query: ReadonlyMap<string, QueryValue>): UR
   return result;
 }
 
-export function resolveUrl(input: string | URL, baseUrl?: string | URL): URL {
+export function resolveUrl(input: string | URL, baseUrl?: URL): URL {
+  let resolved: URL;
   try {
-    if (input instanceof URL) return new URL(input);
-    if (baseUrl) return new URL(input, baseUrl);
-    if (typeof globalThis.location !== "undefined") return new URL(input, globalThis.location.href);
-    return new URL(input);
+    resolved = new URL(input, baseUrl ?? globalThis.location?.href);
   } catch (cause) {
     throw new HttpConfigurationError(
       `Cannot resolve URL "${String(input)}". Provide an absolute URL or configure baseUrl.`,
       { cause },
     );
   }
+  if (
+    baseUrl !== undefined
+    && (baseUrl.origin === "null" || resolved.origin !== baseUrl.origin)
+  ) {
+    throw new HttpConfigurationError(
+      "Request URL must use the configured baseUrl origin.",
+    );
+  }
+  resolved.hash = "";
+  return resolved;
 }

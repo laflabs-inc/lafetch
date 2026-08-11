@@ -6,7 +6,7 @@ const SENSITIVE_HEADERS = new Set([
   "x-api-key",
 ]);
 
-const SENSITIVE_SEGMENT = /(?:^|[-_])(?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|credential|password|refresh[-_]?token|secret|session(?:id)?|token)(?=$|[-_])/i;
+const SENSITIVE_SEGMENT = /(?:^|[-_])(?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|credential|jwt|password|refresh[-_]?token|secret|session(?:id)?|sig(?:nature)?|token)(?=$|[-_])/i;
 
 export function isSensitiveName(name: string): boolean {
   return SENSITIVE_SEGMENT.test(name);

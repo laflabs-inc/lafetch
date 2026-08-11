@@ -25,6 +25,7 @@ export function snapshotRequest(request: Request | RequestSnapshot): RequestSnap
   const url = new URL(request.url);
   url.username = "";
   url.password = "";
+  url.hash = "";
   for (const key of [...url.searchParams.keys()]) {
     if (isSensitiveName(key)) {
       url.searchParams.set(key, "[REDACTED]");

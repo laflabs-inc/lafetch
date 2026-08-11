@@ -4,6 +4,7 @@ import {
   HttpConfigurationError,
   HttpResponseTooLargeError,
   lafetch,
+  type CacheEntry,
 } from "../../src/index.js";
 
 describe("browser Fetch runtime", () => {
@@ -111,13 +112,13 @@ describe("browser Fetch runtime", () => {
 
   it("runs application-cache invalidation in the browser", async () => {
     let deletes = 0;
-    const entries = new Map<string, { response: Response; expiresAt: number }>();
+    const entries = new Map<string, CacheEntry>();
     const store = {
       get(key: string) {
         const entry = entries.get(key);
         return entry && { ...entry, response: entry.response.clone() };
       },
-      set(key: string, entry: { response: Response; expiresAt: number }) {
+      set(key: string, entry: CacheEntry) {
         entries.set(key, { ...entry, response: entry.response.clone() });
       },
       delete(key: string) {

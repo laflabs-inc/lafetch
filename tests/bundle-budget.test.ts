@@ -5,13 +5,14 @@ import { describe, expect, it } from "vitest";
 
 // Hard alpha regression ceiling, not the expected output size. Intentional
 // public API growth must still record a measured baseline in the runtime docs.
-const MAX_MINIFIED_BYTES = 53.5 * 1_024;
+const MAX_MINIFIED_BYTES = 55 * 1_024;
 const MAX_GZIP_BYTES = 17 * 1_024;
-const MAX_REPRESENTATIVE_MINIFIED_BYTES = 44 * 1_024;
+const MAX_REPRESENTATIVE_MINIFIED_BYTES = 44.25 * 1_024;
 const MAX_REPRESENTATIVE_GZIP_BYTES = 14 * 1_024;
-const MAX_OPTIONAL_POLICY_MINIFIED_BYTES = 4 * 1_024;
+const MAX_OPTIONAL_POLICY_MINIFIED_BYTES = 4.5 * 1_024;
 const MAX_OPTIONAL_POLICY_GZIP_BYTES = 2.5 * 1_024;
-const MAX_CACHE_MINIFIED_BYTES = 5.5 * 1_024;
+const MAX_CACHE_MINIFIED_BYTES = 6.5 * 1_024;
+const MAX_CACHE_GZIP_BYTES = 3 * 1_024;
 
 type SplitBuild = BuildResult<{ metafile: true; write: false }>;
 
@@ -50,6 +51,18 @@ function measureOutputs(
   return { minified, gzip };
 }
 
+function expectSize(
+  name: string,
+  size: { readonly minified: number; readonly gzip: number },
+  minifiedBudget: number,
+  gzipBudget: number,
+): void {
+  const measured = `${name}: ${size.minified} bytes minified / ${size.gzip} bytes gzip`;
+  if (process.env.LAFETCH_PRINT_BUNDLE_SIZE === "1") console.info(measured);
+  expect(size.minified, measured).toBeLessThanOrEqual(minifiedBudget);
+  expect(size.gzip, measured).toBeLessThanOrEqual(gzipBudget);
+}
+
 describe("browser bundle budget", () => {
   it("keeps the complete public API inside the alpha size budget", async () => {
     const result = await build({
@@ -65,8 +78,12 @@ describe("browser bundle budget", () => {
     const output = result.outputFiles[0]?.contents;
     expect(output).toBeDefined();
 
-    expect(output!.byteLength).toBeLessThanOrEqual(MAX_MINIFIED_BYTES);
-    expect(gzipSync(output!).byteLength).toBeLessThanOrEqual(MAX_GZIP_BYTES);
+    expectSize(
+      "complete root",
+      { minified: output!.byteLength, gzip: gzipSync(output!).byteLength },
+      MAX_MINIFIED_BYTES,
+      MAX_GZIP_BYTES,
+    );
   });
 
   it("keeps a representative JSON request inside its stricter budget", async () => {
@@ -98,8 +115,12 @@ describe("browser bundle budget", () => {
 
     const initial = staticClosure(result.metafile, entry!);
     const size = measureOutputs(result, initial);
-    expect(size.minified).toBeLessThanOrEqual(MAX_REPRESENTATIVE_MINIFIED_BYTES);
-    expect(size.gzip).toBeLessThanOrEqual(MAX_REPRESENTATIVE_GZIP_BYTES);
+    expectSize(
+      "representative request",
+      size,
+      MAX_REPRESENTATIVE_MINIFIED_BYTES,
+      MAX_REPRESENTATIVE_GZIP_BYTES,
+    );
 
     const initialInputs = new Set(
       [...initial].flatMap((path) => Object.keys(result.metafile.outputs[path]!.inputs)),
@@ -111,10 +132,15 @@ describe("browser bundle budget", () => {
   });
 
   it.each([
-    ["Cache", "src/features/cache.ts", MAX_CACHE_MINIFIED_BYTES],
-    ["Deduplication", "src/features/dedupe.ts", MAX_OPTIONAL_POLICY_MINIFIED_BYTES],
-    ["Logical lifecycle", "src/core/logical-lifecycle.ts", MAX_OPTIONAL_POLICY_MINIFIED_BYTES],
-  ])("keeps the optional %s module inside its isolated budget", async (_name, entryPoint, minifiedBudget) => {
+    ["Cache", "src/features/cache.ts", MAX_CACHE_MINIFIED_BYTES, MAX_CACHE_GZIP_BYTES],
+    ["Deduplication", "src/features/dedupe.ts", MAX_OPTIONAL_POLICY_MINIFIED_BYTES, MAX_OPTIONAL_POLICY_GZIP_BYTES],
+    ["Logical lifecycle", "src/core/logical-lifecycle.ts", MAX_OPTIONAL_POLICY_MINIFIED_BYTES, MAX_OPTIONAL_POLICY_GZIP_BYTES],
+  ])("keeps the optional %s module inside its isolated budget", async (
+    _name,
+    entryPoint,
+    minifiedBudget,
+    gzipBudget,
+  ) => {
     const result = await build({
       entryPoints: [entryPoint],
       bundle: true,
@@ -133,7 +159,6 @@ describe("browser bundle budget", () => {
     expect(entry).toBeDefined();
 
     const size = measureOutputs(result, staticClosure(result.metafile, entry!));
-    expect(size.minified).toBeLessThanOrEqual(minifiedBudget);
-    expect(size.gzip).toBeLessThanOrEqual(MAX_OPTIONAL_POLICY_GZIP_BYTES);
+    expectSize(_name, size, minifiedBudget, gzipBudget);
   });
 });

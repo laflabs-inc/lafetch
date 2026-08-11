@@ -7,9 +7,16 @@ import { cacheInvalidationMetadata } from "./policy-metadata.js";
 import { hasSensitiveRequest, resolveRequestKey } from "./request-key.js";
 
 interface SharedExecution {
-  readonly promise: Promise<Response>;
+  wait(signal: AbortSignal): Promise<Response>;
   resolve(response: Response): void;
   reject(error: unknown): void;
+  observerCount(): number;
+}
+
+interface SharedObserver {
+  readonly resolve: (response: Response) => void;
+  readonly reject: (error: unknown) => void;
+  readonly cleanup: () => void;
 }
 
 const keyState = Symbol("dedupe.key");
@@ -17,24 +24,49 @@ const entryState = Symbol("dedupe.entry");
 const leaderState = Symbol("dedupe.leader");
 const sharedExecutionsState = Symbol("dedupe.sharedExecutions");
 
-function deferred(): SharedExecution {
-  let resolve!: (response: Response) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<Response>((ok, fail) => { resolve = ok; reject = fail; });
-  promise.catch(() => undefined);
-  return { promise, resolve, reject };
+/** @internal Exported only for deterministic cancellation-retention tests. */
+export function createSharedExecution(): SharedExecution {
+  const observers = new Set<SharedObserver>();
+  let settled = false;
+  const settle = (result: { response: Response } | { error: unknown }) => {
+    if (settled) return;
+    settled = true;
+    for (const observer of observers) {
+      observer.cleanup();
+      if ("response" in result) observer.resolve(result.response);
+      else observer.reject(result.error);
+    }
+    observers.clear();
+  };
+  return {
+    wait(signal) {
+      if (signal.aborted) return Promise.reject(cancellationError(signal));
+      if (settled) return Promise.reject(new Error("Deduplicated execution is already settled."));
+      return new Promise((resolve, reject) => {
+        let observer!: SharedObserver;
+        const onAbort = () => {
+          if (!observers.delete(observer)) return;
+          signal.removeEventListener("abort", onAbort);
+          reject(cancellationError(signal));
+        };
+        observer = {
+          resolve,
+          reject,
+          cleanup: () => signal.removeEventListener("abort", onAbort),
+        };
+        observers.add(observer);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
+    },
+    resolve(response) { settle({ response }); },
+    reject(error) { settle({ error }); },
+    observerCount() { return observers.size; },
+  };
 }
 
-function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(cancellationError(signal));
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(cancellationError(signal));
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => { signal.removeEventListener("abort", onAbort); resolve(value); },
-      (error) => { signal.removeEventListener("abort", onAbort); reject(error); },
-    );
-  });
+function isSafeMethod(method: string): boolean {
+  return method === "GET" || method === "HEAD" || method === "OPTIONS" || method === "TRACE";
 }
 
 /** @internal */
@@ -74,7 +106,7 @@ export function createDedupeFeature(
         while (true) {
           const existing = executions.get(key);
           if (!existing) {
-            const entry = deferred();
+            const entry = createSharedExecution();
             executions.set(key, entry);
             state.set(entryState, entry);
             state.set(leaderState, true);
@@ -82,14 +114,15 @@ export function createDedupeFeature(
           }
           state.set(entryState, existing);
           try {
-            return (await withAbort(existing.promise, signal)).clone();
+            return (await existing.wait(signal)).clone();
           } catch (error) {
             const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
             if (signal.aborted || (code !== "ERR_HTTP_ABORTED" && code !== "ERR_HTTP_TIMEOUT")) {
               throw error;
             }
+            if (!isSafeMethod(request.method)) throw error;
             if (executions.get(key) === existing) {
-              const replacement = deferred();
+              const replacement = createSharedExecution();
               executions.set(key, replacement);
               state.set(entryState, replacement);
               state.set(leaderState, true);

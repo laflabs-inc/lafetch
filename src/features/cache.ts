@@ -19,12 +19,16 @@ const staleState = Symbol("cache.stale");
 const generationState = Symbol("cache.generation");
 const responseTimeState = Symbol();
 
-function assertCacheEntry(entry: unknown): asserts entry is CacheEntry {
+function assertCacheEntry(entry: unknown, now: number): asserts entry is CacheEntry {
   const candidate = entry as Partial<CacheEntry> | null;
   if (
     typeof entry !== "object"
     || entry === null
     || !(candidate!.response instanceof Response)
+    || !Number.isSafeInteger(candidate!.sizeBytes)
+    || candidate!.sizeBytes! < 0
+    || !Number.isFinite(candidate!.storedAt)
+    || candidate!.storedAt! > now
     || !Number.isFinite(candidate!.expiresAt)
   ) {
     throw new TypeError("CacheStore.get() returned an invalid entry.");
@@ -47,14 +51,15 @@ function readStore(
   store: CacheStore,
   key: string,
   now: number,
+  ttlMs: number,
   failureMode: CacheStoreFailureMode,
 ): Promise<Response | undefined> {
   return storeOperation(failureMode, async () => {
     const entry = await store.get(key);
     if (entry === undefined) return;
-    assertCacheEntry(entry);
-    if (entry.expiresAt <= now) {
-      await store.delete(key);
+    assertCacheEntry(entry, now);
+    if (Math.min(entry.expiresAt, entry.storedAt + ttlMs) <= now) {
+      if (entry.expiresAt <= now) await store.delete(key);
       return;
     }
     return entry.response.clone();
@@ -160,13 +165,14 @@ export function createCacheFeature(
             resolvedKey,
             now(),
             request,
+            declaration.ttlMs,
             declaration.storeFailure,
           );
           if (read?.stale === undefined) return read?.response;
           state.set(staleState, read.stale);
           return;
         }
-        return await readStore(store, resolvedKey, now(), declaration.storeFailure);
+        return await readStore(store, resolvedKey, now(), declaration.ttlMs, declaration.storeFailure);
       },
       async afterResponse({ response, source, state }) {
         if (source === "feature:cache") return;
@@ -176,7 +182,7 @@ export function createCacheFeature(
         const { mergeNotModifiedResponse } = await import("./cache-revalidation.js");
         return mergeNotModifiedResponse(stale, response);
       },
-      async finalize({ response, error, source, state }) {
+      async finalize({ response, error, source, state, metadata }) {
         const registration = state.get(generationState) as CacheGenerationRegistration | undefined;
         try {
           if (
@@ -197,13 +203,26 @@ export function createCacheFeature(
             return;
           }
           if (ttl <= 0) return;
-          const expiresAt = ttl + (state.get(responseTimeState) as number);
+          const storedAt = state.get(responseTimeState);
+          const sizeBytes = metadata.get("response.bufferedBytes");
+          if (
+            typeof storedAt !== "number"
+            || !Number.isFinite(storedAt)
+            || typeof sizeBytes !== "number"
+            || !Number.isSafeInteger(sizeBytes)
+            || sizeBytes < 0
+          ) {
+            throw new TypeError("Buffered response metadata is unavailable for Cache storage.");
+          }
+          const expiresAt = ttl + storedAt;
           await registration.commit(() =>
             expiresAt > now() && storeOperation(
                 declaration.storeFailure,
                 () => store.set(key, {
                   response: response.clone(),
                   expiresAt,
+                  sizeBytes,
+                  storedAt,
                 }),
               )
           );

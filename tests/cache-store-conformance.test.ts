@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryCacheStore } from "../src/cache.js";
+import { MemoryCacheStore, type CacheEntry } from "../src/cache.js";
 import { runCacheStoreConformance } from "../src/testing/index.js";
 
 describe("CacheStore conformance", () => {
@@ -37,8 +37,10 @@ describe("CacheStore conformance", () => {
         body: ArrayBuffer;
         expiresAt: number;
         headers: Headers;
+        sizeBytes: number;
         status: number;
         statusText: string;
+        storedAt: number;
       }>();
 
       return {
@@ -52,15 +54,19 @@ describe("CacheStore conformance", () => {
               status: entry.status,
               statusText: entry.statusText,
             }),
+            sizeBytes: entry.sizeBytes,
+            storedAt: entry.storedAt,
           };
         },
-        async set(key: string, entry: { response: Response; expiresAt: number }) {
+        async set(key: string, entry: CacheEntry) {
           entries.set(key, {
             body: await entry.response.clone().arrayBuffer(),
             expiresAt: entry.expiresAt,
             headers: entry.response.headers,
+            sizeBytes: entry.sizeBytes,
             status: entry.response.status,
             statusText: entry.response.statusText,
+            storedAt: entry.storedAt,
           });
         },
         delete(key: string) {
@@ -82,9 +88,12 @@ describe("CacheStore conformance", () => {
     const results = await runCacheStoreConformance(() => ({
       async get(key: string) {
         if (!key.endsWith(":read-isolation")) return;
+        const storedAt = Date.now();
         return {
-          expiresAt: Date.now() + 60_000,
+          expiresAt: storedAt + 60_000,
           response: await fetch("data:text/plain,payload"),
+          sizeBytes: 7,
+          storedAt,
         };
       },
       set() {},
@@ -113,9 +122,12 @@ describe("CacheStore conformance", () => {
     const results = await runCacheStoreConformance(() => ({
       get(key: string) {
         if (!key.endsWith(":read-isolation")) return;
+        const storedAt = Date.now();
         return {
-          expiresAt: Date.now() + 60_000,
+          expiresAt: storedAt + 60_000,
           response: new SharedHeaderResponse("payload"),
+          sizeBytes: 7,
+          storedAt,
         };
       },
       set() {},
