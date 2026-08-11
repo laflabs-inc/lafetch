@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { MemoryCacheStore, type CacheStore } from "../src/cache.js";
+import { MemoryCacheStore, type CacheEntry, type CacheStore } from "../src/cache.js";
 import { lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
 describe("cache", () => {
+  it("uses a bounded aggregate byte budget by default", () => {
+    expect(new MemoryCacheStore().maxBytes).toBe(64 * 1024 * 1024);
+  });
+
   it("snapshots policy arrays before the implementation is loaded", async () => {
     let writes = 0;
     const methods = ["GET"];
@@ -40,6 +44,114 @@ describe("cache", () => {
     expect(first.data.call).toBe(1);
     expect(second.data.call).toBe(1);
     expect(calls).toBe(1);
+  });
+
+  it("evicts by aggregate response bytes before the entry-count limit", () => {
+    const store = new MemoryCacheStore(10, () => 0, 6);
+    const entry = (body: string) => ({
+      response: new Response(body),
+      expiresAt: 60_000,
+      storedAt: 0,
+      sizeBytes: body.length,
+    });
+
+    store.set("first", entry("1234"));
+    store.set("second", entry("5678"));
+
+    expect(store.get("first")).toBeUndefined();
+    expect(store.get("second")).toBeDefined();
+  });
+
+  it("stores the actual buffered Body byte count and freshness start", async () => {
+    let written: CacheEntry | undefined;
+    const store: CacheStore = {
+      get() { return undefined; },
+      set(_key, entry) { written = entry; },
+      delete() {},
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => 1_000 },
+      transport: mockTransport(() => new Response("가")),
+    });
+
+    await api.get("/cache/actual-bytes").cache("1m", { store });
+
+    expect(written?.sizeBytes).toBe(new TextEncoder().encode("가").byteLength);
+    expect(written?.storedAt).toBe(1_000);
+    expect(written?.expiresAt).toBe(61_000);
+  });
+
+  it("keeps aggregate byte accounting correct across replace, delete, and clear", () => {
+    const store = new MemoryCacheStore(10, () => 0, 6);
+    const entry = (body: string) => ({
+      response: new Response(body),
+      expiresAt: 60_000,
+      storedAt: 0,
+      sizeBytes: body.length,
+    });
+
+    store.set("first", entry("1234"));
+    store.set("first", entry("1"));
+    store.set("second", entry("5678"));
+    expect(store.get("first")).toBeDefined();
+    expect(store.get("second")).toBeDefined();
+
+    store.delete("first");
+    store.set("third", entry("ab"));
+    expect(store.get("second")).toBeDefined();
+    expect(store.get("third")).toBeDefined();
+
+    store.clear();
+    store.set("fourth", entry("123456"));
+    expect(store.get("fourth")).toBeDefined();
+  });
+
+  it("applies each reader's configured TTL as a final cache-hit upper bound", async () => {
+    let now = 1_000;
+    let calls = 0;
+    const store = new MemoryCacheStore(10, () => now);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    await api.get("/cache/reader-ttl").cache("60m", { store });
+    now += 1_001;
+    const short = await api.get<{ call: number }>("/cache/reader-ttl").cache("1s", { store });
+    const bypass = await api.get<{ call: number }>("/cache/reader-ttl").cache(0, { store });
+
+    expect(short.data.call).toBe(2);
+    expect(bypass.data.call).toBe(3);
+    expect(calls).toBe(3);
+  });
+
+  it("applies a shorter reader TTL before conditional revalidation", async () => {
+    let now = 1_000;
+    let calls = 0;
+    const validators: Array<string | null> = [];
+    const store = new MemoryCacheStore(10, () => now);
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      runtime: { now: () => now },
+      transport: mockTransport((request) => {
+        calls += 1;
+        validators.push(request.headers.get("if-none-match"));
+        return calls === 1
+          ? new Response("value", { headers: { ETag: "\"reader-v1\"" } })
+          : new Response(null, { status: 304, headers: { ETag: "\"reader-v1\"" } });
+      }),
+    });
+
+    await api.get("/cache/revalidation-reader-ttl").cache("60m", { store, mode: "revalidate" });
+    now += 1_001;
+    const response = await api.get("/cache/revalidation-reader-ttl")
+      .cache("1s", { store, mode: "revalidate" });
+
+    expect(response.data).toBe("value");
+    expect(validators).toEqual([null, "\"reader-v1\""]);
+    expect(calls).toBe(2);
   });
 
   it("invalidates the resolved key before dispatch and stores the replacement", async () => {
@@ -246,7 +358,7 @@ describe("cache", () => {
     let firstSetStarted!: () => void;
     const firstSetGate = new Promise<void>((resolve) => { releaseFirstSet = resolve; });
     const setStarted = new Promise<void>((resolve) => { firstSetStarted = resolve; });
-    const entries = new Map<string, { response: Response; expiresAt: number }>();
+    const entries = new Map<string, CacheEntry>();
     let finalizations = 0;
     const advanceQueueClock = {
       name: "advance-queue-clock",
@@ -266,6 +378,8 @@ describe("cache", () => {
         return entry && {
           response: entry.response.clone(),
           expiresAt: entry.expiresAt,
+          sizeBytes: entry.sizeBytes,
+          storedAt: entry.storedAt,
         };
       },
       async set(key, entry) {
@@ -277,6 +391,8 @@ describe("cache", () => {
         entries.set(key, {
           response: entry.response.clone(),
           expiresAt: entry.expiresAt,
+          sizeBytes: entry.sizeBytes,
+          storedAt: entry.storedAt,
         });
       },
       delete(key) {
@@ -388,6 +504,8 @@ describe("cache", () => {
         return {
           response: Response.json({ stale: true }),
           expiresAt: now - 1,
+          sizeBytes: 0,
+          storedAt: now - 2,
         };
       },
       set() {},
@@ -468,6 +586,8 @@ describe("cache", () => {
         return {
           response: Response.json({ stale: true }),
           expiresAt: Date.now() - 1,
+          sizeBytes: 0,
+          storedAt: Date.now() - 2,
         };
       },
       set() {},
@@ -578,6 +698,25 @@ describe("cache", () => {
 
     expect(first.data.tenant).toBe("first");
     expect(second.data.tenant).toBe("second");
+    expect(calls).toBe(2);
+  });
+
+  it("does not reuse a cache entry across different RequestInit integrity policies", async () => {
+    let calls = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => Response.json({ call: ++calls })),
+    });
+
+    const first = await api.get<{ call: number }>("/cache/request-policy")
+      .requestInit({ integrity: "sha256-first" })
+      .cache("1m", { key: "shared" });
+    const second = await api.get<{ call: number }>("/cache/request-policy")
+      .requestInit({ integrity: "sha256-second" })
+      .cache("1m", { key: "shared" });
+
+    expect(first.data.call).toBe(1);
+    expect(second.data.call).toBe(2);
     expect(calls).toBe(2);
   });
 
@@ -926,6 +1065,8 @@ describe("cache", () => {
               { headers: { ETag: "\"old\"" } },
             ),
             expiresAt: 0,
+            sizeBytes: 0,
+            storedAt: 0,
           };
         },
         set() {},

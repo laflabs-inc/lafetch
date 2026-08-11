@@ -1,9 +1,25 @@
-import type { CacheStore } from "../core/cache-store.js";
+import type { CacheEntry, CacheStore } from "../core/cache-store.js";
 import type { CacheStoreFailureMode } from "./cache-options.js";
 
 export interface RevalidationRead {
   readonly response?: Response;
   readonly stale?: Response;
+}
+
+function assertCacheEntry(entry: unknown, now: number): asserts entry is CacheEntry {
+  const candidate = entry as Partial<CacheEntry> | null;
+  if (
+    typeof entry !== "object"
+    || entry === null
+    || !(candidate!.response instanceof Response)
+    || !Number.isSafeInteger(candidate!.sizeBytes)
+    || candidate!.sizeBytes! < 0
+    || !Number.isFinite(candidate!.storedAt)
+    || candidate!.storedAt! > now
+    || !Number.isFinite(candidate!.expiresAt)
+  ) {
+    throw new TypeError("CacheStore.get() returned an invalid entry.");
+  }
 }
 
 function preserveResponseMetadata(response: Response, source: Response): Response {
@@ -24,25 +40,21 @@ export async function readRevalidatingCache(
   key: string,
   now: number,
   request: Request,
+  ttlMs: number,
   failureMode: CacheStoreFailureMode,
 ): Promise<RevalidationRead | undefined> {
   try {
     const entry = await store.get(key);
     if (entry === undefined) return {};
-    if (
-      typeof entry !== "object"
-      || entry === null
-      || !(entry.response instanceof Response)
-      || !Number.isFinite(entry.expiresAt)
-    ) {
-      throw new TypeError("CacheStore.get() returned an invalid entry.");
+    assertCacheEntry(entry, now);
+    if (Math.min(entry.expiresAt, entry.storedAt + ttlMs) > now) {
+      return { response: entry.response.clone() };
     }
-    if (entry.expiresAt > now) return { response: entry.response.clone() };
     const stale = entry.response.clone();
     const etag = stale.headers.get("etag");
     const lastModified = stale.headers.get("last-modified");
     if (etag === null && lastModified === null) {
-      await store.delete(key);
+      if (entry.expiresAt <= now) await store.delete(key);
       return {};
     }
     if (etag !== null) request.headers.set("If-None-Match", etag);

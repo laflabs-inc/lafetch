@@ -226,7 +226,7 @@ async function bufferResponse(
   signal: AbortSignal,
   maxResponseBytes: number,
   request: Request,
-): Promise<Response> {
+): Promise<readonly [response: Response, sizeBytes: number]> {
   if (response.bodyUsed || response.body?.locked) {
     throw new HttpConsumptionError(
       "The buffered response body was already consumed or locked by a Feature.",
@@ -245,12 +245,12 @@ async function bufferResponse(
   const onAbort = () => rejectAbort(cancellationError(signal));
   signal.addEventListener("abort", onAbort, { once: true });
   try {
-    const consume = async () => {
-      if (!reader) return;
+    const consume = async (): Promise<number> => {
+      if (!reader) return 0;
       let receivedBytes = 0;
       while (true) {
         const chunk = await reader.read();
-        if (chunk.done) return;
+        if (chunk.done) return receivedBytes;
         const chunkBytes = chunk.value?.byteLength;
         if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 0) {
           throw new HttpTransportError(INVALID_BODY_CHUNK, { request });
@@ -261,8 +261,7 @@ async function bufferResponse(
         }
       }
     };
-    await Promise.race([consume(), aborted]);
-    return retained;
+    return [retained, await Promise.race([consume(), aborted])];
   } catch (error) {
     void reader?.cancel().catch(() => undefined);
     void retained.body?.cancel().catch(() => undefined);
@@ -575,6 +574,13 @@ async function execute(
   const startedAt = config.runtime.now();
   const requestId = config.runtime.requestId();
   if (streaming) assertStreamingCompatible(config.features);
+  const baseDraft: MutableRequestDraft = {
+    url: applyQuery(resolveUrl(config.input, config.baseUrl), config.query),
+    method: config.method,
+    headers: new Headers(config.headers),
+    body: config.body,
+    credentials: config.credentials,
+  };
   const totalDeadline = createDeadlineSignal("total", config.timeoutMs);
   const requestSignal = composeSignals([config.signal, totalDeadline.signal]);
   let resolvedFeatures: readonly RequestFeature[];
@@ -626,14 +632,6 @@ async function execute(
       streamingExposed,
     );
     return completion;
-  };
-
-  const baseDraft: MutableRequestDraft = {
-    url: applyQuery(resolveUrl(config.input, config.baseUrl), config.query),
-    method: config.method,
-    headers: new Headers(config.headers),
-    body: config.body,
-    credentials: config.credentials,
   };
 
   try {
@@ -774,12 +772,13 @@ async function execute(
           return streamed;
         }
 
-        const retained = await bufferResponse(
+        const [retained, sizeBytes] = await bufferResponse(
           response,
           attemptSignal.signal,
           config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
           request,
         );
+        featureRuntime.metadata.set("response.bufferedBytes", sizeBytes);
         finalResponse = retained;
         finalSource = source;
         if (attemptSignal.signal.aborted) throw cancellationError(attemptSignal.signal);

@@ -100,7 +100,7 @@ function snapshotFeature(feature: ConfiguredFeature): ConfiguredFeature {
 }
 
 export interface ClientConfiguration {
-  readonly baseUrl?: string | URL;
+  readonly baseUrl?: URL;
   readonly headers: Headers;
   readonly transport: Transport;
   readonly runtime: RuntimeAdapter;
@@ -127,7 +127,7 @@ export function createClientPolicyScope(): ClientPolicyScope {
 
 export interface RequestConfiguration {
   readonly input: string | URL;
-  readonly baseUrl?: string | URL;
+  readonly baseUrl?: URL;
   readonly method: string;
   readonly bodyAllowed: boolean;
   readonly headers: Headers;

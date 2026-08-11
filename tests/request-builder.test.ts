@@ -24,6 +24,28 @@ function json(value: unknown, init: ResponseInit = {}): Response {
 }
 
 describe("LRequest", () => {
+  it("cleans up timeout and Abort listeners when URL resolution fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, "addEventListener");
+      const remove = vi.spyOn(controller.signal, "removeEventListener");
+      const transport = mockTransport(() => Response.json({ unused: true }));
+      const api = lafetch.create({ transport });
+
+      await expect(api.get("not an absolute URL")
+        .signal(controller.signal)
+        .timeout("1m"))
+        .rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+
+      expect(remove).toHaveBeenCalledTimes(add.mock.calls.length);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(transport.calls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("supports clients without shared configuration", async () => {
     const payload = encodeURIComponent(JSON.stringify({ id: "1", name: "Dohyun" }));
     const api = lafetch.create();

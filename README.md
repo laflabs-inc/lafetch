@@ -8,7 +8,7 @@ Lafetch는 Fetch 표준 위에서 동작하는 TypeScript HTTP 클라이언트�
 
 ## 설치
 
-현재 소스 버전은 `0.4.0-alpha.3`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
+현재 소스 버전은 `0.4.0-alpha.4`이며 아직 npm 공개 배포 전입니다. 첫 pre-release가 배포된 뒤부터 아래 명령으로 설치합니다.
 
 ```bash
 npm install @laflabs/lafetch
@@ -33,6 +33,8 @@ response.data;    // User
 response.status;  // number
 response.headers; // Headers
 ```
+
+`baseUrl`을 지정한 클라이언트는 해당 origin에만 요청합니다. 다른 origin을 호출해야 하면 자격 증명과 공통 Header를 상속하지 않는 별도 클라이언트를 만드세요.
 
 기본 반환값은 `LResponse<User>`입니다. 서버의 `Content-Type`에 따라 디코딩된 값은 항상 `response.data`에 있고, HTTP 상태와 실행 메타데이터도 같은 응답에서 확인할 수 있습니다. JSON API에 별도의 종결 메서드를 반복할 필요는 없습니다.
 
@@ -240,7 +242,8 @@ const file: Blob = await api.get("/files/1").as("blob");
 - 기본 성공 범위는 HTTP `200–299`입니다.
 - 기본 재시도 메서드는 `GET`, `HEAD`, `OPTIONS`입니다.
 - `Retry-After`는 일반 Backoff와 분리해 최대 1분까지만 따르며, 그보다 길면 더 일찍 재시도하지 않습니다.
-- 기본 메모리 Cache는 500개 항목으로 제한됩니다.
+- `baseUrl` 클라이언트는 상대 URL과 같은 origin의 절대 URL만 허용합니다.
+- 기본 메모리 Cache는 500개 항목과 응답 Body 합계 64 MiB로 제한됩니다.
 - Cache TTL은 최종 상한이며 유효한 `max-age`와 `Age`는 남은 freshness를 줄일 수만 있습니다.
 - Buffered 응답은 기본 16 MiB로 제한되며 요청별로 명시적인 상한을 지정할 수 있습니다.
 - Streaming은 기본 총량 제한 없이 backpressure를 따르며, `maxResponseBytes()`를 명시한 요청만 누적 전달량을 제한합니다.
@@ -304,6 +307,7 @@ Feature Runtime과 Capability 타입을 루트 패키지에서 분리하여 일�
 
 ## 문서
 
+- [보안 정책 및 0.4.0-alpha.4 Hotfix](SECURITY.md)
 - [문서 전체 목차](docs/README.md)
 - [상세 사용 가이드](docs/advanced-usage.md)
 - [개발 로드맵](docs/roadmap.md)
@@ -327,8 +331,8 @@ Lafetch는 [Apache License 2.0](LICENSE)에 따라 배포됩니다. 자세한 �
 
 ## 현재 상태
 
-현재 소스 후보는 `0.4.0-alpha.3`입니다. v0.3의 응답·Streaming 계약 위에 logical lifecycle, `OPTIONS`, 외부 CacheStore 신뢰성, invalidation·revalidation과 HTTP freshness 계약을 추가했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
+현재 소스 후보는 `0.4.0-alpha.4`입니다. v0.3의 응답·Streaming 계약 위에 logical lifecycle, `OPTIONS`, 외부 CacheStore 신뢰성, invalidation·revalidation과 HTTP freshness 계약을 추가하고, 독립 보안 보고서의 Medium 7건·Low 2건을 hotfix로 반영했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
 
-현재 단계는 v0.4 Reliability policy입니다. 다음으로 leader/follower Abort·Timeout 경쟁 상태와 누수, tenant·인증 Cache key 경계와 adaptive Retry를 검증합니다.
+현재 단계는 v0.4 Reliability policy입니다. 다음으로 사용자 key의 tenant·인증 경계 문서화와 adaptive Retry를 검증합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. npm 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.
