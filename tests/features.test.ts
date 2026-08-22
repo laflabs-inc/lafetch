@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { HttpFeatureConflictError, HttpFeatureError, lafetch } from "../src/index.js";
+import { resolveFeatures } from "../src/core/features.js";
 import { defineFeature, type RequestFeature } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
 
@@ -42,6 +43,182 @@ describe("request features", () => {
       "second:finalize",
       "first:finalize",
     ]);
+  });
+
+  it("awaits non-transforming hooks sequentially in resolved Feature order", async () => {
+    const events: string[] = [];
+    const record = async (label: string) => {
+      events.push(`${label}:start`);
+      await Promise.resolve();
+      events.push(`${label}:end`);
+    };
+    const feature = (name: string, ordering?: RequestFeature["ordering"]): RequestFeature => ({
+      name,
+      ...(ordering !== undefined ? { ordering } : {}),
+      hooks: {
+        async onEvent({ event }) {
+          if (event.type === "request:start") await record(`${name}:onEvent`);
+        },
+        async prepare() { await record(`${name}:prepare`); },
+        async beforeAttempt() { await record(`${name}:beforeAttempt`); },
+        async onAttemptError() { await record(`${name}:onAttemptError`); },
+      },
+    });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => { throw new TypeError("offline"); }),
+    });
+
+    await expect(api.get("/resource")
+      .use(feature("second"))
+      .use(feature("first", { before: ["second"] })))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TRANSPORT" });
+
+    expect(events).toEqual([
+      "first:onEvent:start", "first:onEvent:end", "second:onEvent:start", "second:onEvent:end",
+      "first:prepare:start", "first:prepare:end", "second:prepare:start", "second:prepare:end",
+      "first:beforeAttempt:start", "first:beforeAttempt:end",
+      "second:beforeAttempt:start", "second:beforeAttempt:end",
+      "first:onAttemptError:start", "first:onAttemptError:end",
+      "second:onAttemptError:start", "second:onAttemptError:end",
+    ]);
+  });
+
+  it("preserves hook receivers, per-Feature state, and shared request metadata", async () => {
+    const firstReceivers: unknown[] = [];
+    const secondReceivers: unknown[] = [];
+    const states: Array<Map<PropertyKey, unknown>> = [];
+    const metadata: Array<Map<string, unknown>> = [];
+    const firstHooks: NonNullable<RequestFeature["hooks"]> = {
+      onEvent({ event, state, metadata: shared }) {
+        firstReceivers.push(this);
+        if (event.type !== "request:start") return;
+        state.set("owner", "first");
+        shared.set("shared", "yes");
+        states.push(state);
+        metadata.push(shared);
+      },
+      prepare({ state, metadata: shared }) {
+        firstReceivers.push(this);
+        expect(state.get("owner")).toBe("first");
+        states.push(state);
+        metadata.push(shared);
+      },
+      beforeAttempt({ state, metadata: shared }) {
+        firstReceivers.push(this);
+        expect(state.get("owner")).toBe("first");
+        states.push(state);
+        metadata.push(shared);
+      },
+      onAttemptError({ state, metadata: shared }) {
+        firstReceivers.push(this);
+        expect(state.get("owner")).toBe("first");
+        states.push(state);
+        metadata.push(shared);
+      },
+    };
+    const secondHooks: NonNullable<RequestFeature["hooks"]> = {
+      onEvent({ event, state, metadata: shared }) {
+        secondReceivers.push(this);
+        if (event.type !== "request:start") return;
+        expect(state.has("owner")).toBe(false);
+        expect(shared.get("shared")).toBe("yes");
+        state.set("owner", "second");
+        states.push(state);
+        metadata.push(shared);
+      },
+      prepare({ state, metadata: shared }) {
+        secondReceivers.push(this);
+        expect(state.get("owner")).toBe("second");
+        states.push(state);
+        metadata.push(shared);
+      },
+      beforeAttempt({ state, metadata: shared }) {
+        secondReceivers.push(this);
+        expect(state.get("owner")).toBe("second");
+        states.push(state);
+        metadata.push(shared);
+      },
+      onAttemptError({ state, metadata: shared }) {
+        secondReceivers.push(this);
+        expect(state.get("owner")).toBe("second");
+        states.push(state);
+        metadata.push(shared);
+      },
+    };
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => { throw new TypeError("offline"); }),
+    });
+
+    await expect(api.get("/resource")
+      .use({ name: "first", hooks: firstHooks })
+      .use({ name: "second", hooks: secondHooks }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_TRANSPORT" });
+
+    expect(new Set(firstReceivers)).toHaveLength(1);
+    expect(new Set(secondReceivers)).toHaveLength(1);
+    expect(firstReceivers[0]).not.toBe(secondReceivers[0]);
+    expect(new Set(states)).toHaveLength(2);
+    expect(new Set(metadata)).toHaveLength(1);
+  });
+
+  it("labels failures from every non-transforming hook with its exact hook name", async () => {
+    const cases: Array<{ hook: string; feature: RequestFeature; transportFails?: boolean }> = [
+      { hook: "onEvent", feature: { name: "broken", hooks: { onEvent() { throw new Error("broken"); } } } },
+      { hook: "prepare", feature: { name: "broken", hooks: { prepare() { throw new Error("broken"); } } } },
+      {
+        hook: "beforeAttempt",
+        feature: { name: "broken", hooks: { beforeAttempt() { throw new Error("broken"); } } },
+      },
+      {
+        hook: "onAttemptError",
+        feature: { name: "broken", hooks: { onAttemptError() { throw new Error("broken"); } } },
+        transportFails: true,
+      },
+    ];
+
+    for (const { hook, feature, transportFails } of cases) {
+      const api = lafetch.create({
+        baseUrl: "https://api.example.com",
+        transport: mockTransport(() => {
+          if (transportFails) throw new TypeError("offline");
+          return new Response(null, { status: 204 });
+        }),
+      });
+
+      await expect(api.get("/resource").use(feature)).rejects.toMatchObject({
+        message: `Feature "broken" failed in the ${hook} hook.`,
+        feature: "broken",
+        hook,
+      });
+    }
+  });
+
+  it("keeps stable ordering, duplicate edges, optional targets, and conflict messages", () => {
+    const ordered = resolveFeatures([
+      { name: "independent-first" },
+      { name: "dependent", ordering: { after: ["prerequisite", "prerequisite"] } },
+      { name: "prerequisite", ordering: { before: ["dependent", "dependent"] } },
+      { name: "independent-last", ordering: { optionalBefore: ["missing"] } },
+    ]);
+
+    expect(ordered.map(({ name }) => name)).toEqual([
+      "independent-first",
+      "prerequisite",
+      "dependent",
+      "independent-last",
+    ]);
+    expect(() => resolveFeatures([
+      { name: "a", ordering: { after: ["b"] } },
+      { name: "b", ordering: { after: ["a"] } },
+    ])).toThrow("Feature ordering contains a cycle: a -> b.");
+    expect(() => resolveFeatures([
+      { name: "known", ordering: { before: ["missing"] } },
+    ])).toThrow('Feature ordering references unknown Feature "missing".');
+    expect(() => resolveFeatures([
+      { name: "self", ordering: { optionalAfter: ["self"] } },
+    ])).toThrow('Feature "self" cannot order itself.');
   });
 
   it("rejects duplicate Feature names instead of silently overriding policy", async () => {

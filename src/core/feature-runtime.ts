@@ -1,6 +1,5 @@
 import { HttpError, HttpFeatureError } from "./errors.js";
 import type {
-  AttemptErrorContext,
   FeatureBaseContext,
   FeatureState,
   MutableRequestDraft,
@@ -57,31 +56,31 @@ export class FeatureRuntime {
     }
   }
 
-  async emit(event: RequestEvent): Promise<void> {
+  async #dispatch(
+    hook: "onEvent" | "prepare" | "beforeAttempt" | "onAttemptError",
+    fields: object,
+  ): Promise<void> {
     for (const feature of this.features) {
-      if (!feature.hooks?.onEvent) continue;
-      await this.#run(feature, "onEvent", () =>
-        feature.hooks!.onEvent!({ ...this.#context(feature), event }),
+      const hooks = feature.hooks;
+      if (!hooks?.[hook]) continue;
+      await this.#run(feature, hook, () =>
+        (hooks[hook] as (context: FeatureBaseContext & object) => void | Promise<void>)(
+          { ...this.#context(feature), ...fields },
+        ),
       );
     }
+  }
+
+  async emit(event: RequestEvent): Promise<void> {
+    await this.#dispatch("onEvent", { event });
   }
 
   async prepare(draft: MutableRequestDraft, signal: AbortSignal): Promise<void> {
-    for (const feature of this.features) {
-      if (!feature.hooks?.prepare) continue;
-      await this.#run(feature, "prepare", () =>
-        feature.hooks!.prepare!({ ...this.#context(feature), draft, signal }),
-      );
-    }
+    await this.#dispatch("prepare", { draft, signal });
   }
 
   async beforeAttempt(draft: MutableRequestDraft, attempt: number, signal: AbortSignal): Promise<void> {
-    for (const feature of this.features) {
-      if (!feature.hooks?.beforeAttempt) continue;
-      await this.#run(feature, "beforeAttempt", () =>
-        feature.hooks!.beforeAttempt!({ ...this.#context(feature), draft, attempt, signal }),
-      );
-    }
+    await this.#dispatch("beforeAttempt", { draft, attempt, signal });
   }
 
   async intercept(request: Request, attempt: number, signal: AbortSignal): Promise<InterceptedResponse | undefined> {
@@ -126,18 +125,13 @@ export class FeatureRuntime {
   }
 
   async onAttemptError(input: AttemptErrorInput): Promise<void> {
-    for (const feature of this.features) {
-      if (!feature.hooks?.onAttemptError) continue;
-      const context: AttemptErrorContext = {
-        ...this.#context(feature),
-        ...(input.request !== undefined ? { request: input.request } : {}),
-        error: input.error,
-        attempt: input.attempt,
-        willRetry: input.willRetry,
-        ...(input.retryDelayMs !== undefined ? { retryDelayMs: input.retryDelayMs } : {}),
-      };
-      await this.#run(feature, "onAttemptError", () => feature.hooks!.onAttemptError!(context));
-    }
+    await this.#dispatch("onAttemptError", {
+      ...(input.request !== undefined ? { request: input.request } : {}),
+      error: input.error,
+      attempt: input.attempt,
+      willRetry: input.willRetry,
+      ...(input.retryDelayMs !== undefined ? { retryDelayMs: input.retryDelayMs } : {}),
+    });
   }
 
   async mapError(error: Error, attempts: number, request?: Request): Promise<Error> {

@@ -121,21 +121,15 @@ export function validateAdvancedRequestInit(
     }
   }
 
-  const cache = value.cache === undefined
-    ? undefined
-    : closedString(value.cache, REQUEST_CACHE, "requestInit.cache");
-  const mode = value.mode === undefined
-    ? undefined
-    : closedString(value.mode, REQUEST_MODE, "requestInit.mode");
-  const priority = value.priority === undefined
-    ? undefined
-    : closedString(value.priority, REQUEST_PRIORITY, "requestInit.priority");
-  const redirect = value.redirect === undefined
-    ? undefined
-    : closedString(value.redirect, REQUEST_REDIRECT, "requestInit.redirect");
-  const referrerPolicy = value.referrerPolicy === undefined
-    ? undefined
-    : closedString(value.referrerPolicy, REFERRER_POLICY, "requestInit.referrerPolicy");
+  const option = <TValue extends string>(key: string, values: readonly TValue[]) => {
+    const item = value[key];
+    return item === undefined ? undefined : closedString(item, values, `requestInit.${key}`);
+  };
+  const cache = option("cache", REQUEST_CACHE);
+  const mode = option("mode", REQUEST_MODE);
+  const priority = option("priority", REQUEST_PRIORITY);
+  const redirect = option("redirect", REQUEST_REDIRECT);
+  const referrerPolicy = option("referrerPolicy", REFERRER_POLICY);
   if (value.integrity !== undefined && typeof value.integrity !== "string") {
     configurationError("requestInit.integrity", "a string");
   }
