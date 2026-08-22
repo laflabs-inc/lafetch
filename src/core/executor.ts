@@ -30,6 +30,7 @@ import type {
   RequestEventResponseSnapshot,
   RequestMeta,
   RequestFeature,
+  RetryDecisionContext,
   RetryOptions,
 } from "./types.js";
 
@@ -44,6 +45,7 @@ interface NormalizedRetry {
   readonly baseMs: number;
   readonly maxMs: number;
   readonly jitter: "none" | "full";
+  readonly shouldRetry?: RetryOptions["shouldRetry"];
 }
 
 const DEFAULT_RETRY_METHODS = ["GET", "HEAD", "OPTIONS"];
@@ -87,6 +89,7 @@ function normalizeRetry(
     baseMs: backoff.base === undefined ? 200 : durationToMs(backoff.base, "retry.backoff.base"),
     maxMs: backoff.max === undefined ? 10_000 : durationToMs(backoff.max, "retry.backoff.max"),
     jitter: backoff.jitter ?? "full",
+    ...(options.shouldRetry !== undefined ? { shouldRetry: options.shouldRetry } : {}),
   };
 }
 
@@ -219,6 +222,29 @@ function cloneDraft(draft: MutableRequestDraft): MutableRequestDraft {
 
 function canRetry(retry: NormalizedRetry, method: string, attempt: number): boolean {
   return attempt < retry.attempts && retry.methods.has(method);
+}
+
+function retryDecision(
+  retry: NormalizedRetry,
+  defaultDecision: boolean,
+  context: RetryDecisionContext,
+): boolean {
+  if (!retry.shouldRetry) return defaultDecision;
+  let decision: unknown;
+  try {
+    decision = retry.shouldRetry(Object.freeze(context));
+  } catch (cause) {
+    throw new HttpConfigurationError(
+      "retry.shouldRetry() failed while evaluating an attempt.",
+      { cause },
+    );
+  }
+  if (decision !== undefined && typeof decision !== "boolean") {
+    throw new HttpConfigurationError(
+      "retry.shouldRetry() must return a boolean or undefined.",
+    );
+  }
+  return decision ?? defaultDecision;
 }
 
 async function bufferResponse(
@@ -702,10 +728,24 @@ async function execute(
         }));
 
         const accepted = isAcceptedStatus(response.status, config.acceptStatus);
-        const retryEligible =
-          !accepted
-          && retry.statuses.has(response.status)
-          && canRetry(retry, attemptDraft.method, attempt);
+        let retryEligible = false;
+        if (!accepted && canRetry(retry, attemptDraft.method, attempt)) {
+          try {
+            retryEligible = retryDecision(
+              retry,
+              retry.statuses.has(response.status),
+              {
+                reason: "response",
+                attempt,
+                method: attemptDraft.method,
+                status: response.status,
+              },
+            );
+          } catch (error) {
+            await response.body?.cancel().catch(() => undefined);
+            throw error;
+          }
+        }
         const delay = retryEligible
           ? retryDelay(retry, attempt, config.runtime.random(), response, config.runtime.now())
           : undefined;
