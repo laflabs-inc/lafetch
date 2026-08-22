@@ -38,6 +38,7 @@ function snapshotRetryOptions(options: RetryOptions): RetryOptions {
     ...(options.respectRetryAfter !== undefined ? { respectRetryAfter: options.respectRetryAfter } : {}),
     ...(options.maxRetryAfter !== undefined ? { maxRetryAfter: options.maxRetryAfter } : {}),
     ...(options.backoff !== undefined ? { backoff: Object.freeze({ ...options.backoff }) } : {}),
+    ...(options.shouldRetry !== undefined ? { shouldRetry: options.shouldRetry } : {}),
   });
 }
 

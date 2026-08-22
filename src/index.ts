@@ -75,6 +75,7 @@ export type {
   QueryPrimitive,
   QueryValue,
   RequestMeta,
+  RetryDecisionContext,
   RetryOptions,
   RuntimeAdapter,
   StatusMatcher,
