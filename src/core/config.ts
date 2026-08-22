@@ -38,7 +38,6 @@ function snapshotRetryOptions(options: RetryOptions): RetryOptions {
     ...(options.respectRetryAfter !== undefined ? { respectRetryAfter: options.respectRetryAfter } : {}),
     ...(options.maxRetryAfter !== undefined ? { maxRetryAfter: options.maxRetryAfter } : {}),
     ...(options.backoff !== undefined ? { backoff: Object.freeze({ ...options.backoff }) } : {}),
-    ...(options.shouldRetry !== undefined ? { shouldRetry: options.shouldRetry } : {}),
   });
 }
 
@@ -140,6 +139,7 @@ export interface RequestConfiguration {
   readonly retry?: {
     readonly retries: number;
     readonly options: RetryOptions;
+    readonly predicate?: RetryOptions["shouldRetry"];
   };
   readonly acceptStatus?: StatusMatcher;
   readonly features: readonly ConfiguredFeature[];
@@ -278,7 +278,10 @@ export function withRetry(
   if (!Number.isSafeInteger(retries) || retries < 0) {
     throw new HttpConfigurationError("retry() requires a non-negative safe integer retry count.");
   }
-  return { ...config, retry: Object.freeze({ retries, options: snapshotRetryOptions(options) }) };
+  return {
+    ...config,
+    retry: Object.freeze({ retries, options: snapshotRetryOptions(options), predicate: options.shouldRetry }),
+  };
 }
 
 export function withAcceptedStatus(config: RequestConfiguration, acceptStatus: StatusMatcher): RequestConfiguration {

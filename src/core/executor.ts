@@ -45,7 +45,7 @@ interface NormalizedRetry {
   readonly baseMs: number;
   readonly maxMs: number;
   readonly jitter: "none" | "full";
-  readonly shouldRetry?: RetryOptions["shouldRetry"];
+  readonly predicate?: RetryOptions["shouldRetry"];
 }
 
 const DEFAULT_RETRY_METHODS = ["GET", "HEAD", "OPTIONS"];
@@ -89,7 +89,7 @@ function normalizeRetry(
     baseMs: backoff.base === undefined ? 200 : durationToMs(backoff.base, "retry.backoff.base"),
     maxMs: backoff.max === undefined ? 10_000 : durationToMs(backoff.max, "retry.backoff.max"),
     jitter: backoff.jitter ?? "full",
-    ...(options.shouldRetry !== undefined ? { shouldRetry: options.shouldRetry } : {}),
+    predicate: input?.predicate,
   };
 }
 
@@ -230,10 +230,10 @@ function retryDecision(
   context: RetryDecisionContext,
 ): boolean {
   if (!canRetry(retry, context.method, context.attempt)) return false;
-  if (!retry.shouldRetry) return defaultDecision;
+  if (!retry.predicate) return defaultDecision;
   let decision: unknown;
   try {
-    decision = retry.shouldRetry(Object.freeze(context));
+    decision = retry.predicate(Object.freeze(context));
   } catch (cause) {
     throw new HttpConfigurationError(
       "retry.shouldRetry() failed while evaluating an attempt.",
