@@ -230,10 +230,11 @@ function retryDecision(
   context: RetryDecisionContext,
 ): boolean {
   if (!canRetry(retry, context.method, context.attempt)) return false;
-  if (!retry.predicate) return defaultDecision;
+  const predicate = retry.predicate;
+  if (!predicate) return defaultDecision;
   let decision: unknown;
   try {
-    decision = retry.predicate(Object.freeze(context));
+    decision = predicate(Object.freeze(context));
   } catch (cause) {
     throw new HttpConfigurationError(
       "retry.shouldRetry() failed while evaluating an attempt.",

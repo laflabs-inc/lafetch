@@ -108,7 +108,7 @@ Expected: all pass, including new duplicate-edge/stability/message locks.
 
 - [ ] **Step 5: Consolidate closed-string RequestInit option validation**
 
-In `validateAdvancedRequestInit()` in `src/core/validation.ts`, introduce one local helper that reads a named option once and returns `undefined` or calls `closedString()` with the unchanged allowed set and exact `requestInit.<key>` label. Use it only for `cache`, `mode`, `priority`, `redirect`, and `referrerPolicy`.
+In `validateAdvancedRequestInit()` in `src/core/validation.ts`, introduce one local helper that preserves the base access pattern: read a named option once when it is `undefined`, or read it again before calling `closedString()` when it is defined. Keep the allowed set and exact `requestInit.<key>` label unchanged. Use it only for `cache`, `mode`, `priority`, `redirect`, and `referrerPolicy`.
 
 Keep the result assembly, `integrity`/`keepalive`/`referrer` handling, unknown-key rejection, and `only-if-cached` combination validation unchanged.
 
@@ -152,4 +152,3 @@ git commit -m "refactor: recover runtime bundle headroom"
 ```
 
 Report the before/after root and representative sizes, deleted source lines, tests, commit SHA, and any concern.
-

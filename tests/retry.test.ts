@@ -196,6 +196,26 @@ describe("retry", () => {
     expect(attempt).toBe(2);
   });
 
+  it("captures and validates shouldRetry exactly once", async () => {
+    let reads = 0;
+    const predicate = vi.fn(() => false);
+    const options = {
+      get shouldRetry(): unknown {
+        reads += 1;
+        return reads === 1 ? predicate : true;
+      },
+    };
+    const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    const request = api.get("/health").retry(1, options as never);
+
+    expect(reads).toBe(1);
+    await expect(request).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
+    expect(predicate).toHaveBeenCalledTimes(1);
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("keeps Retry-After independent from the exponential backoff ceiling", async () => {
     const delays: number[] = [];
     let attempt = 0;
@@ -243,6 +263,37 @@ describe("retry", () => {
       shouldRetry: () => true,
     })).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
 
+    expect(transport.calls).toHaveLength(1);
+    expect(delays).toEqual([]);
+  });
+
+  it("invokes shouldRetry without exposing internal Retry state as this", async () => {
+    const receivers: unknown[] = [];
+    const delays: number[] = [];
+    const transport = mockTransport(() =>
+      new Response("unavailable", { status: 503, headers: { "Retry-After": "2" } }));
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+      runtime: {
+        now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await expect(api.get("/health").retry(1, {
+      maxRetryAfter: "1s",
+      shouldRetry: function (this: unknown) {
+        receivers.push(this);
+        if (typeof this === "object" && this !== null) {
+          (this as { maxRetryAfterMs: number }).maxRetryAfterMs = 2_000;
+        }
+        return undefined;
+      },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
+
+    expect(receivers).toEqual([undefined]);
     expect(transport.calls).toHaveLength(1);
     expect(delays).toEqual([]);
   });

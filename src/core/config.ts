@@ -30,7 +30,6 @@ import type {
 } from "./types.js";
 
 function snapshotRetryOptions(options: RetryOptions): RetryOptions {
-  validateRetryOptions(options);
   return Object.freeze({
     ...(options.methods !== undefined ? { methods: Object.freeze([...options.methods]) } : {}),
     ...(options.statuses !== undefined ? { statuses: Object.freeze([...options.statuses]) } : {}),
@@ -278,9 +277,10 @@ export function withRetry(
   if (!Number.isSafeInteger(retries) || retries < 0) {
     throw new HttpConfigurationError("retry() requires a non-negative safe integer retry count.");
   }
+  const predicate = validateRetryOptions(options);
   return {
     ...config,
-    retry: Object.freeze({ retries, options: snapshotRetryOptions(options), predicate: options.shouldRetry }),
+    retry: Object.freeze({ retries, options: snapshotRetryOptions(options), predicate }),
   };
 }
 

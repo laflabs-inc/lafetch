@@ -364,6 +364,34 @@ describe("LRequest", () => {
     }
   });
 
+  it("observes defined closed-string RequestInit getters twice before validation", () => {
+    const api = lafetch.create({
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+    });
+    const options = [
+      ["cache", "no-store"],
+      ["mode", "same-origin"],
+      ["priority", "high"],
+      ["redirect", "manual"],
+      ["referrerPolicy", "no-referrer"],
+    ] as const;
+
+    for (const [key, firstValue] of options) {
+      let reads = 0;
+      const requestInit = Object.defineProperty({}, key, {
+        enumerable: true,
+        get() {
+          reads += 1;
+          return reads === 1 ? firstValue : "invalid";
+        },
+      });
+
+      expect(() => (api.get("/x") as any).requestInit(requestInit))
+        .toThrow(`requestInit.${key} must be one of`);
+      expect(reads).toBe(2);
+    }
+  });
+
   it("does not combine native Fetch cache with Lafetch application caching", () => {
     const api = lafetch.create({
       transport: mockTransport(() => new Response(null, { status: 204 })),

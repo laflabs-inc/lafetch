@@ -52,7 +52,7 @@ export interface RetryOptions {
   readonly respectRetryAfter?: boolean;
   readonly maxRetryAfter?: Duration;
   readonly backoff?: BackoffOptions;
-  readonly shouldRetry?: (context: RetryDecisionContext) => boolean | undefined;
+  readonly shouldRetry?: (this: void, context: RetryDecisionContext) => boolean | undefined;
 }
 
 export interface RequestMeta {
