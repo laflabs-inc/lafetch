@@ -167,9 +167,20 @@ Run:
 corepack pnpm install --frozen-lockfile
 corepack pnpm why undici
 rg -n 'undici: 7\.28\.0|undici@7\.28\.0|postcss@8\.4\.31' pnpm-lock.yaml
-audit_file=/tmp/lafetch-audit.json
-audit_status=0
-corepack pnpm audit --json > "$audit_file" || audit_status=$?
+audit_file=$(mktemp "${TMPDIR:-/tmp}/lafetch-audit.XXXXXX") || {
+  echo 'failed to create temporary audit report' >&2
+  exit 1
+}
+trap 'unlink -- "$audit_file"' EXIT
+if ! audit_status=$(
+  {
+    corepack pnpm audit --json
+    printf '%s\n' "$?" >&3
+  } 3>&1 > "$audit_file"
+); then
+  echo 'failed to write temporary audit report' >&2
+  exit 1
+fi
 if [ "$audit_status" -ne 0 ] && [ "$audit_status" -ne 1 ]; then
   exit "$audit_status"
 fi
