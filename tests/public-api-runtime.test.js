@@ -21,6 +21,7 @@ describe("JavaScript public API configuration", () => {
       () => lafetch.create({ credentials: "cross-origin" }),
       () => lafetch.create({ credentials: null }),
       () => api.get("/users").retry(2, null),
+      () => api.get("/users").retry(2, { shouldRetry: true }),
       () => api.get("/users").retry(2, { backoff: "fixed" }),
       () => api.get("/users").retry(2, { backoff: { type: "linear" } }),
       () => api.get("/users").retry(2, { backoff: { type: null } }),
@@ -89,6 +90,9 @@ describe("JavaScript public API configuration", () => {
       expect(() => api.get("/resource").retry(1, { backoff: { jitter } })).not.toThrow();
     }
     expect(() => api.get("/resource").retry(1, { maxRetryAfter: "1m" })).not.toThrow();
+    expect(() => api.get("/resource").retry(1, {
+      shouldRetry: () => undefined,
+    })).not.toThrow();
     for (const storeFailure of ["throw", "bypass"]) {
       expect(() => api.get("/resource").cache("1m", { storeFailure })).not.toThrow();
     }

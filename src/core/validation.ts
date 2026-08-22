@@ -121,21 +121,16 @@ export function validateAdvancedRequestInit(
     }
   }
 
-  const cache = value.cache === undefined
-    ? undefined
-    : closedString(value.cache, REQUEST_CACHE, "requestInit.cache");
-  const mode = value.mode === undefined
-    ? undefined
-    : closedString(value.mode, REQUEST_MODE, "requestInit.mode");
-  const priority = value.priority === undefined
-    ? undefined
-    : closedString(value.priority, REQUEST_PRIORITY, "requestInit.priority");
-  const redirect = value.redirect === undefined
-    ? undefined
-    : closedString(value.redirect, REQUEST_REDIRECT, "requestInit.redirect");
-  const referrerPolicy = value.referrerPolicy === undefined
-    ? undefined
-    : closedString(value.referrerPolicy, REFERRER_POLICY, "requestInit.referrerPolicy");
+  const option = <TValue extends string>(key: string, values: readonly TValue[]) => {
+    return value[key] === undefined
+      ? undefined
+      : closedString(value[key], values, `requestInit.${key}`);
+  };
+  const cache = option("cache", REQUEST_CACHE);
+  const mode = option("mode", REQUEST_MODE);
+  const priority = option("priority", REQUEST_PRIORITY);
+  const redirect = option("redirect", REQUEST_REDIRECT);
+  const referrerPolicy = option("referrerPolicy", REFERRER_POLICY);
   if (value.integrity !== undefined && typeof value.integrity !== "string") {
     configurationError("requestInit.integrity", "a string");
   }
@@ -175,7 +170,7 @@ export function validateCapabilityMode(value: unknown, label: string): Capabilit
   return closedString(value, CAPABILITY_MODES, label);
 }
 
-export function validateRetryOptions(value: unknown): asserts value is RetryOptions {
+export function validateRetryOptions(value: unknown): RetryOptions["shouldRetry"] {
   if (!isOptionsObject(value)) {
     throw new HttpConfigurationError("retry() options must be an object.");
   }
@@ -189,9 +184,14 @@ export function validateRetryOptions(value: unknown): asserts value is RetryOpti
   if (value.maxRetryAfter !== undefined) {
     durationToMs(value.maxRetryAfter, "retry.maxRetryAfter");
   }
+  const shouldRetry = value.shouldRetry;
+  if (shouldRetry !== undefined && typeof shouldRetry !== "function") {
+    throw new HttpConfigurationError("retry.shouldRetry must be a function.");
+  }
+  const predicate = shouldRetry as RetryOptions["shouldRetry"];
 
   const backoff = value.backoff;
-  if (backoff === undefined) return;
+  if (backoff === undefined) return predicate;
   if (!isOptionsObject(backoff)) {
     throw new HttpConfigurationError("retry.backoff must be an object.");
   }
@@ -199,6 +199,7 @@ export function validateRetryOptions(value: unknown): asserts value is RetryOpti
   if (backoff.base !== undefined) durationToMs(backoff.base, "retry.backoff.base");
   if (backoff.max !== undefined) durationToMs(backoff.max, "retry.backoff.max");
   if (backoff.jitter !== undefined) validateJitterType(backoff.jitter);
+  return predicate;
 }
 
 export function validateStatusMatcher(value: unknown): asserts value is StatusMatcher {

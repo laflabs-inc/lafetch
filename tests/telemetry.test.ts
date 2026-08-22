@@ -128,6 +128,68 @@ describe("telemetry", () => {
     });
   });
 
+  it("reports a custom network retry as the final attempt decision", async () => {
+    const events: RequestEvent[] = [];
+    let attempt = 0;
+    const transport = mockTransport(() => {
+      if (++attempt === 1) throw new TypeError("offline");
+      return Response.json({ ok: true });
+    });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await api.get("/health").retry(1, {
+      backoff: { type: "fixed", base: 0, jitter: "none" },
+      networkErrors: false,
+      shouldRetry: () => true,
+    }).telemetry((event) => { events.push(event); });
+
+    expect(events.find((event) => event.type === "attempt:error")).toMatchObject({
+      attempt: 1,
+      willRetry: true,
+      retryDelayMs: 0,
+      error: { code: "ERR_HTTP_TRANSPORT" },
+    });
+    expect(transport.calls).toHaveLength(2);
+  });
+
+  it("reports a predicate veto as the final attempt decision", async () => {
+    const events: RequestEvent[] = [];
+    const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(1, {
+      backoff: { type: "fixed", base: 0, jitter: "none" },
+      shouldRetry: () => false,
+    }).telemetry((event) => { events.push(event); }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_STATUS" });
+
+    expect(events.find((event) => event.type === "attempt:error")).toMatchObject({
+      attempt: 1,
+      willRetry: false,
+      error: { code: "ERR_HTTP_STATUS", status: 503 },
+    });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("reports predicate failures as non-retryable configuration errors", async () => {
+    const events: RequestEvent[] = [];
+    const transport = mockTransport(() => { throw new TypeError("offline"); });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(1, {
+      backoff: { type: "fixed", base: 0, jitter: "none" },
+      shouldRetry: () => { throw new Error("predicate failed"); },
+    }).telemetry((event) => { events.push(event); }))
+      .rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+
+    expect(events.find((event) => event.type === "attempt:error")).toMatchObject({
+      attempt: 1,
+      willRetry: false,
+      error: { code: "ERR_HTTP_CONFIGURATION" },
+    });
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("does not let a pending observer block the HTTP result", async () => {
     const pending = new Promise<void>(() => undefined);
     const api = lafetch.create({

@@ -257,7 +257,7 @@ Axios의 큰 options object와 Ky의 option/hook 조합보다 선택지는 적�
 
 | ID | 부족한 점 | 영향 | 방향 |
 | --- | --- | --- | --- |
-| COMP-05 | Retry가 custom predicate와 response-content Retry를 표현하지 못함 | Ky 2.0 대비 adaptive Retry 범위가 좁음 | 진행 중: `maxRetryAfter` 분리 완료, predicate와 forced Retry gate는 후속 |
+| COMP-05 | response-content Retry와 forced Retry는 core에서 표현하지 않음 | Ky 2.0 대비 adaptive Retry 범위가 좁음 | 안전한 failure predicate는 완료; response-content·forced Retry는 v0.5 Feature·Transport SDK 유지 |
 | COMP-06 | Transport용 conformance kit와 안정성 정책 부재 | custom Transport는 가능하지만 품질을 검증할 공식 방법이 없음 | Feature SDK와 함께 Transport contract 안정화 |
 | COMP-07 | Upload/download progress 계약 부재 | 파일 전송 UX에서 Axios와 Ky보다 불편 | Stream·Telemetry 기반 optional Feature로 먼저 검토 |
 | COMP-08 | 대표 요청도 root 전체와 거의 같은 bundle | 사용하지 않는 policy가 초기 비용에 포함 | v0.4 초기 분리 완료, v0.8에서 측정 자동화와 최종 구조 재평가 |
@@ -284,8 +284,9 @@ Lafetch는 Ky의 동작을 그대로 복제하지 않습니다.
 - 평가 시점의 RateLimit header는 Internet-Draft이므로 기본 표준처럼 고정하지 않음
 - non-standard `X-RateLimit-*`은 명시적 opt-in 또는 adapter로만 검토
 - server 지정 delay의 별도 상한을 공개 계약으로 분리
-- custom predicate가 programming error나 unsafe method를 무분별하게 Retry하지 못하도록 method와 idempotency gate를 우선 적용
-- accepted Body가 노출된 뒤에는 custom logic도 Retry할 수 없음
+- 동기 custom predicate는 method·idempotency gate 뒤에서 `true`로 기본 결정을 확장하고, `false`로 중단하며, `undefined`로 유지
+- accepted Response·raw Body·사용자 Abort·total Timeout은 predicate 입력이나 forced Retry 대상이 아님
+- response-content Retry와 forced Retry는 v0.5 Feature·Transport SDK에 유지
 
 #### Transport 방향
 

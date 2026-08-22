@@ -7,6 +7,7 @@ import {
   type LResponse,
   type LStreamResponse,
   type ResponseMode,
+  type RetryDecisionContext,
 } from "../src/index.js";
 import { defineFeature } from "../src/feature.js";
 import { mockTransport } from "../src/testing/index.js";
@@ -43,6 +44,18 @@ describe("public API conventions", () => {
       lafetch.create({ timeout: "1s" });
       // @ts-expect-error Request Features are composed on a request, not a client.
       lafetch.create({ features: [] });
+      const shouldRetry = (context: RetryDecisionContext): boolean | undefined => {
+        if (context.reason === "response") {
+          expectTypeOf(context.status).toEqualTypeOf<number>();
+          return context.status === 409 ? true : undefined;
+        }
+        expectTypeOf(context.error.code).toEqualTypeOf<string | undefined>();
+        return false;
+      };
+      api.get("/users").retry(2, { shouldRetry });
+
+      // @ts-expect-error Retry predicates are deliberately synchronous in v0.4.
+      api.get("/users").retry(2, { shouldRetry: async () => true });
       // @ts-expect-error JSON configures a request body and therefore requires a value.
       api.post("/users").json();
       // @ts-expect-error Fetch does not allow request bodies on GET.

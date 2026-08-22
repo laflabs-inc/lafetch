@@ -30,7 +30,6 @@ import type {
 } from "./types.js";
 
 function snapshotRetryOptions(options: RetryOptions): RetryOptions {
-  validateRetryOptions(options);
   return Object.freeze({
     ...(options.methods !== undefined ? { methods: Object.freeze([...options.methods]) } : {}),
     ...(options.statuses !== undefined ? { statuses: Object.freeze([...options.statuses]) } : {}),
@@ -139,6 +138,7 @@ export interface RequestConfiguration {
   readonly retry?: {
     readonly retries: number;
     readonly options: RetryOptions;
+    readonly predicate?: RetryOptions["shouldRetry"];
   };
   readonly acceptStatus?: StatusMatcher;
   readonly features: readonly ConfiguredFeature[];
@@ -277,7 +277,11 @@ export function withRetry(
   if (!Number.isSafeInteger(retries) || retries < 0) {
     throw new HttpConfigurationError("retry() requires a non-negative safe integer retry count.");
   }
-  return { ...config, retry: Object.freeze({ retries, options: snapshotRetryOptions(options) }) };
+  const predicate = validateRetryOptions(options);
+  return {
+    ...config,
+    retry: Object.freeze({ retries, options: snapshotRetryOptions(options), predicate }),
+  };
 }
 
 export function withAcceptedStatus(config: RequestConfiguration, acceptStatus: StatusMatcher): RequestConfiguration {

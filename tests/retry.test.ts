@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HttpNonReplayableBodyError, HttpTransportError, lafetch } from "../src/index.js";
 import { mockTransport } from "../src/testing/index.js";
 
@@ -26,6 +26,156 @@ describe("retry", () => {
     expect(transport.calls).toHaveLength(3);
   });
 
+  it("uses the default status policy when shouldRetry returns undefined", async () => {
+    let attempt = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => ++attempt === 1
+        ? new Response("unavailable", { status: 503 })
+        : success()),
+    });
+
+    await expect(api.get("/health").retry(1, {
+      ...noDelay,
+      shouldRetry: () => undefined,
+    })).resolves.toHaveProperty("meta.attempts", 2);
+  });
+
+  it("lets shouldRetry stop a default status retry", async () => {
+    const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(2, {
+      ...noDelay,
+      shouldRetry: () => false,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("lets shouldRetry add a non-default rejected status", async () => {
+    let attempt = 0;
+    const contexts: unknown[] = [];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => ++attempt < 3
+        ? new Response("conflict", { status: 409 })
+        : success()),
+    });
+
+    await expect(api.get("/jobs/1").retry(2, {
+      ...noDelay,
+      shouldRetry: (context) => {
+        contexts.push(context);
+        return context.reason === "response" && context.status === 409 ? true : undefined;
+      },
+    })).resolves.toHaveProperty("meta.attempts", 3);
+    expect(contexts).toEqual([
+      { reason: "response", attempt: 1, method: "GET", status: 409 },
+      { reason: "response", attempt: 2, method: "GET", status: 409 },
+    ]);
+    expect(Object.isFrozen(contexts[0])).toBe(true);
+  });
+
+  it("applies the method gate before shouldRetry", async () => {
+    const predicate = vi.fn(() => true);
+    const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.post("/jobs").json({ task: "x" }).retry(2, {
+      ...noDelay,
+      shouldRetry: predicate,
+    })).rejects.toMatchObject({ status: 503 });
+    expect(predicate).not.toHaveBeenCalled();
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("allows an idempotent write to reach shouldRetry", async () => {
+    const attempts: number[] = [];
+    let call = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => ++call === 1
+        ? new Response("conflict", { status: 409 })
+        : success()),
+    });
+
+    await api.post("/jobs").idempotency({ key: "stable" }).retry(1, {
+      ...noDelay,
+      shouldRetry: (context) => {
+        attempts.push(context.attempt);
+        return true;
+      },
+    });
+    expect(attempts).toEqual([1]);
+  });
+
+  it("allows an explicitly configured write method to reach shouldRetry", async () => {
+    const predicate = vi.fn(() => true);
+    let call = 0;
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => ++call === 1
+        ? new Response("conflict", { status: 409 })
+        : success()),
+    });
+
+    await api.post("/jobs").retry(1, {
+      ...noDelay,
+      methods: ["POST"],
+      shouldRetry: predicate,
+    });
+    expect(predicate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call shouldRetry for accepted responses or exhausted attempts", async () => {
+    const predicate = vi.fn(() => true);
+    const acceptedApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+    });
+
+    await acceptedApi.get("/health").retry(2, { ...noDelay, shouldRetry: predicate });
+    const exhaustedApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response("unavailable", { status: 503 })),
+    });
+    await expect(exhaustedApi.get("/health").retry(0, {
+      ...noDelay,
+      shouldRetry: predicate,
+    })).rejects.toMatchObject({ status: 503 });
+    expect(predicate).not.toHaveBeenCalled();
+  });
+
+  it("maps response predicate failures to configuration errors and cancels the body", async () => {
+    let cancelled = 0;
+    const body = new ReadableStream({ cancel() { cancelled += 1; } });
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response(body, { status: 503 })),
+    });
+
+    await expect(api.get("/health").retry(1, {
+      ...noDelay,
+      shouldRetry: () => { throw new Error("predicate failed"); },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+    expect(cancelled).toBe(1);
+  });
+
+  it.each([
+    ["Promise", () => Promise.resolve(true)],
+    ["string", () => "yes"],
+  ])("rejects a %s response predicate result", async (_label, shouldRetry) => {
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => new Response("unavailable", { status: 503 })),
+    });
+
+    await expect(api.get("/health").retry(1, {
+      ...noDelay,
+      shouldRetry: shouldRetry as never,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+  });
+
   it("snapshots retry options when the policy is declared", async () => {
     let attempt = 0;
     const statuses = [503];
@@ -44,6 +194,26 @@ describe("retry", () => {
 
     await expect(request).resolves.toHaveProperty("data.ok", true);
     expect(attempt).toBe(2);
+  });
+
+  it("captures and validates shouldRetry exactly once", async () => {
+    let reads = 0;
+    const predicate = vi.fn(() => false);
+    const options = {
+      get shouldRetry(): unknown {
+        reads += 1;
+        return reads === 1 ? predicate : true;
+      },
+    };
+    const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    const request = api.get("/health").retry(1, options as never);
+
+    expect(reads).toBe(1);
+    await expect(request).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
+    expect(predicate).toHaveBeenCalledTimes(1);
+    expect(transport.calls).toHaveLength(1);
   });
 
   it("keeps Retry-After independent from the exponential backoff ceiling", async () => {
@@ -90,8 +260,40 @@ describe("retry", () => {
     await expect(api.get("/health").retry(2, {
       maxRetryAfter: "1s",
       backoff: { type: "fixed", base: 10, jitter: "none" },
+      shouldRetry: () => true,
     })).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
 
+    expect(transport.calls).toHaveLength(1);
+    expect(delays).toEqual([]);
+  });
+
+  it("invokes shouldRetry without exposing internal Retry state as this", async () => {
+    const receivers: unknown[] = [];
+    const delays: number[] = [];
+    const transport = mockTransport(() =>
+      new Response("unavailable", { status: 503, headers: { "Retry-After": "2" } }));
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport,
+      runtime: {
+        now: () => 0,
+        random: () => 1,
+        sleep: async (ms) => { delays.push(ms); },
+      },
+    });
+
+    await expect(api.get("/health").retry(1, {
+      maxRetryAfter: "1s",
+      shouldRetry: function (this: unknown) {
+        receivers.push(this);
+        if (typeof this === "object" && this !== null) {
+          (this as { maxRetryAfterMs: number }).maxRetryAfterMs = 2_000;
+        }
+        return undefined;
+      },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_STATUS", status: 503 });
+
+    expect(receivers).toEqual([undefined]);
     expect(transport.calls).toHaveLength(1);
     expect(delays).toEqual([]);
   });
@@ -280,6 +482,99 @@ describe("retry", () => {
     const result = await api.get<{ ok: boolean }>("/health").retry(1, noDelay);
 
     expect(result.meta.attempts).toBe(2);
+  });
+
+  it("lets shouldRetry override disabled network retries", async () => {
+    let attempt = 0;
+    const contexts: unknown[] = [];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        if (++attempt === 1) throw new TypeError("offline");
+        return success();
+      }),
+    });
+
+    await expect(api.get("/health").retry(1, {
+      ...noDelay,
+      networkErrors: false,
+      shouldRetry: (context) => {
+        contexts.push(context);
+        return true;
+      },
+    })).resolves.toHaveProperty("meta.attempts", 2);
+    expect(contexts).toMatchObject([{
+      reason: "error",
+      attempt: 1,
+      method: "GET",
+      error: { code: "ERR_HTTP_TRANSPORT" },
+    }]);
+  });
+
+  it("lets shouldRetry stop a default network retry", async () => {
+    const transport = mockTransport(() => { throw new TypeError("offline"); });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(2, {
+      ...noDelay,
+      shouldRetry: () => false,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_TRANSPORT" });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("lets shouldRetry stop an attempt timeout", async () => {
+    const predicate = vi.fn(() => false);
+    const transport = mockTransport((_request, context) => new Promise((_resolve, reject) => {
+      context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+    }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").attemptTimeout("10ms").retry(2, {
+      ...noDelay,
+      shouldRetry: predicate,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "attempt" });
+    expect(predicate).toHaveBeenCalledTimes(1);
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("does not invoke shouldRetry for total timeout or caller abort", async () => {
+    const predicate = vi.fn(() => true);
+    const pendingTransport = () => mockTransport((_request, context) => new Promise((_resolve, reject) => {
+      context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+    }));
+    const timeoutApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: pendingTransport(),
+    });
+
+    await expect(timeoutApi.get("/timeout").timeout("10ms").retry(1, {
+      ...noDelay,
+      shouldRetry: predicate,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "total" });
+
+    const controller = new AbortController();
+    const abortApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: pendingTransport(),
+    });
+    const abortedRequest = abortApi.get("/abort").signal(controller.signal).retry(1, {
+      ...noDelay,
+      shouldRetry: predicate,
+    });
+    setTimeout(() => controller.abort("caller cancelled"), 0);
+    await expect(abortedRequest).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
+    expect(predicate).not.toHaveBeenCalled();
+  });
+
+  it("maps error predicate failures to configuration errors without retrying", async () => {
+    const transport = mockTransport(() => { throw new TypeError("offline"); });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(2, {
+      ...noDelay,
+      shouldRetry: () => { throw new Error("predicate failed"); },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+    expect(transport.calls).toHaveLength(1);
   });
 
   it("does not retry POST unless explicitly allowed", async () => {

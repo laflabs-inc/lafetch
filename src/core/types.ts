@@ -31,6 +31,20 @@ export interface BackoffOptions {
   readonly jitter?: JitterType;
 }
 
+export type RetryDecisionContext =
+  | {
+      readonly reason: "response";
+      readonly attempt: number;
+      readonly method: string;
+      readonly status: number;
+    }
+  | {
+      readonly reason: "error";
+      readonly attempt: number;
+      readonly method: string;
+      readonly error: RequestEventErrorSnapshot;
+    };
+
 export interface RetryOptions {
   readonly methods?: readonly string[];
   readonly statuses?: readonly number[];
@@ -38,6 +52,7 @@ export interface RetryOptions {
   readonly respectRetryAfter?: boolean;
   readonly maxRetryAfter?: Duration;
   readonly backoff?: BackoffOptions;
+  readonly shouldRetry?: (this: void, context: RetryDecisionContext) => boolean | undefined;
 }
 
 export interface RequestMeta {

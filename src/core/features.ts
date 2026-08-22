@@ -7,14 +7,14 @@ interface CapabilityProvider {
 }
 
 export function resolveFeatures(features: readonly RequestFeature[]): readonly RequestFeature[] {
-  const byName = new Map<string, { feature: RequestFeature; index: number }>();
+  const dependencies = new Map<string, Set<string>>();
 
-  features.forEach((feature, index) => {
+  features.forEach((feature) => {
     if (!feature.name.trim()) throw new HttpFeatureConflictError("Feature names cannot be empty.");
-    if (byName.has(feature.name)) {
+    if (dependencies.has(feature.name)) {
       throw new HttpFeatureConflictError(`Feature "${feature.name}" is registered more than once.`);
     }
-    byName.set(feature.name, { feature, index });
+    dependencies.set(feature.name, new Set());
   });
 
   const providers = new Map<string, CapabilityProvider[]>();
@@ -54,24 +54,13 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
     }
   }
 
-  const edges = new Map<string, Set<string>>();
-  const indegree = new Map<string, number>();
-  for (const feature of features) {
-    edges.set(feature.name, new Set());
-    indegree.set(feature.name, 0);
-  }
-
   const addEdge = (from: string, to: string) => {
     if (from === to) throw new HttpFeatureConflictError(`Feature "${from}" cannot order itself.`);
-    if (!byName.has(from) || !byName.has(to)) {
-      const missing = !byName.has(from) ? from : to;
+    if (!dependencies.has(from) || !dependencies.has(to)) {
+      const missing = !dependencies.has(from) ? from : to;
       throw new HttpFeatureConflictError(`Feature ordering references unknown Feature "${missing}".`);
     }
-    const targets = edges.get(from)!;
-    if (!targets.has(to)) {
-      targets.add(to);
-      indegree.set(to, (indegree.get(to) ?? 0) + 1);
-    }
+    dependencies.get(to)!.add(from);
   };
 
   for (const feature of features) {
@@ -79,35 +68,27 @@ export function resolveFeatures(features: readonly RequestFeature[]): readonly R
     for (const after of feature.ordering?.after ?? []) addEdge(after, feature.name);
     for (const before of feature.ordering?.optionalBefore ?? []) {
       if (before === feature.name) throw new HttpFeatureConflictError(`Feature "${feature.name}" cannot order itself.`);
-      if (byName.has(before)) addEdge(feature.name, before);
+      if (dependencies.has(before)) addEdge(feature.name, before);
     }
     for (const after of feature.ordering?.optionalAfter ?? []) {
       if (after === feature.name) throw new HttpFeatureConflictError(`Feature "${feature.name}" cannot order itself.`);
-      if (byName.has(after)) addEdge(after, feature.name);
+      if (dependencies.has(after)) addEdge(after, feature.name);
     }
   }
 
-  const ready = [...features]
-    .filter((feature) => indegree.get(feature.name) === 0)
-    .sort((a, b) => byName.get(a.name)!.index - byName.get(b.name)!.index);
+  const pending = new Set(dependencies.keys());
   const sorted: RequestFeature[] = [];
 
-  while (ready.length > 0) {
-    const feature = ready.shift()!;
-    sorted.push(feature);
-    for (const target of edges.get(feature.name) ?? []) {
-      const next = (indegree.get(target) ?? 0) - 1;
-      indegree.set(target, next);
-      if (next === 0) {
-        ready.push(byName.get(target)!.feature);
-        ready.sort((a, b) => byName.get(a.name)!.index - byName.get(b.name)!.index);
-      }
+  while (pending.size > 0) {
+    const feature = features.find(({ name }) =>
+      pending.has(name)
+      && [...dependencies.get(name)!].every((dependency) => !pending.has(dependency)),
+    );
+    if (!feature) {
+      throw new HttpFeatureConflictError(`Feature ordering contains a cycle: ${[...pending].join(" -> ")}.`);
     }
-  }
-
-  if (sorted.length !== features.length) {
-    const cycle = features.filter((feature) => (indegree.get(feature.name) ?? 0) > 0).map((feature) => feature.name);
-    throw new HttpFeatureConflictError(`Feature ordering contains a cycle: ${cycle.join(" -> ")}.`);
+    sorted.push(feature);
+    pending.delete(feature.name);
   }
 
   return Object.freeze(sorted);

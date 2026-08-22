@@ -295,12 +295,14 @@ describe("LRequest", () => {
       cache: RequestCache;
       keepalive: boolean;
       mode: Exclude<RequestMode, "navigate">;
+      priority: RequestPriority;
       redirect: RequestRedirect;
       referrerPolicy: ReferrerPolicy;
     } = {
       cache: "no-store",
       keepalive: true,
       mode: "same-origin",
+      priority: "high",
       redirect: "manual",
       referrerPolicy: "no-referrer",
     };
@@ -342,6 +344,52 @@ describe("LRequest", () => {
       expect(configure).toThrow(HttpConfigurationError);
     }
     expect(transport.calls).toHaveLength(0);
+  });
+
+  it("labels every invalid closed-string RequestInit option", () => {
+    const api = lafetch.create({
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+    });
+    const invalid = [
+      ["cache", "sometimes"],
+      ["mode", "navigate"],
+      ["priority", "urgent"],
+      ["redirect", "sometimes"],
+      ["referrerPolicy", "private"],
+    ] as const;
+
+    for (const [key, value] of invalid) {
+      expect(() => (api.get("/x") as any).requestInit({ [key]: value }))
+        .toThrow(`requestInit.${key} must be one of`);
+    }
+  });
+
+  it("observes defined closed-string RequestInit getters twice before validation", () => {
+    const api = lafetch.create({
+      transport: mockTransport(() => new Response(null, { status: 204 })),
+    });
+    const options = [
+      ["cache", "no-store"],
+      ["mode", "same-origin"],
+      ["priority", "high"],
+      ["redirect", "manual"],
+      ["referrerPolicy", "no-referrer"],
+    ] as const;
+
+    for (const [key, firstValue] of options) {
+      let reads = 0;
+      const requestInit = Object.defineProperty({}, key, {
+        enumerable: true,
+        get() {
+          reads += 1;
+          return reads === 1 ? firstValue : "invalid";
+        },
+      });
+
+      expect(() => (api.get("/x") as any).requestInit(requestInit))
+        .toThrow(`requestInit.${key} must be one of`);
+      expect(reads).toBe(2);
+    }
   });
 
   it("does not combine native Fetch cache with Lafetch application caching", () => {
