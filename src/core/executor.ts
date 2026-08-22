@@ -841,7 +841,29 @@ async function execute(
         const retryableFailure =
           (error instanceof HttpTransportError && retry.networkErrors) ||
           (error instanceof HttpTimeoutError && error.scope === "attempt");
-        const willRetry = retryableFailure && canRetry(retry, attemptDraft.method, attempt);
+        const safeFailure =
+          error instanceof HttpTransportError ||
+          (error instanceof HttpTimeoutError && error.scope === "attempt");
+        let willRetry = false;
+        if (safeFailure && canRetry(retry, attemptDraft.method, attempt)) {
+          try {
+            willRetry = retryDecision(retry, retryableFailure, {
+              reason: "error",
+              attempt,
+              method: attemptDraft.method,
+              error: snapshotError(error),
+            });
+          } catch (decisionError) {
+            const normalizedDecisionError = ensureError(decisionError, request);
+            await reportAttemptError(featureRuntime, config, {
+              ...(request !== undefined ? { request } : {}),
+              error: normalizedDecisionError,
+              attempt,
+              willRetry: false,
+            });
+            throw normalizedDecisionError;
+          }
+        }
         const delay = willRetry
           ? retryDelay(retry, attempt, config.runtime.random(), undefined, config.runtime.now())
           : undefined;

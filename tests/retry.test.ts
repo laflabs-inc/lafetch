@@ -433,6 +433,99 @@ describe("retry", () => {
     expect(result.meta.attempts).toBe(2);
   });
 
+  it("lets shouldRetry override disabled network retries", async () => {
+    let attempt = 0;
+    const contexts: unknown[] = [];
+    const api = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: mockTransport(() => {
+        if (++attempt === 1) throw new TypeError("offline");
+        return success();
+      }),
+    });
+
+    await expect(api.get("/health").retry(1, {
+      ...noDelay,
+      networkErrors: false,
+      shouldRetry: (context) => {
+        contexts.push(context);
+        return true;
+      },
+    })).resolves.toHaveProperty("meta.attempts", 2);
+    expect(contexts).toMatchObject([{
+      reason: "error",
+      attempt: 1,
+      method: "GET",
+      error: { code: "ERR_HTTP_TRANSPORT" },
+    }]);
+  });
+
+  it("lets shouldRetry stop a default network retry", async () => {
+    const transport = mockTransport(() => { throw new TypeError("offline"); });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(2, {
+      ...noDelay,
+      shouldRetry: () => false,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_TRANSPORT" });
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("lets shouldRetry stop an attempt timeout", async () => {
+    const predicate = vi.fn(() => false);
+    const transport = mockTransport((_request, context) => new Promise((_resolve, reject) => {
+      context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+    }));
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").attemptTimeout("10ms").retry(2, {
+      ...noDelay,
+      shouldRetry: predicate,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "attempt" });
+    expect(predicate).toHaveBeenCalledTimes(1);
+    expect(transport.calls).toHaveLength(1);
+  });
+
+  it("does not invoke shouldRetry for total timeout or caller abort", async () => {
+    const predicate = vi.fn(() => true);
+    const pendingTransport = () => mockTransport((_request, context) => new Promise((_resolve, reject) => {
+      context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+    }));
+    const timeoutApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: pendingTransport(),
+    });
+
+    await expect(timeoutApi.get("/timeout").timeout("10ms").retry(1, {
+      ...noDelay,
+      shouldRetry: predicate,
+    })).rejects.toMatchObject({ code: "ERR_HTTP_TIMEOUT", scope: "total" });
+
+    const controller = new AbortController();
+    const abortApi = lafetch.create({
+      baseUrl: "https://api.example.com",
+      transport: pendingTransport(),
+    });
+    const abortedRequest = abortApi.get("/abort").signal(controller.signal).retry(1, {
+      ...noDelay,
+      shouldRetry: predicate,
+    });
+    setTimeout(() => controller.abort("caller cancelled"), 0);
+    await expect(abortedRequest).rejects.toMatchObject({ code: "ERR_HTTP_ABORTED" });
+    expect(predicate).not.toHaveBeenCalled();
+  });
+
+  it("maps error predicate failures to configuration errors without retrying", async () => {
+    const transport = mockTransport(() => { throw new TypeError("offline"); });
+    const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
+
+    await expect(api.get("/health").retry(2, {
+      ...noDelay,
+      shouldRetry: () => { throw new Error("predicate failed"); },
+    })).rejects.toMatchObject({ code: "ERR_HTTP_CONFIGURATION" });
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it("does not retry POST unless explicitly allowed", async () => {
     const transport = mockTransport(() => new Response("unavailable", { status: 503 }));
     const api = lafetch.create({ baseUrl: "https://api.example.com", transport });
