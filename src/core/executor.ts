@@ -229,6 +229,7 @@ function retryDecision(
   defaultDecision: boolean,
   context: RetryDecisionContext,
 ): boolean {
+  if (!canRetry(retry, context.method, context.attempt)) return false;
   if (!retry.shouldRetry) return defaultDecision;
   let decision: unknown;
   try {
@@ -729,7 +730,7 @@ async function execute(
 
         const accepted = isAcceptedStatus(response.status, config.acceptStatus);
         let retryEligible = false;
-        if (!accepted && canRetry(retry, attemptDraft.method, attempt)) {
+        if (!accepted) {
           try {
             retryEligible = retryDecision(
               retry,
@@ -838,14 +839,13 @@ async function execute(
       } catch (caught) {
         if (streamingLifecycleCompleted) throw caught;
         let error: Error = normalizeFailure(caught, attemptSignal.signal, request);
-        const retryableFailure =
-          (error instanceof HttpTransportError && retry.networkErrors) ||
-          (error instanceof HttpTimeoutError && error.scope === "attempt");
-        const safeFailure =
-          error instanceof HttpTransportError ||
-          (error instanceof HttpTimeoutError && error.scope === "attempt");
+        const retryableFailure = error instanceof HttpTransportError
+          ? retry.networkErrors
+          : error instanceof HttpTimeoutError && error.scope === "attempt"
+            ? true
+            : undefined;
         let willRetry = false;
-        if (safeFailure && canRetry(retry, attemptDraft.method, attempt)) {
+        if (retryableFailure !== undefined) {
           try {
             willRetry = retryDecision(retry, retryableFailure, {
               reason: "error",
