@@ -837,7 +837,7 @@ async function execute(
         break;
       } catch (caught) {
         if (streamingLifecycleCompleted) throw caught;
-        const error = normalizeFailure(caught, attemptSignal.signal, request);
+        let error: Error = normalizeFailure(caught, attemptSignal.signal, request);
         const retryableFailure =
           (error instanceof HttpTransportError && retry.networkErrors) ||
           (error instanceof HttpTimeoutError && error.scope === "attempt");
@@ -854,14 +854,7 @@ async function execute(
               error: snapshotError(error),
             });
           } catch (decisionError) {
-            const normalizedDecisionError = ensureError(decisionError, request);
-            await reportAttemptError(featureRuntime, config, {
-              ...(request !== undefined ? { request } : {}),
-              error: normalizedDecisionError,
-              attempt,
-              willRetry: false,
-            });
-            throw normalizedDecisionError;
+            error = ensureError(decisionError, request);
           }
         }
         const delay = willRetry
