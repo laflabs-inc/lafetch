@@ -170,6 +170,8 @@ Streaming 실행은 Header를 수락한 뒤 `LStreamResponse`를 반환합니다
 - 허용된 method의 attempt Timeout: 재시도 가능
 - total Timeout과 사용자 Abort: 최종 실패
 
+Retry 결정 순서는 `count → method/idempotency → predicate → Retry-After/Backoff → Telemetry`입니다. `shouldRetry`는 동기 callback이며 `true`는 안전한 실패의 기본 결정을 확장하고, `false`는 중단하며, `undefined`는 유지합니다. accepted Response와 raw Body에는 callback을 호출하지 않습니다.
+
 기존 `ReadableStream` Body는 재생할 수 없으므로 Retry 가능성이 있으면 전송 전에 거부합니다. 시도마다 새 Body를 만들 수 있을 때만 `bodyFactory()`를 사용합니다.
 
 `Retry-After`는 [RFC 9110 §10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)의 delay-seconds와 HTTP-date만 해석합니다. 잘못된 값은 일반 Backoff로 돌아가며, active Internet-Draft인 RateLimit Header와 비표준 `X-RateLimit-*` Header는 자동 Retry 신호로 사용하지 않습니다.

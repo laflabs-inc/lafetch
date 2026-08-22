@@ -21,12 +21,12 @@
 | 공개 요청 문법 | 구현 완료 |
 | `LResponse`와 data mode 반환 계약 | 구현 완료 |
 | Streaming Body lifecycle | 구현 완료 |
-| Timeout, Retry, Abort | 기본 구현 완료, adaptive Retry 강화 진행 중 |
+| Timeout, Retry, Abort | adaptive Retry 구현 완료 |
 | Cache, Deduplication, Idempotency | CacheStore, freshness, byte budget과 leader/follower 취소 안전성 완료 |
 | Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.4 adaptive Retry |
+| 다음 단계 | v0.5 Feature와 Transport SDK |
 | 라이선스 | Apache-2.0 적용 완료 |
 | npm 배포 자동화 | 미완료 |
 
@@ -48,7 +48,7 @@
 
 목표: 외부 Store와 높은 동시성에서도 Cache, Deduplication과 Retry를 예측 가능하게 만들고, 일반적인 HTTP client 사용에서 별도 wrapper가 필요한 Core API 공백을 제거합니다.
 
-현재 `Retry-After` 상한을 일반 Backoff에서 분리하고, 상한 초과 시 서버 지시보다 일찍 재시도하지 않는 계약까지 구현했습니다. RateLimit과 비표준 Header는 자동 해석하지 않습니다. 상세 결정은 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)를 기준으로 합니다.
+`Retry-After` 상한을 일반 Backoff에서 분리하고, 상한 초과 시 서버 지시보다 일찍 재시도하지 않는 계약과 custom Retry predicate를 구현했습니다. predicate는 retry count와 method·idempotency gate 뒤에서 기본 결정을 확장·중단·유지합니다. RateLimit과 비표준 Header는 자동 해석하지 않습니다. 상세 결정은 [v0.4 Retry 결정 RFC](rfcs/v0.4-retry-decision.md)를 기준으로 합니다.
 
 대표 JSON 요청에서 Cache·Deduplication 구현, `MemoryCacheStore`와 logical lifecycle dispatcher를 분리했습니다. 기존 fluent API와 동기식 옵션 검증은 유지하며 실제 hook만 실행 시 dynamic import합니다. Security hotfix의 same-origin 검사 비용으로 대표 minified 상한만 `44.25 KiB`로 조정하고 gzip `14 KiB`는 유지했으며, complete root와 각 optional module에 별도 예산을 적용합니다.
 
@@ -72,7 +72,7 @@ Configured TTL은 HTTP freshness의 최종 상한이며 유효한 단일 `max-ag
 - server-directed Retry delay 별도 상한 — 구현 완료
 - `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙 — 구현 완료
 - 대표 요청 module graph 분석과 Cache·Deduplication 비용 분리 — 구현 완료
-- custom Retry predicate와 forced Retry의 method·idempotency gate
+- custom Retry predicate의 method·idempotency gate — 구현 완료
 
 #### Core parity
 

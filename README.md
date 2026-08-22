@@ -234,6 +234,15 @@ const file: Blob = await api.get("/files/1").as("blob");
 | Telemetry | `.telemetry(handler)` | 요청 생명주기 관찰 |
 | Logical lifecycle | `.on(handler)` | `LRequest` 구성과 최종 `LResponse` 처리 |
 
+`shouldRetry`는 안전한 실패를 기본 정책과 함께 판단하는 동기 callback입니다. `false`는 기본 Retry를 중단하고 `undefined`는 유지합니다.
+
+```ts
+await api.get<Job>("/jobs/1").retry(2, {
+  shouldRetry: (context) =>
+    context.reason === "response" && context.status === 409 ? true : undefined,
+});
+```
+
 고급 설정과 전체 예제는 [상세 사용 가이드](docs/advanced-usage.md)에 분리되어 있습니다.
 
 ## 안전한 기본값
@@ -333,6 +342,6 @@ Lafetch는 [Apache License 2.0](LICENSE)에 따라 배포됩니다. 자세한 �
 
 현재 소스 후보는 `0.4.0-alpha.4`입니다. v0.3의 응답·Streaming 계약 위에 logical lifecycle, `OPTIONS`, 외부 CacheStore 신뢰성, invalidation·revalidation과 HTTP freshness 계약을 추가하고, 독립 보안 보고서의 Medium 7건·Low 2건을 hotfix로 반영했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
 
-현재 단계는 v0.4 Reliability policy입니다. 다음으로 adaptive Retry를 설계하고 검증합니다.
+현재 단계는 adaptive Retry까지 포함한 v0.4 Reliability policy입니다. 다음 설계 단계는 v0.5 Feature와 Transport SDK입니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. npm 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.
