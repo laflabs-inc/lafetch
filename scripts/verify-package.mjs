@@ -47,6 +47,14 @@ try {
   if ([...packagedFiles].some((file) => file.startsWith("src/") || file.startsWith("tests/"))) {
     throw new Error("Packed package must not include source or test files.");
   }
+  for (const operationalDocument of [
+    "docs/superpowers/plans/2026-08-22-dependabot-remediation.md",
+    "docs/superpowers/specs/2026-08-22-dependabot-remediation-design.md",
+  ]) {
+    if (packagedFiles.has(operationalDocument)) {
+      throw new Error(`Packed package must not include ${operationalDocument}.`);
+    }
+  }
 
   const tarball = join(packageDirectory, packResult.filename);
   run("npm", ["init", "--yes"], consumerDirectory);
