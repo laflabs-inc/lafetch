@@ -333,6 +333,6 @@ Lafetch는 [Apache License 2.0](LICENSE)에 따라 배포됩니다. 자세한 �
 
 현재 소스 후보는 `0.4.0-alpha.4`입니다. v0.3의 응답·Streaming 계약 위에 logical lifecycle, `OPTIONS`, 외부 CacheStore 신뢰성, invalidation·revalidation과 HTTP freshness 계약을 추가하고, 독립 보안 보고서의 Medium 7건·Low 2건을 hotfix로 반영했습니다. Node.js 20·22·24, Chromium, Workers/Edge, Next.js와 실제 package 소비 검증을 유지합니다.
 
-현재 단계는 v0.4 Reliability policy입니다. 다음으로 사용자 key의 tenant·인증 경계 문서화와 adaptive Retry를 검증합니다.
+현재 단계는 v0.4 Reliability policy입니다. 다음으로 adaptive Retry를 설계하고 검증합니다.
 
 Protocol/Contract layer, Server adapter, OpenAPI, Mock framework는 현재 코어 로드맵 범위가 아닙니다. npm 배포 자동화는 공개 pre-release 전에 별도로 완료하며, 웹사이트와 플레이그라운드는 공개 API가 안정화된 뒤 진행합니다. 자세한 완료 근거와 다음 단계는 [개발 로드맵](docs/roadmap.md)을 참고하세요.

@@ -29,6 +29,33 @@ Unsafe method는 호출자 소유 key가 필요합니다. `methods: ["POST"]`를
 
 Key callback은 독립적으로 소비할 수 있는 `Request` clone을 받습니다. 정적 key와 callback 결과는 비어 있지 않은 문자열이어야 합니다. Fetch 실행 정책은 Lafetch가 항상 분리하지만, Body·tenant처럼 사용자 key가 대신한 Response identity는 호출자가 포함해야 합니다.
 
+### 사용자 key와 tenant 경계
+
+사용자 key는 내장 method·URL·Header identity를 대체합니다. 따라서 tenant, locale, content negotiation과 Body처럼 Response를 바꾸는 application identity는 호출자가 직접 포함해야 합니다. Fetch 실행 정책은 Lafetch가 계속 덧붙이지만 누락된 application identity를 추론하지 않습니다.
+
+```ts
+const tenantId = "tenant-a";
+
+await api
+  .get("/catalog")
+  .header("X-Tenant", tenantId)
+  .header("Accept", "application/json")
+  .cache("5m", {
+    store,
+    key: (request) => [
+      "catalog-v1",
+      tenantId,
+      request.method,
+      request.url,
+      request.headers.get("accept") ?? "",
+    ].join("\n"),
+  });
+```
+
+외부 `CacheStore`를 여러 client가 공유하면 위 namespace와 tenant 분리가 Store 전체의 신뢰 경계가 됩니다. 같은 책임은 한 client 안에서 사용자 Deduplication key를 사용할 때도 적용됩니다.
+
+credential, token 또는 signed URL처럼 민감한 요청은 사용자 key가 있어도 Cache와 Deduplication을 우회합니다. 사용자 key에 인증 token을 넣어 공유를 활성화할 수 없으며, token 자체를 key나 Store 진단 정보에 기록해서도 안 됩니다.
+
 ## Store 계약
 
 기본 memory store와 진행 중 registry는 지연 생성되며 하나의 `LClient`에 속합니다. 오직 `lafetch.create()`만 새 소유 범위를 만듭니다. 서로 다른 Transport, tenant 또는 test fixture가 상태를 실수로 공유하지 않도록 하기 위한 결정입니다.
