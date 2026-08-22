@@ -51,11 +51,15 @@ stable Miniflare 4 최신 계열은 아직 `undici@7.28.0`을 고정하고 있�
 
 `undici@7.29.0`은 Node `>=20.18.1`을 요구하지만 영향을 받는 Miniflare 자체가 Node `>=22` 개발 도구입니다. Lafetch의 공개 `engines.node >=20` 계약은 변경하지 않습니다.
 
+### 후속 triage
+
+현재 registry audit의 `GHSA-f88m-g3jw-g9cj` (Miniflare 경유 Sharp)와 `GHSA-2v37-7h3g-55p8` (Vitest/Vite/PostCSS 경유 Nano ID)는 이 six-alert remediation의 사용자 승인 범위 밖입니다. 별도 follow-up으로 보고하며, 이 plan에서 억제하거나 dependency 변경으로 해결하지 않습니다.
+
 ## 완료 조건
 
 - `pnpm-lock.yaml`에 `postcss@8.4.31`과 `undici@7.28.0`이 남지 않습니다.
 - Next 경로는 `postcss@8.5.23` 이상, Miniflare 경로는 `undici@7.29.0`을 해석합니다.
-- `pnpm audit --audit-level moderate`가 성공합니다.
+- `pnpm audit --json`의 advisory ID에 `GHSA-4cwx-7wf7-3272`, `GHSA-8xcm-r25x-g524`, `GHSA-jr45-8vmc-qm54`, `GHSA-v3r7-h72x-cjcm`, `GHSA-m8rv-5g2x-5cg5`, `GHSA-fxqj-rqcc-2cmp`가 없습니다. whole-registry audit exit code는 follow-up triage와 구분해 acceptance로 해석하지 않습니다.
 - typecheck, unit, bundle budget, package, Worker, Chromium, Next.js gate가 모두 통과합니다.
 - merge 후 GitHub REST의 open general Dependabot alerts가 빈 배열을 반환합니다.
 
@@ -63,4 +67,3 @@ stable Miniflare 4 최신 계열은 아직 `undici@7.28.0`을 고정하고 있�
 
 - 실제 advisory exploit은 재현하지 않았습니다.
 - GitHub alert의 자동 종료는 patched lockfile이 default branch에 merge된 뒤에만 검증할 수 있습니다.
-

@@ -19,6 +19,7 @@
 - Add no dependency other than the patched versions already required by the existing toolchain.
 - Keep root and `fixtures/next-app` Next.js versions aligned.
 - Use `corepack pnpm install --frozen-lockfile` as the reproducibility gate.
+- Audit acceptance is the absence from `pnpm audit --json` of the six authorized IDs: `GHSA-4cwx-7wf7-3272`, `GHSA-8xcm-r25x-g524`, `GHSA-jr45-8vmc-qm54`, `GHSA-v3r7-h72x-cjcm`, `GHSA-m8rv-5g2x-5cg5`, and `GHSA-fxqj-rqcc-2cmp`. A whole-registry non-zero exit caused by separately reported findings is not an acceptance failure.
 
 ---
 
@@ -122,10 +123,10 @@ Run:
 
 ```bash
 rg -n 'miniflare@4|undici: 7\.28\.0|undici@7\.28\.0' pnpm-lock.yaml
-corepack pnpm audit --audit-level moderate
+corepack pnpm audit --json
 ```
 
-Expected: audit exits non-zero with the five Undici advisories and the lockfile maps Miniflare to `7.28.0`.
+Expected: the JSON audit includes the five Undici IDs and the lockfile maps Miniflare to `7.28.0`. Its global exit code may also reflect unrelated findings.
 
 - [ ] **Step 2: Add the temporary root override**
 
@@ -166,10 +167,26 @@ Run:
 corepack pnpm install --frozen-lockfile
 corepack pnpm why undici
 rg -n 'undici: 7\.28\.0|undici@7\.28\.0|postcss@8\.4\.31' pnpm-lock.yaml
-corepack pnpm audit --audit-level moderate
+audit_file=/tmp/lafetch-audit.json
+audit_status=0
+corepack pnpm audit --json > "$audit_file" || audit_status=$?
+test "$audit_status" -le 1
+node - "$audit_file" <<'NODE'
+const { readFileSync } = require('node:fs');
+const targeted = new Set([
+  'GHSA-4cwx-7wf7-3272', 'GHSA-8xcm-r25x-g524', 'GHSA-jr45-8vmc-qm54',
+  'GHSA-v3r7-h72x-cjcm', 'GHSA-m8rv-5g2x-5cg5', 'GHSA-fxqj-rqcc-2cmp',
+]);
+const audit = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const found = Object.values(audit.advisories ?? {})
+  .map((advisory) => advisory.github_advisory_id)
+  .filter((id) => targeted.has(id));
+if (found.length) throw new Error(`targeted advisories remain: ${found.join(', ')}`);
+console.log('all six targeted Dependabot advisory IDs are absent');
+NODE
 ```
 
-Expected: `pnpm why` reports only `undici@7.29.0`, the vulnerable-version search returns no matches, and audit exits zero with no Moderate-or-higher advisory.
+Expected: `pnpm why` reports only `undici@7.29.0`, the vulnerable-version search returns no matches, and the JSON assertion proves all six targeted IDs are absent. Record `GHSA-f88m-g3jw-g9cj` (Sharp) and `GHSA-2v37-7h3g-55p8` (Nano ID), if present, as follow-up triage; do not suppress or remediate them in this plan.
 
 - [ ] **Step 5: Run focused runtime gates**
 
@@ -218,4 +235,3 @@ gh api --paginate -H 'Accept: application/vnd.github+json' \
 ```
 
 Expected: `[]`. If GitHub still reports an alert after the patched lockfile is on `main`, compare the alert's manifest and vulnerable range with the merged lockfile before dismissing anything; do not manually dismiss an alert merely because CI is green.
-
