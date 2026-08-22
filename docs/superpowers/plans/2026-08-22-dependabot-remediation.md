@@ -170,7 +170,9 @@ rg -n 'undici: 7\.28\.0|undici@7\.28\.0|postcss@8\.4\.31' pnpm-lock.yaml
 audit_file=/tmp/lafetch-audit.json
 audit_status=0
 corepack pnpm audit --json > "$audit_file" || audit_status=$?
-test "$audit_status" -le 1
+if [ "$audit_status" -ne 0 ] && [ "$audit_status" -ne 1 ]; then
+  exit "$audit_status"
+fi
 node - "$audit_file" <<'NODE'
 const { readFileSync } = require('node:fs');
 const targeted = new Set([
@@ -178,7 +180,28 @@ const targeted = new Set([
   'GHSA-v3r7-h72x-cjcm', 'GHSA-m8rv-5g2x-5cg5', 'GHSA-fxqj-rqcc-2cmp',
 ]);
 const audit = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const found = Object.values(audit.advisories ?? {})
+if (!audit || typeof audit !== 'object' || Array.isArray(audit)) {
+  throw new Error('audit did not return an object report');
+}
+if (Object.hasOwn(audit, 'error')) {
+  throw new Error(`pnpm audit failed: ${JSON.stringify(audit.error)}`);
+}
+if (!Object.hasOwn(audit, 'advisories') || !audit.advisories ||
+    typeof audit.advisories !== 'object' || Array.isArray(audit.advisories)) {
+  throw new Error('audit report is missing an advisories object');
+}
+if (!audit.metadata || typeof audit.metadata !== 'object' || Array.isArray(audit.metadata) ||
+    !audit.metadata.vulnerabilities || typeof audit.metadata.vulnerabilities !== 'object' ||
+    Array.isArray(audit.metadata.vulnerabilities)) {
+  throw new Error('audit report is missing metadata.vulnerabilities');
+}
+for (const severity of ['info', 'low', 'moderate', 'high', 'critical']) {
+  const count = audit.metadata.vulnerabilities[severity];
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error(`audit report has invalid ${severity} vulnerability count`);
+  }
+}
+const found = Object.values(audit.advisories)
   .map((advisory) => advisory.github_advisory_id)
   .filter((id) => targeted.has(id));
 if (found.length) throw new Error(`targeted advisories remain: ${found.join(', ')}`);
@@ -186,7 +209,7 @@ console.log('all six targeted Dependabot advisory IDs are absent');
 NODE
 ```
 
-Expected: `pnpm why` reports only `undici@7.29.0`, the vulnerable-version search returns no matches, and the JSON assertion proves all six targeted IDs are absent. Record `GHSA-f88m-g3jw-g9cj` (Sharp) and `GHSA-2v37-7h3g-55p8` (Nano ID), if present, as follow-up triage; do not suppress or remediate them in this plan.
+Expected: `pnpm why` reports only `undici@7.29.0`, the vulnerable-version search returns no matches, and the JSON assertion first rejects operational/error or malformed audit output, then proves all six targeted IDs are absent. Record `GHSA-f88m-g3jw-g9cj` (Sharp) and `GHSA-2v37-7h3g-55p8` (Nano ID), if present, as follow-up triage; do not suppress or remediate them in this plan.
 
 - [ ] **Step 5: Run focused runtime gates**
 
