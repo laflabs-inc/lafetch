@@ -26,7 +26,7 @@
 | Validation, Error Mapping, Telemetry | Standard Schema V1과 기본 구현 완료 |
 | Node.js 20/22/24, Chromium, Workers/Edge, Next.js | 자동 검증 완료 |
 | Packed package 소비 | JavaScript·TypeScript 검증 완료 |
-| 다음 단계 | v0.4 사용자 key의 tenant·인증 경계 문서화와 adaptive Retry |
+| 다음 단계 | v0.4 adaptive Retry |
 | 라이선스 | Apache-2.0 적용 완료 |
 | npm 배포 자동화 | 미완료 |
 
@@ -68,7 +68,7 @@ Configured TTL은 HTTP freshness의 최종 상한이며 유효한 단일 `max-ag
 - Cache invalidation과 revalidation 계약 — 구현 완료
 - TTL, `Cache-Control`, `Age` 상호작용 검증 — 구현 완료
 - leader/follower Abort·Timeout 경쟁 상태와 누수 테스트 — 구현 완료
-- 사용자 key의 tenant·인증 경계 문서화
+- 사용자 key의 tenant·인증 경계 문서화 — 문서화 완료
 - server-directed Retry delay 별도 상한 — 구현 완료
 - `Retry-After`, RateLimit Internet-Draft와 비표준 Header 처리 원칙 — 구현 완료
 - 대표 요청 module graph 분석과 Cache·Deduplication 비용 분리 — 구현 완료
